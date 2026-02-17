@@ -62,6 +62,18 @@ As usage grew, we hit performance bottlenecks.
 ![Outlook Integration](assets/dashboard_rag_update_1.png)
 *Figure 6: The optimized Outlook email list with robust fetching.*
 
+### Phase 7: Dive Deep Assistant (Chat with Data)
+**Goal:** A conversational interface to query your entire local knowledge base.
+-   **RAG + LLM:** Implemented `chatWithData` service to retrieve relevant context from the vector store and feed it to the local LLM.
+-   **Liquid UI:** Built a floating, glassmorphic chat interface (`AIChat.js`) that feels native and premium.
+-   **Citations:** The agent cites its sources (specific emails or meetings) so you can trust the output.
+
+### Phase 8: Intelligent Scheduling Assistant
+**Goal:** Automate the "Let's find a time" dance.
+-   **Constraint Extraction:** The AI reads incoming emails to understand intent (e.g., "next Tuesday morning").
+-   **Slot Finding:** We scan your **local Outlook calendar** for free slots matching the constraints, without ANY external API calls.
+-   **Action:** A "Find Time" button appears on relevant emails, letting you copy a perfect reply with one click.
+
 ---
 
 ## Getting Started
