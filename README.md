@@ -10,23 +10,6 @@ We started with a clear goal: **Privacy**. Instead of using the Microsoft Graph 
 - **Challenge:** Fetching data locally without blocking the UI.
 - **Solution:** Implemented `node-cron` for background ingestion and decoupled the frontend from the data fetching layer.
 
-## Screenshots
-
-<div align="center">
-  <img src="assets/dashboard-overview.png" alt="Dashboard Overview" width="800"/>
-  <p><em>InGen Dashboard: Liquid Glass Interface showing key metrics and daily briefing.</em></p>
-</div>
-
-<div align="center">
-  <img src="assets/email-view.png" alt="Email Intelligence" width="800"/>
-  <p><em>Smart Email View: AI-generated summaries and context-aware drafting.</em></p>
-</div>
-
-<div align="center">
-  <img src="assets/meeting-view.png" alt="Meeting Briefs" width="800"/>
-  <p><em>Meeting Insights: Pre-meeting briefs generated from your email history.</em></p>
-</div>
-
 ### Phase 2: Building the Brain (Local RAG)
 To make the agent "smart", we needed it to remember past context. We implemented **Retrieval-Augmented Generation (RAG)** entirely locally.
 - **Stack:** `hnswlib-node` for the vector database and `ollama` (llama3/gemma) for embeddings.
