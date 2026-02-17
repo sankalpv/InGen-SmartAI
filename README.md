@@ -31,6 +31,37 @@ As usage grew, we hit performance bottlenecks.
 - **The Fix:** We optimized the script to target **Calendar ID 432** directly, reducing fetch time to **<1 second**.
 - **Concurrency:** We added file locking to the background agent to prevent multiple sync processes from colliding.
 
+### Phase 6: Context-Aware Intelligence (Vector RAG) & Refactors
+**Goal:** Make the AI truly "smart" by giving it memory and context.
+
+1.  **Local Vector Store (`hnswlib-node`)**:
+    -   Implemented a local vector database to store email embeddings.
+    -   This allows the AI to "remember" past conversations without sending data to the cloud.
+
+2.  **RAG for Meeting Briefs**:
+    -   The `prepareMeetingBrief` function now searches the vector store for emails related to the meeting title.
+    -   It injects this context into the prompt, allowing the AI to summarize "What happened last?" and identify open questions.
+
+3.  **Enhanced AI Daily Briefing**:
+    -   Increased the context window to **2000 characters** per email (utilizing the full power of local LLMs like Llama 3 or Gemma 2).
+    -   Refined the prompt to provide a detailed, comprehensive morning greeting and actionable priorities.
+
+4.  **Outlook Optimization & Refactor**:
+    -   **Speed:** Replaced the slow "iterate all folders" AppleScript with a direct ID access method, making calendar usage 10x faster.
+    -   **Stability:** Refactored `/api/outlook-local` to use a robust JXA service (`fetch_outlook_ui_optimized.js`), eliminating JSON parsing errors caused by the legacy script.
+
+5.  **Smart Dashboard 2.0**:
+    -   The dashboard now features a "Liquid Glass" UI with real-time RAG insights.
+
+![Updated Dashboard with RAG](assets/dashboard_rag_update_3.png)
+*Figure 4: The updated dashboard showing the enhanced AI Daily Briefing with detailed context.*
+
+![AI Meeting Brief](assets/dashboard_rag_update_2.png)
+*Figure 5: A meeting card expanded to show the RAG-generated context brief.*
+
+![Outlook Integration](assets/dashboard_rag_update_1.png)
+*Figure 6: The optimized Outlook email list with robust fetching.*
+
 ---
 
 ## Getting Started
