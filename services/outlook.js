@@ -26,32 +26,10 @@ export async function fetchOutlookEmails(accessToken) {
     }
 }
 
+// Graph API Calendar fetch removed. Use services/outlook-local.js instead.
 export async function fetchOutlookCalendarEvents(accessToken) {
-    if (!accessToken) return [];
-
-    try {
-        const today = new Date();
-        const startOfDay = new Date(today.setHours(0, 0, 0, 0)).toISOString();
-        const endOfDay = new Date(today.setHours(23, 59, 59, 999)).toISOString();
-
-        const response = await fetch(
-            `${GRAPH_BASE}/me/calendarView?startDateTime=${startOfDay}&endDateTime=${endOfDay}&$select=id,subject,start,end,location,organizer,attendees,bodyPreview&$orderby=start/dateTime`,
-            {
-                headers: {
-                    Authorization: `Bearer ${accessToken}`,
-                    Prefer: 'outlook.timezone="America/Los_Angeles"',
-                },
-            }
-        );
-
-        if (!response.ok) throw new Error(`Outlook Calendar API error: ${response.status}`);
-
-        const data = await response.json();
-        return (data.value || []).map(parseOutlookCalendarEvent);
-    } catch (error) {
-        console.error('Outlook Calendar fetch error:', error);
-        return [];
-    }
+    console.log('Graph API Calendar fetching is disabled. Using Local Outlook only.');
+    return [];
 }
 
 function parseOutlookMessage(msg) {

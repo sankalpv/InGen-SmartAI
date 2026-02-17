@@ -6,21 +6,21 @@ on run
     try
         tell application "Microsoft Outlook"
             if not running then
-                return "[]"
+                return ""
             end if
             
-            -- Date range: Today
+            -- Date range: Today + 3 days (Reduced for speed)
             set today to (current date)
             set time of today to 0
-            set tomorrow to today + (1 * days)
+            set tomorrow to today + (3 * days)
             
-            set jsonList to {} 
+            set outputList to {}
             
             -- DIRECT ACCESS: Only fetch from the main calendar (ID 432)
             try
                 set targetCal to calendar id 432
             on error
-                return "{\"error\": \"Calendar ID 432 not found\"}"
+                return "Error: Calendar ID 432 not found"
             end try
 
             if targetCal is not missing value then
@@ -37,41 +37,50 @@ on run
                         set evtLoc to ""
                         try
                             set evtLoc to (location of evt)
-                        end try
-                        set evtBody to ""
-                        try
-                            set evtBody to (plain text content of evt)
-                            if evtBody is missing value then set evtBody to ""
+                            if evtLoc is missing value then set evtLoc to ""
                         end try
                         
-                        -- JSON Escape
-                        set evtSubject to my escapeJSON(evtSubject)
-                        set evtLoc to my escapeJSON(evtLoc)
-                        if (length of evtBody) > 200 then
-                            set evtBody to text 1 thru 200 of evtBody
-                        end if
-                        set evtBody to my escapeJSON(evtBody)
+                        -- Clean text logic
+                        set evtSubject to my cleanText(evtSubject)
+                        set evtLoc to my cleanText(evtLoc)
                         
-                        -- Format Date (ISOish)
+                        -- Format Date
                         set startIso to my dateToISO(evtStart)
                         set endIso to my dateToISO(evtEnd)
                         
-                        -- Build JSON Item
-                        set jsonItem to "{\"id\": \"" & evtId & "\", \"summary\": \"" & evtSubject & "\", \"start\": {\"dateTime\": \"" & startIso & "\"}, \"end\": {\"dateTime\": \"" & endIso & "\"}, \"location\": \"" & evtLoc & "\", \"description\": \"" & evtBody & "\"}"
-                        copy jsonItem to end of jsonList
+                        -- Build Line: ID|||Subject|||Start|||End|||Location|||Body(Empty)
+                        set lineItem to evtId & "|||" & evtSubject & "|||" & startIso & "|||" & endIso & "|||" & evtLoc & "|||" & ""
+                        copy lineItem to end of outputList
                     end repeat
                 on error errMsg
                      -- Log error 
                 end try
             end if
 
-            set jsonString to "[" & (my joinList(jsonList, ",")) & "]"
-            return jsonString
+            -- Join list
+            set outputText to my joinList(outputList, "\n")
+            return outputText
         end tell
     on error errMsg
-        return "{\"error\": \"" & (my escapeJSON(errMsg)) & "\"}"
+        return "Error: " & errMsg
     end try
 end run
+
+-- Helper: clean text (remove newlines, pipes, tabs)
+on cleanText(str)
+    set str to str as string
+    set str to my replaceString(str, "|", "-") -- Replace pipe with dash
+    try
+        set str to my replaceString(str, (character id 10), " ") -- Newline to space
+    end try
+    try
+        set str to my replaceString(str, (character id 13), " ") -- CR to space
+    end try
+    try
+        set str to my replaceString(str, (character id 9), " ") -- Tab to space
+    end try
+    return str
+end cleanText
 
 -- Helper: Date to ISO string (approximate for local time)
 on dateToISO(dt)
@@ -94,20 +103,6 @@ on pad(n)
         return n as string
     end if
 end pad
-
--- Helper to escape JSON special chars
-on escapeJSON(str)
-    set str to str as string
-    set str to my replaceString(str, "\\", "\\\\")
-    set str to my replaceString(str, "\"", "\\\"")
-    try
-        set str to my replaceString(str, (character id 10), "\\n")
-    end try
-    try
-        set str to my replaceString(str, (character id 13), "\\r")
-    end try
-    return str
-end escapeJSON
 
 -- Helper to fetch substring
 on replaceString(theText, oldString, newString)

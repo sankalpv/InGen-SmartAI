@@ -70,7 +70,8 @@ export default function Dashboard() {
 
             // 2. Fetch Calendar
             try {
-                const res = await fetch(`/api/calendar?source=${currentSource}`);
+                // Always fetch local Outlook calendar (ID 432)
+                const res = await fetch('/api/calendar');
                 const data = await res.json();
                 if (data.error) errors.push(`Calendar: ${data.error}`);
                 else setMeetings(data.meetings || []);

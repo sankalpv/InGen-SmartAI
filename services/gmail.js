@@ -31,22 +31,10 @@ export async function fetchGmailEmails(accessToken, query = 'is:inbox newer_than
     return emails.filter(Boolean);
 }
 
+// Google Calendar Logic Removed as per user request (Local Outlook Only)
 export async function fetchGoogleCalendarEvents(accessToken, timeMin, timeMax) {
-    if (!accessToken) throw new Error('No access token provided');
-
-    const today = new Date();
-    const startOfDay = timeMin || new Date(today.setHours(0, 0, 0, 0)).toISOString();
-    const endOfDay = timeMax || new Date(today.setHours(23, 59, 59, 999)).toISOString();
-
-    const response = await fetch(
-        `https://www.googleapis.com/calendar/v3/calendars/primary/events?timeMin=${startOfDay}&timeMax=${endOfDay}&singleEvents=true&orderBy=startTime`,
-        { headers: { Authorization: `Bearer ${accessToken}` } }
-    );
-
-    if (!response.ok) throw new Error(`Calendar API error: ${response.status}`);
-
-    const data = await response.json();
-    return (data.items || []).map(parseGoogleCalendarEvent);
+    console.log('Google Calendar fetching is disabled. Using Local Outlook (ID 432) only.');
+    return [];
 }
 
 function parseGmailMessage(msg) {

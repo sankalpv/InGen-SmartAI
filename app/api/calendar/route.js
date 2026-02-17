@@ -1,22 +1,15 @@
 import { mockMeetings, mockEmails } from '@/services/mock-data';
 import { prepareMeetingBrief } from '@/services/ai';
-import { fetchGoogleCalendarEvents } from '@/services/gmail';
 import { fetchOutlookCalendar } from '@/services/outlook-local';
-import { auth } from '@/auth';
 import { NextResponse } from 'next/server';
 
 export const dynamic = 'force-dynamic';
 
 export async function GET(req) {
     try {
-        const session = await auth();
-        // Check source param
-        const url = new URL(req.url);
-        const source = url.searchParams.get('source') || 'google';
-
         const useMock = process.env.USE_MOCK_DATA === 'true';
 
-        console.log(`[API/Calendar] useMock=${useMock}, session=${!!session}, token=${!!session?.accessToken}, source=${source}`);
+        console.log(`[API/Calendar] useMock=${useMock}, source=outlook (enforced)`);
 
         if (useMock) {
             console.log('[API/Calendar] Using mock data');
@@ -37,26 +30,13 @@ export async function GET(req) {
 
         let realEvents = [];
 
-        // Outlook Logic
-        // If source is explicitly outlook OR if we lack a google session, try Outlook
-        if (source === 'outlook' || !session?.accessToken) {
-            console.log('[API/Calendar] Fetching Outlook local events...');
-            realEvents = await fetchOutlookCalendar();
-        } else {
-            // Google Logic
-            if (!session?.accessToken) {
-                return NextResponse.json(
-                    { error: 'Not authenticated. Please sign in with Google.' },
-                    { status: 401 }
-                );
-            }
-            console.log('[API/Calendar] Fetching real calendar events...');
-            realEvents = await fetchGoogleCalendarEvents(session.accessToken);
-        }
+        // Outlook Logic (Enforced)
+        console.log('[API/Calendar] Fetching Outlook local events (ID 432)...');
+        realEvents = await fetchOutlookCalendar();
 
         console.log(`[API/Calendar] Found ${realEvents.length} real events`);
 
-        // Sequential processing to avoid 429 Rate Limits or CPU overload
+        // Sequential processing to avoid Rate Limits or CPU overload
         const enrichedMeetings = [];
         for (const meeting of realEvents) {
             const relatedEmails = [];
@@ -80,7 +60,7 @@ export async function GET(req) {
             }
         }
 
-        return NextResponse.json({ meetings: enrichedMeetings, source: source === 'outlook' ? 'outlook' : 'google' });
+        return NextResponse.json({ meetings: enrichedMeetings, source: 'outlook' });
 
     } catch (error) {
         console.error('Calendar API error:', error);

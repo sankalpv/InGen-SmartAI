@@ -83,23 +83,26 @@ export async function fetchOutlookCalendar() {
 
         console.log('Outlook Calendar Raw Output:', stdout); // Debug log
 
-        const events = JSON.parse(stdout.trim());
-        if (events.error) {
-            throw new Error(events.error);
-        }
+        // Parse Pipe-Delimited Output (ID|||Subject|||Start|||End|||Location|||Body)
+        const lines = stdout.trim().split('\n');
+        const mappedEvents = lines
+            .filter(line => line.trim().length > 0 && !line.startsWith('Error:'))
+            .map(line => {
+                const parts = line.split('|||');
+                if (parts.length < 6) return null;
 
-        // Ensure attendees array exists to prevent frontend crash
-        // AND Map to the schema expected by the frontend (MeetingCard.js)
-        const mappedEvents = events.map(evt => ({
-            id: evt.id,
-            title: evt.summary || 'Untitled',
-            startTime: evt.start?.dateTime || new Date().toISOString(),
-            endTime: evt.end?.dateTime || new Date().toISOString(),
-            location: (evt.location && evt.location !== 'missing value') ? evt.location : '',
-            description: (evt.description && evt.description !== 'missing value') ? evt.description : '',
-            attendees: evt.attendees || [],
-            source: 'outlook'
-        }));
+                return {
+                    id: parts[0],
+                    title: parts[1] || 'Untitled',
+                    startTime: parts[2] || new Date().toISOString(),
+                    endTime: parts[3] || new Date().toISOString(),
+                    location: parts[4] || '',
+                    description: parts[5] || '',
+                    attendees: [], // Script doesn't fetch attendees yet to keep it fast
+                    source: 'outlook'
+                };
+            })
+            .filter(evt => evt !== null);
 
         // Update Cache ONLY if we found events
         // This prevents caching temporary failures or empty results if that's wrong
