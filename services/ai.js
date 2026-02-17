@@ -212,11 +212,12 @@ export async function summarizeSlack(messages) {
 export async function generateDailyBriefing(emails, meetings, slackMessages) {
     const system = SYSTEM_PROMPT;
 
-    // Optimize context for local LLM (TinyLlama has small context window)
-    const limitedEmails = emails.slice(0, 3).map(e => ({ from: e.from, subject: e.subject, snippet: (e.snippet || '').substring(0, 50) })); // Aggressive truncation
-    const limitedSlack = slackMessages.slice(0, 3).map(m => ({ user: m.user, text: (m.text || '').substring(0, 50) }));
 
-    // Executive Assistant Prompt (Simplified for TinyLlama)
+    // Optimize context for local LLM (Modern models have 8k+ context)
+    const limitedEmails = emails.slice(0, 5).map(e => ({ from: e.from, subject: e.subject, snippet: (e.snippet || '').substring(0, 2000) })); // Increased to 2000 chars
+    const limitedSlack = slackMessages.slice(0, 5).map(m => ({ user: m.user, text: (m.text || '').substring(0, 200) }));
+
+    // Executive Assistant Prompt
     const prompt = `You are my executive productivity assistant.
 
 INPUT:
@@ -224,22 +225,22 @@ Emails: ${JSON.stringify(limitedEmails)}
 Meetings: ${JSON.stringify(meetings.map(m => ({ title: m.title, time: m.start?.dateTime || m.date || 'All Day' })))}
 
 TASK:
-Analyze the emails and meetings to produce a concise Daily Briefing.
+Analyze the emails and meetings to produce a comprehensive Daily Briefing.
 
 Instructions:
 1. Identify high-impact items.
 2. Ignore low-signal noise.
-3. Be direct and practical.
+3. Be direct, practical, and comprehensive.
 
 OUTPUT FORMAT:
 
-1. One short greeting paragraph (2–3 sentences) summarizing the workload.
+1. A detailed greeting paragraph (3-5 sentences) that comprehensively summarizes the day's workload, potential blockers, and key themes.
 
-2. “Top 5 Priorities”
+2. “Top Priorities”
    - Each line must begin with "- "
    - Action-oriented phrasing (Start, Decide, Follow up)
 
-Keep the entire response under 200 words.`;
+Provide as much detail as necessary to be helpful.`;
 
     try {
         // Strict timeout (60s)
