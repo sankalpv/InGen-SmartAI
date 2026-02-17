@@ -78,8 +78,30 @@ yarn dev
 
 Open [http://localhost:3000](http://localhost:3000) with your browser.
 
-## Architecture
-- **Frontend:** Next.js 14+ (App Router), React, TailwindCSS
-- **Backend:** Next.js API Routes
-- **Data Layer:** AppleScript (Outlook Bridge), JSON (Local Storage)
-- **AI Layer:** Ollama (LLM + Embeddings), HNSWLib (Vector Store)
+## Technical Architecture (InGen SmartAI)
+
+### Overview
+We are building a **privacy-first, local-only productivity agent** that acts as your executive assistant. It runs entirely on your Mac, accessing your local Outlook data and providing intelligent insights without sending any data to the cloud.
+
+### 1. The Core Application
+-   **Framework:** **Next.js 14+ (App Router)**
+    -   *Why:* Unified full-stack framework for reactive UI (React) and backend logic (API Routes).
+    -   *How:* `app/page.js` handles the dashboard UI, while `app/api/...` handles data processing and AI calls.
+
+### 2. The Data Bridge (The "Magic")
+-   **Integration:** **AppleScript (JXA - JavaScript for Automation)**
+    -   *Why:* Traditional APIs (Microsoft Graph) require cloud OAuth and admin consent. JXA allows us to script the local Outlook app directly.
+    -   *How:* Node.js spawns `osascript` processes to execute scripts like `fetch_outlook_ui_optimized.js`, returning JSON data from the running Outlook application.
+
+### 3. The Brain (Local Intelligence)
+-   **LLM Provider:** **Ollama** (running Llama 3 or Gemma 2)
+    -   *Why:* Complete privacy, zero latency, and zero cost. No API keys or data leaks.
+    -   *How:* The `services/ai.js` module sends prompts to `http://localhost:11434`.
+-   **Memory (RAG):** **HNSWLib-Node** (Vector Store)
+    -   *Why:* To give the AI "context" (e.g., "how did I reply to John last week?"). Standard vector DBs (Pinecone) are cloud-based; HNSWLib runs in-memory/file-based locally.
+    -   *How:* We convert emails to embeddings (vectors) and store them in a local index file. When you ask a question, we find the most similar vectors and feed them to the LLM.
+
+### 4. Background Workers
+-   **Scheduler:** **Node-Cron**
+    -   *Why:* To keep data fresh without blocking the UI.
+    -   *How:* A background process runs every 15 minutes to fetch *only new* emails (incremental sync) and update the local JSON database.
