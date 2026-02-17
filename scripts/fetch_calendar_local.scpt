@@ -14,32 +14,14 @@ on run
             set time of today to 0
             set tomorrow to today + (1 * days)
             
-            set jsonList to {}
-            set targetCal to missing value
+            set jsonList to {} 
             
-            -- PLAN A: Find by ID 432 (User specified)
-            set allCals to every calendar
-            repeat with c in allCals
-                try
-                    if (id of c) is 432 then
-                        set targetCal to c
-                        exit repeat
-                    end if
-                end try
-            end repeat
-            
-            -- PLAN B: If ID 432 not found, try "Calendar" (but careful of missing value)
-            if targetCal is missing value then
-                 repeat with c in allCals
-                    try
-                        if (name of c) is "Calendar" and (id of c) is not 13 then
-                             -- try to avoid the empty local one if we can distinguish it
-                            set targetCal to c
-                            exit repeat
-                        end if
-                    end try
-                end repeat
-            end if
+            -- DIRECT ACCESS: Only fetch from the main calendar (ID 432)
+            try
+                set targetCal to calendar id 432
+            on error
+                return "{\"error\": \"Calendar ID 432 not found\"}"
+            end try
 
             if targetCal is not missing value then
                 try

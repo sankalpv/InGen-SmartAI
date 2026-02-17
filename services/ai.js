@@ -1,7 +1,7 @@
 
 
 import OpenAI from 'openai';
-import vectorStore from './vector-store'; // Import local vector store
+import vectorStore from './vector-store.js'; // Import local vector store
 
 const USE_GEMINI = true; // Toggle this to switch between OpenAI and Gemini
 
@@ -133,15 +133,64 @@ export async function analyzeEmails(emails) {
 
 export async function prepareMeetingBrief(meeting, relatedEmails) {
     const system = `${SYSTEM_PROMPT}\nPrepare a meeting brief in JSON: { "context", "questions" }`;
-    const prompt = `Meeting: ${JSON.stringify(meeting)}\nEmails: ${JSON.stringify(relatedEmails)}`;
+
+    // 1. RAG Context Injection
+    let contextDocs = [];
+    if (!relatedEmails || relatedEmails.length === 0) {
+        // If no emails provided, search vector store using meeting title
+        try {
+            console.log(`[AI] Searching RAG for meeting: "${meeting.title}"`);
+            const query = `${meeting.title} ${meeting.description || ''}`;
+            contextDocs = await vectorStore.search(query, 5); // Fetch top 5 related emails
+        } catch (e) {
+            console.error('Vector store search failed for meeting:', e);
+        }
+    } else {
+        contextDocs = relatedEmails;
+    }
+
+    // Format context for prompt
+    let contextStr = "No relevant email history found.";
+    if (contextDocs.length > 0) {
+        contextStr = contextDocs.map((doc, i) => `
+Email ${i + 1}:
+From: ${doc.sender || doc.from?.name || 'Unknown'}
+Subject: ${doc.subject}
+Date: ${doc.received || doc.date || 'Unknown'}
+Body: ${doc.snippet || doc.body || doc.fullBody || ''}
+---`).join('\n');
+    }
+
+    const prompt = `
+MEETING DETAILS:
+Title: ${meeting.title}
+Date: ${meeting.start?.dateTime || meeting.startTime || 'Unknown'}
+Description: ${meeting.description || 'No description'}
+Attendees: ${(meeting.attendees || []).map(a => a.emailAddress?.address || a.emailAddress?.name || a.email || a.name || 'Unknown').join(', ')}
+
+RELATED EMAIL HISTORY (Context):
+${contextStr}
+
+TASK:
+Prepare a "Pre-Meeting Brief" to help the user prepare.
+1. Synthesize the context from the emails. What is the status? What happened last?
+2. Identify 3-5 sharp questions or action items to raise.
+
+OUTPUT JSON:
+{
+    "context": "2-3 sentences summarizing the situation based on the emails.",
+    "questions": ["Question 1", "Question 2", "Action Item 1"]
+}
+`;
 
     try {
-        const resultRaw = await withRetry(() => generateCompletion(system, prompt, true));
+        const resultRaw = await withRetry(() => generateCompletion(system, prompt, true, 0.3)); // Low temp for factual accuracy
         console.log('[AI] Meeting Brief Raw:', resultRaw);
         return JSON.parse(resultRaw);
     } catch (error) {
+        console.error('AI meeting brief failed:', error);
         return {
-            context: meeting.description || 'No context available.',
+            context: meeting.description || 'No context available (AI Error).',
             questions: []
         };
     }

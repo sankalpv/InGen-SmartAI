@@ -75,7 +75,7 @@ export async function fetchOutlookCalendar() {
         // process.cwd() in Next.js api routes is usually the project root, but let's be explicit
         const scriptPath = path.resolve(process.cwd(), 'scripts/fetch_calendar_local.scpt');
         // AppleScript doesn't need -l JavaScript
-        const { stdout, stderr } = await execAsync(`osascript "${scriptPath}"`, { timeout: 25000 });
+        const { stdout, stderr } = await execAsync(`osascript "${scriptPath}"`, { timeout: 60000 });
 
         if (stderr) {
             console.error('Outlook Calendar Script Error:', stderr);
