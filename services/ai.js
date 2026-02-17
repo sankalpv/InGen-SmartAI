@@ -473,3 +473,95 @@ function getDuration(start, end) {
     if (hours > 0) return `${hours}h ${remainingMins}m`;
     return `${mins}m`;
 }
+
+// Chat with Data (RAG)
+export async function chatWithData(query, history = []) {
+    const system = `${SYSTEM_PROMPT}\nYou are a helpful assistant with access to the user's email and calendar data. Answer questions based on the provided context. Cite your sources.`;
+
+    // 1. Retrieve Context
+    let contextDocs = [];
+    try {
+        console.log(`[AI] Chat RAG search for: "${query}"`);
+        contextDocs = await vectorStore.search(query, 5); // Top 5 chunks
+    } catch (e) {
+        console.error('Chat vector search failed:', e);
+    }
+
+    // Format Context
+    const contextStr = contextDocs.map((doc, i) => `
+[Source ${i + 1}]
+Type: ${doc.source || 'Email'}
+From: ${doc.sender || doc.from?.name || 'Unknown'}
+Date: ${doc.received || doc.date || 'Unknown'}
+Subject: ${doc.subject || 'No Subject'}
+Content: ${doc.snippet || doc.body || ''}
+`).join('\n---\n');
+
+    // Format History (Last 5 messages)
+    const historyStr = history.slice(-5).map(msg => `${msg.role === 'user' ? 'User' : 'AI'}: ${msg.content}`).join('\n');
+
+    const prompt = `
+CONTEXT (Data retrieved from user's local database):
+${contextStr || 'No relevant data found.'}
+
+CONVERSATION HISTORY:
+${historyStr}
+
+CURRENT QUESTION:
+${query}
+
+INSTRUCTIONS:
+1. Answer the question using ONLY the provided context.
+2. If the answer is not in the context, say "I couldn't find that information in your emails or calendar."
+3. Cite sources by referring to "[Source X]" or the sender/date.
+4. Be concise and conversational.
+`;
+
+    try {
+        const responseText = await withRetry(() => generateCompletion(system, prompt, false, 0.5));
+
+        // Return structured response with sources for UI
+        return {
+            response: responseText,
+            sources: contextDocs.map(doc => ({
+                id: doc.id,
+                subject: doc.subject,
+                from: doc.sender || doc.from?.name,
+                similarity: doc.similarity
+            }))
+        };
+    } catch (error) {
+        console.error('chatWithData failed:', error);
+        return {
+            response: "I'm sorry, I encountered an error while processing your request.",
+            sources: []
+        };
+    }
+}
+
+// Extract Time Constraints for Scheduling
+export async function extractTimeConstraints(emailBody) {
+    const system = `${SYSTEM_PROMPT}\nYou are a scheduling assistant. Extract time constraints and preferences from the email.`;
+    const prompt = `
+EMAIL BODY:
+"${emailBody}"
+
+TASK:
+Extract the following scheduling constraints in JSON format:
+- durationMinutes: (Best guess, default 30)
+- preferredDays: (Array of days like ["Monday", "Tuesday"] mentioned or implied)
+- preferredTimeOfDay: ("morning", "afternoon", "any")
+- dateRange: ("this week", "next week", "tomorrow", or specific dates)
+
+OUTPUT JSON ONLY:
+{ "durationMinutes": 30, "preferredDays": [], "preferredTimeOfDay": "any", "dateRange": "next week" }
+`;
+
+    try {
+        const resultRaw = await withRetry(() => generateCompletion(system, prompt, true, 0.2));
+        return JSON.parse(resultRaw);
+    } catch (error) {
+        console.error('extractTimeConstraints failed:', error);
+        return { durationMinutes: 30, preferredDays: [], preferredTimeOfDay: 'any', dateRange: 'next week' };
+    }
+}

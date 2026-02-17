@@ -18,6 +18,8 @@ import MeetingCard from '@/components/MeetingCard';
 import SlackCard from '@/components/SlackCard';
 import WeeklyRetroModal from '@/components/WeeklyRetroModal'; // Added
 
+import AIChat from '@/components/AIChat'; // Added
+
 export default function Dashboard() {
     const [activeTab, setActiveTab] = useState('emails');
     const [briefing, setBriefing] = useState(null);
@@ -388,6 +390,8 @@ export default function Dashboard() {
                     )}
                 </div>
             )}
+            {/* Chat Interface */}
+            <AIChat />
         </div>
     );
 }

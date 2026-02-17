@@ -1,7 +1,5 @@
-'use client';
-
 import { useState } from 'react';
-import { ChevronDown, ChevronUp, Sparkles, Copy, Send } from 'lucide-react';
+import { ChevronDown, ChevronUp, Sparkles, Copy, Send, Clock, X } from 'lucide-react';
 
 const avatarColors = [
     'linear-gradient(135deg, #4f8cff, #3b6fd4)',
@@ -40,6 +38,10 @@ export default function EmailCard({ email }) {
     const [copied, setCopied] = useState(false);
     const [draft, setDraft] = useState(email.aiSuggestedReply);
     const [isGenerating, setIsGenerating] = useState(false);
+    const [isFindingTime, setIsFindingTime] = useState(false);
+    const [showSlots, setShowSlots] = useState(false);
+    const [slots, setSlots] = useState([]);
+    const [constraints, setConstraints] = useState(null);
 
     const categoryConfig = {
         respond_now: { label: 'Respond Now', className: 'urgent' },
@@ -54,6 +56,37 @@ export default function EmailCard({ email }) {
         navigator.clipboard.writeText(draft || '');
         setCopied(true);
         setTimeout(() => setCopied(false), 2000);
+    };
+
+    const handleFindTime = async (e) => {
+        e.stopPropagation();
+        setIsFindingTime(true);
+        setShowSlots(false);
+        try {
+            const res = await fetch('/api/schedule/propose', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ emailBody: email.body || email.snippet })
+            });
+            const data = await res.json();
+            if (data.slots) {
+                setSlots(data.slots);
+                setConstraints(data.constraints);
+                setShowSlots(true);
+            }
+        } catch (error) {
+            console.error('Find Time failed:', error);
+        } finally {
+            setIsFindingTime(false);
+        }
+    };
+
+    const handleSlotClick = (slot, e) => {
+        e.stopPropagation();
+        const text = `I'm free on ${slot.label}. Does that work for you?`;
+        navigator.clipboard.writeText(text);
+        // Optional: Auto-populate draft
+        setDraft(prev => (prev ? prev + '\n\n' + text : text));
     };
 
     const handleGenerateDraft = async (e) => {
@@ -159,11 +192,53 @@ export default function EmailCard({ email }) {
                             )}
                         </div>
                     ) : (
-                        <div style={{ marginTop: '12px', display: 'flex', justifyContent: 'flex-end' }}>
+                        <div style={{ marginTop: '12px', display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
+                            <button className="btn btn-secondary" onClick={handleFindTime} disabled={isFindingTime}>
+                                <Clock size={14} style={{ marginRight: '6px' }} />
+                                {isFindingTime ? 'Scanning Calendar...' : 'Find Time'}
+                            </button>
                             <button className="btn btn-primary" onClick={handleGenerateDraft}>
                                 <Sparkles size={14} style={{ marginRight: '6px' }} />
                                 Draft Reply with Agent
                             </button>
+                        </div>
+                    )}
+
+                    {/* Time Slots Popover */}
+                    {showSlots && (
+                        <div className="slots-popover animate-in" style={{
+                            marginTop: '10px',
+                            background: '#1e293b',
+                            border: '1px solid #334155',
+                            borderRadius: '8px',
+                            padding: '12px'
+                        }}>
+                            <div style={{ fontSize: '0.85rem', color: '#94a3b8', marginBottom: '8px', display: 'flex', justifyContent: 'space-between' }}>
+                                <span>Based on: {constraints?.durationMinutes}m, {constraints?.dateRange}</span>
+                                <button onClick={() => setShowSlots(false)}><X size={14} /></button>
+                            </div>
+                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))', gap: '8px' }}>
+                                {slots.map((slot, i) => (
+                                    <button
+                                        key={i}
+                                        className="slot-btn"
+                                        onClick={(e) => handleSlotClick(slot, e)}
+                                        style={{
+                                            padding: '8px',
+                                            fontSize: '0.85rem',
+                                            background: '#334155',
+                                            border: 'none',
+                                            borderRadius: '6px',
+                                            color: 'white',
+                                            cursor: 'pointer',
+                                            textAlign: 'left'
+                                        }}
+                                    >
+                                        {slot.label}
+                                    </button>
+                                ))}
+                            </div>
+                            {slots.length === 0 && <div style={{ fontSize: '0.85rem', color: '#94a3b8' }}>No slots found.</div>}
                         </div>
                     )}
                 </>
