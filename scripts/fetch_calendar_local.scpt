@@ -2,7 +2,7 @@
 use AppleScript version "2.4"
 use scripting additions
 
-on run
+on run argv
     try
         tell application "Microsoft Outlook"
             if not running then
@@ -15,13 +15,32 @@ on run
             set tomorrow to today + (3 * days)
             
             set outputList to {}
+            set targetCal to missing value
             
-            -- DIRECT ACCESS: Only fetch from the main calendar (ID 432)
-            try
-                set targetCal to calendar id 432
-            on error
-                return "Error: Calendar ID 432 not found"
-            end try
+            -- 1. Try to use ID passed directly from args
+            if (count of argv) > 0 then
+                set calId to item 1 of argv
+                try
+                    -- AppleScript IDs are sometimes integers, sometimes strings. 
+                    -- Safest is to try getting it directly.
+                    if (class of calId) is text then
+                        try
+                            set calId to calId as integer
+                        end try
+                    end if
+                    set targetCal to calendar id calId
+                on error
+                    return "Error: Calendar ID " & calId & " not found"
+                end try
+            else
+                -- 2. Fallback: Try "Calendar" (ID 432 is common but not guaranteed)
+                try
+                     -- Legacy fallback / Default behavior
+                    set targetCal to calendar id 432
+                on error
+                    return "Error: No Calendar ID provided and default 432 not found."
+                end try
+            end if
 
             if targetCal is not missing value then
                 try

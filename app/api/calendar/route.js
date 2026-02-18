@@ -31,8 +31,24 @@ export async function GET(req) {
         let realEvents = [];
 
         // Outlook Logic (Enforced)
-        console.log('[API/Calendar] Fetching Outlook local events (ID 432)...');
-        realEvents = await fetchOutlookCalendar();
+        // Read Settings
+        let calendarId = process.env.NEXT_PUBLIC_OUTLOOK_CALENDAR_ID || '432'; // Default fallback
+        try {
+            const fs = require('fs');
+            const path = require('path');
+            const configPath = path.join(process.cwd(), 'config', 'settings.json');
+            if (fs.existsSync(configPath)) {
+                const settings = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+                if (settings.outlookCalendarId) {
+                    calendarId = settings.outlookCalendarId;
+                }
+            }
+        } catch (e) {
+            console.warn('Failed to read settings.json in calendar route', e);
+        }
+
+        console.log(`[API/Calendar] Fetching Outlook local events (ID ${calendarId})...`);
+        realEvents = await fetchOutlookCalendar(calendarId);
 
         console.log(`[API/Calendar] Found ${realEvents.length} real events`);
 

@@ -62,9 +62,17 @@ let calendarCache = {
 };
 const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
 
-export async function fetchOutlookCalendar() {
-    // Check Cache
+export async function fetchOutlookCalendar(calendarId) {
+    // Check Cache (Include calendarId in cache key to avoid mixing data)
+    const cacheKey = calendarId || 'default';
     const now = Date.now();
+
+    // Simple cache invalidation if ID changes or TTL expires
+    // ideally we'd map cache by ID but for now let's just clear if ID is different
+    if (calendarCache.id !== cacheKey) {
+        calendarCache.data = [];
+    }
+
     if (calendarCache.data.length > 0 && (now - calendarCache.timestamp < CACHE_TTL)) {
         console.log('Returning cached Outlook calendar data');
         return calendarCache.data;
@@ -74,8 +82,14 @@ export async function fetchOutlookCalendar() {
         // Use absolute path to ensure script is found regardless of CWD
         // process.cwd() in Next.js api routes is usually the project root, but let's be explicit
         const scriptPath = path.resolve(process.cwd(), 'scripts/fetch_calendar_local.scpt');
+
+        let cmd = `osascript "${scriptPath}"`;
+        if (calendarId) {
+            cmd += ` "${calendarId}"`; // Pass ID as argument
+        }
+
         // AppleScript doesn't need -l JavaScript
-        const { stdout, stderr } = await execAsync(`osascript "${scriptPath}"`, { timeout: 60000 });
+        const { stdout, stderr } = await execAsync(cmd, { timeout: 60000 });
 
         if (stderr) {
             console.error('Outlook Calendar Script Error:', stderr);
@@ -109,7 +123,8 @@ export async function fetchOutlookCalendar() {
         if (mappedEvents.length > 0) {
             calendarCache = {
                 data: mappedEvents,
-                timestamp: Date.now()
+                timestamp: Date.now(),
+                id: cacheKey
             };
         }
 
