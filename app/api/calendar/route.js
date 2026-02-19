@@ -1,9 +1,9 @@
-import { mockMeetings, mockEmails } from '@/services/mock-data';
-import { prepareMeetingBrief } from '@/services/ai';
+import { mockMeetings } from '@/services/mock-data';
 import { fetchOutlookCalendar } from '@/services/outlook-local';
 import { NextResponse } from 'next/server';
 
 export const dynamic = 'force-dynamic';
+export const runtime = 'nodejs';
 
 export async function GET(req) {
     try {
@@ -12,74 +12,32 @@ export async function GET(req) {
         console.log(`[API/Calendar] useMock=${useMock}, source=outlook (enforced)`);
 
         if (useMock) {
-            console.log('[API/Calendar] Using mock data');
-            let meetings = mockMeetings;
-            const enrichedMeetings = await Promise.all(
-                meetings.map(async (meeting) => {
-                    const relatedEmails = mockEmails.filter(email =>
-                        meeting.attendees?.some(a =>
-                            a.email === email.from?.email || a.email === email.to?.[0]?.email
-                        )
-                    );
-                    const brief = await prepareMeetingBrief(meeting, relatedEmails);
-                    return { ...meeting, aiContext: brief.context, aiQuestions: brief.questions };
-                })
-            );
-            return NextResponse.json({ meetings: enrichedMeetings, source: 'mock' });
+            return NextResponse.json({ meetings: mockMeetings, source: 'mock' });
         }
 
-        let realEvents = [];
-
-        // Outlook Logic (Enforced)
-        // Read Settings
-        let calendarId = process.env.NEXT_PUBLIC_OUTLOOK_CALENDAR_ID || '432'; // Default fallback
+        // Read calendar ID from settings
+        let calendarId = process.env.NEXT_PUBLIC_OUTLOOK_CALENDAR_ID || '432';
         try {
             const fs = require('fs');
             const path = require('path');
             const configPath = path.join(process.cwd(), 'config', 'settings.json');
             if (fs.existsSync(configPath)) {
                 const settings = JSON.parse(fs.readFileSync(configPath, 'utf8'));
-                if (settings.outlookCalendarId) {
-                    calendarId = settings.outlookCalendarId;
-                }
+                if (settings.outlookCalendarId) calendarId = settings.outlookCalendarId;
             }
         } catch (e) {
-            console.warn('Failed to read settings.json in calendar route', e);
+            console.warn('[API/Calendar] Failed to read settings.json:', e.message);
         }
 
         console.log(`[API/Calendar] Fetching Outlook local events (ID ${calendarId})...`);
-        realEvents = await fetchOutlookCalendar(calendarId);
+        const events = await fetchOutlookCalendar(calendarId);
+        console.log(`[API/Calendar] Found ${events.length} events`);
 
-        console.log(`[API/Calendar] Found ${realEvents.length} real events`);
-
-        // Sequential processing to avoid Rate Limits or CPU overload
-        const enrichedMeetings = [];
-        for (const meeting of realEvents) {
-            const relatedEmails = [];
-            // TODO: We could fetch related Outlook emails here if we wanted RAG context for meetings
-
-            try {
-                const brief = await prepareMeetingBrief(meeting, relatedEmails);
-                enrichedMeetings.push({
-                    ...meeting,
-                    aiContext: brief.context,
-                    aiQuestions: brief.questions
-                });
-            } catch (err) {
-                console.error(`Failed to prepare brief for meeting ${meeting.id}:`, err);
-                // Push meeting anyway without AI
-                enrichedMeetings.push({
-                    ...meeting,
-                    aiContext: 'AI unavailable',
-                    aiQuestions: []
-                });
-            }
-        }
-
-        return NextResponse.json({ meetings: enrichedMeetings, source: 'outlook' });
+        // Return raw events immediately — meeting briefs are generated lazily per-card
+        return NextResponse.json({ meetings: events, source: 'outlook' });
 
     } catch (error) {
-        console.error('Calendar API error:', error);
+        console.error('[API/Calendar] Error:', error);
         return NextResponse.json(
             { error: `Failed to fetch calendar: ${error.message}` },
             { status: 500 }

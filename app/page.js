@@ -28,6 +28,7 @@ export default function Dashboard() {
     const [slackMessages, setSlackMessages] = useState([]);
     const [stats, setStats] = useState({ emails: 0, meetings: 0, slack: 0 }); // Added
     const [isLoading, setIsLoading] = useState(true);
+    const [isBriefingLoading, setIsBriefingLoading] = useState(false);
     const [isRefreshing, setIsRefreshing] = useState(false);
     const [error, setError] = useState(null);
     const [showRetro, setShowRetro] = useState(false); // Added
@@ -36,119 +37,80 @@ export default function Dashboard() {
     const fetchData = useCallback(async (sourceOverride) => {
         const currentSource = sourceOverride || emailSource;
         setError(null);
-        const errors = [];
-        // Sequential fetching to prevent Gemini API rate limits (429)
-        // Free tier has limited concurrency, so parallel requests cause failures.
+        setBriefing(null);
+        setIsBriefingLoading(true); // Show skeleton immediately
 
         try {
-            // UX Optimization: Parallel Fetching - DISABLED due to Outlook Concurrency Issues
-            // Going back to sequential for stability
+            const emailUrl = currentSource === 'outlook' ? '/api/outlook-local' : '/api/emails';
 
-            // 1. Fetch Emails
-            try {
-                let res;
-                if (currentSource === 'outlook') {
-                    res = await fetch('/api/outlook-local');
-                } else {
-                    res = await fetch('/api/emails');
-                }
+            // Fire all requests in parallel — none block each other
+            const [emailRes, calendarRes] = await Promise.allSettled([
+                fetch(emailUrl),
+                fetch('/api/calendar'),
+            ]);
 
-                if (res.status === 401) {
+            // Handle emails
+            if (emailRes.status === 'fulfilled') {
+                if (emailRes.value.status === 401) {
                     setEmailSource('outlook');
                     return fetchData('outlook');
                 }
-
-                const data = await res.json();
-                if (data.error) errors.push(`Emails: ${data.error}`);
-                else setEmails(data.emails || []);
-            } catch (e) {
-                errors.push('Failed to connect to Email service');
-            }
-
-            setIsLoading(false); // Show UI partial load
-
-            // 2. Fetch Calendar
-            try {
-                // Always fetch local Outlook calendar (ID 432)
-                const res = await fetch('/api/calendar');
-                if (!res.ok) {
-                    const errorText = await res.text();
-                    throw new Error(`API Error ${res.status}: ${errorText.substring(0, 50)}...`);
-                }
-                const data = await res.json();
-                if (data.error) errors.push(`Calendar: ${data.error}`);
-                else setMeetings(data.meetings || []);
-            } catch (e) {
-                console.error('Calendar Fetch Failed:', e);
-                errors.push(`Calendar: ${e.message}`);
-            }
-
-            // 3. Process Slack & Analysis (can remain parallel-ish or just after)
-            const [slackRes, analysisRes] = await Promise.allSettled([
-                fetch('/api/slack'),
-                fetch(`/api/analyze?source=${currentSource}`)
-            ]);
-
-            // 3. Process Slack
-            if (slackRes.status === 'fulfilled') {
                 try {
-                    const data = await slackRes.value.json();
-                    setSlackMessages(data.messages || []);
+                    const data = await emailRes.value.json();
+                    if (!data.error) setEmails(data.emails || []);
                 } catch (e) { }
             }
 
-            // 4. Process Analysis
-            if (analysisRes.status === 'fulfilled') {
+            // Handle calendar
+            if (calendarRes.status === 'fulfilled' && calendarRes.value.ok) {
                 try {
-                    const data = await analysisRes.value.json();
-                    if (!data.error) setBriefing(data);
+                    const data = await calendarRes.value.json();
+                    if (!data.error) setMeetings(data.meetings || []);
                 } catch (e) { }
             }
 
-            // 3. Fetch Slack (Mock/Optional)
-            try {
-                const res = await fetch('/api/slack');
-                const data = await res.json();
-                if (data.error) errors.push(`Slack: ${data.error}`);
-                else setSlackMessages(data.messages || []);
-            } catch (e) {
-                // Ignore Slack connection errors usually
-            }
+            // Reveal the dashboard as soon as emails + meetings are ready
+            setIsLoading(false);
 
-            // 4. Generate Briefing (Heavier AI task)
+            // Slack — fire and forget
+            fetch('/api/slack')
+                .then(r => r.json())
+                .then(data => { if (!data.error) setSlackMessages(data.messages || []); })
+                .catch(() => { });
+
+            // Briefing — skeleton is already showing, replace when ready
             try {
                 const res = await fetch(`/api/analyze?source=${currentSource}`);
                 const data = await res.json();
-                if (data.error) {
-                    console.warn(`Analysis error: ${data.error}`);
-                    if (errors.length === 0) errors.push(data.error);
-                } else {
-                    setBriefing(data);
-                }
+                if (!data.error) setBriefing(data);
+                else console.warn('Analysis error:', data.error);
             } catch (e) {
                 console.error('Analysis fetch failed', e);
-            }
-
-            if (errors.length > 0) {
-                setError(errors.join(' | '));
+            } finally {
+                setIsBriefingLoading(false);
             }
 
         } catch (error) {
             console.error('Failed to fetch data:', error);
             setError('System error: Failed to fetch data');
+            setIsLoading(false);
+            setIsBriefingLoading(false);
         }
     }, [emailSource]);
+
 
     useEffect(() => {
         let mounted = true;
         async function load() {
             setIsLoading(true);
             await fetchData();
+            // Safety net: if fetchData returned early (e.g. redirect), clear the spinner
             if (mounted) setIsLoading(false);
         }
         load();
         return () => { mounted = false; };
     }, [fetchData]);
+
 
 
 
@@ -283,7 +245,60 @@ export default function Dashboard() {
 
             <WeeklyRetroModal isOpen={showRetro} onClose={() => setShowRetro(false)} />
 
-            {/* AI Briefing */}
+            {/* AI Briefing Skeleton — shown while generating */}
+            {isBriefingLoading && !briefing && (
+                <div className="ai-briefing animate-in" style={{ position: 'relative', overflow: 'hidden' }}>
+                    <div className="ai-briefing-header">
+                        <div className="ai-badge">
+                            <Sparkles size={12} className="sparkle" />
+                            AI Daily Briefing
+                        </div>
+                        <span style={{ fontSize: '12px', color: 'var(--text-muted)', marginLeft: '8px', display: 'flex', alignItems: 'center', gap: '5px' }}>
+                            <span style={{
+                                display: 'inline-block',
+                                width: '8px',
+                                height: '8px',
+                                borderRadius: '50%',
+                                background: 'var(--accent-purple)',
+                                animation: 'pulse 1.2s ease-in-out infinite',
+                            }} />
+                            Generating with AI…
+                        </span>
+                    </div>
+                    {/* Skeleton lines */}
+                    {[100, 85, 92, 60].map((w, i) => (
+                        <div key={i} style={{
+                            height: '14px',
+                            width: `${w}%`,
+                            borderRadius: '6px',
+                            background: 'var(--glass-border, rgba(255,255,255,0.08))',
+                            marginTop: i === 0 ? '12px' : '8px',
+                            animation: `shimmer 1.6s ease-in-out ${i * 0.12}s infinite`,
+                            backgroundSize: '200% 100%',
+                            backgroundImage: 'linear-gradient(90deg, transparent 0%, rgba(255,255,255,0.06) 50%, transparent 100%)',
+                        }} />
+                    ))}
+                    <div style={{
+                        marginTop: '16px',
+                        display: 'flex',
+                        gap: '8px',
+                    }}>
+                        {[40, 55, 35].map((w, i) => (
+                            <div key={i} style={{
+                                height: '28px',
+                                width: `${w}%`,
+                                borderRadius: '8px',
+                                background: 'var(--glass-border, rgba(255,255,255,0.05))',
+                                animation: `shimmer 1.6s ease-in-out ${0.3 + i * 0.1}s infinite`,
+                                backgroundSize: '200% 100%',
+                                backgroundImage: 'linear-gradient(90deg, transparent 0%, rgba(255,255,255,0.06) 50%, transparent 100%)',
+                            }} />
+                        ))}
+                    </div>
+                </div>
+            )}
+
+            {/* AI Briefing — shown when ready */}
             {briefing && (
                 <div className="ai-briefing animate-in">
                     <div className="ai-briefing-header">
