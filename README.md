@@ -37,7 +37,6 @@ start_windows.bat    :: launch the app + Windows background agent
 ### Environment Variables (`.env.local`)
 | Variable | Required | Description |
 |---|---|---|
-| `GEMINI_API_KEY` | ✅ | Gemini API key for AI features |
 | `GITHUB_GIST_TOKEN` | Optional | GitHub token with `gist` scope — enables log upload from Settings |
 | `OLLAMA_BASE_URL` | Optional | Defaults to `http://127.0.0.1:11434` |
 | `OLLAMA_MODEL` | Optional | Defaults to `llama3` |
@@ -134,7 +133,7 @@ All services now use a centralized, structured logger:
 | Layer | Technology | Reason |
 |---|---|---|
 | **UI + API** | Next.js 16 (App Router) | Unified full-stack, React frontend + API routes |
-| **AI / LLM** | Gemini 2.0 Flash (primary), Ollama (local fallback) | Gemini for quality, Ollama for offline/privacy |
+| **AI / LLM** | Ollama (llama3 / gemma2) | Local-only, fully private, zero cost |
 | **Vector DB** | `hnswlib-node` | Local-only, in-process vector search |
 | **Embeddings** | Ollama `nomic-embed-text` | Privacy-first, no cloud |
 | **Scheduler** | `node-cron` | Incremental email sync every 15 min |
