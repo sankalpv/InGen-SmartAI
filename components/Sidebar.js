@@ -1,7 +1,6 @@
 'use client';
 
 import { usePathname } from 'next/navigation';
-import { useSession } from 'next-auth/react';
 import Link from 'next/link';
 import {
     LayoutDashboard,
@@ -12,9 +11,6 @@ import {
 
 export default function Sidebar() {
     const pathname = usePathname();
-    const { data: session } = useSession();
-
-    const isGoogleConnected = !!session?.user;
 
     const navItems = [
         { href: '/', label: 'Dashboard', icon: LayoutDashboard },
@@ -22,11 +18,10 @@ export default function Sidebar() {
     ];
 
     const connections = [
-        { name: 'Gmail', status: isGoogleConnected ? 'connected' : 'disconnected', emoji: '📧' },
-        { name: 'Calendar', status: isGoogleConnected ? 'connected' : 'disconnected', emoji: '📅' },
-        { name: 'Outlook', status: 'disconnected', emoji: '📬' },
+        { name: 'Outlook', status: 'connected', emoji: '📬' },
+        { name: 'Calendar', status: 'connected', emoji: '📅' },
+        { name: 'AI Engine (Ollama)', status: 'connected', emoji: '🧠' },
         { name: 'Slack', status: 'mock', emoji: '💬' },
-        { name: 'AI Engine', status: 'mock', emoji: '🧠' },
     ];
 
     return (
@@ -71,18 +66,7 @@ export default function Sidebar() {
                     ))}
                 </div>
 
-                {isGoogleConnected && (
-                    <div style={{
-                        marginTop: 16,
-                        padding: '10px 16px',
-                        fontSize: '0.75rem',
-                        color: 'var(--text-tertiary)',
-                        borderTop: '1px solid var(--border-subtle)',
-                    }}>
-                        Signed in as<br />
-                        <span style={{ color: 'var(--text-secondary)' }}>{session.user.email}</span>
-                    </div>
-                )}
+
             </div>
         </aside>
     );

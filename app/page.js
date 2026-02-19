@@ -53,8 +53,7 @@ export default function Dashboard() {
                     res = await fetch('/api/emails');
                 }
 
-                if (res.status === 401 && currentSource === 'gmail') {
-                    console.log('Gmail unauthenticated, switching to Outlook...');
+                if (res.status === 401) {
                     setEmailSource('outlook');
                     return fetchData('outlook');
                 }
@@ -172,7 +171,7 @@ export default function Dashboard() {
         setIsRefreshing(true);
         // await fetchData(); // Refetch based on current source?
         // Let's modify handleRefresh to check source
-        if (emailSource === 'gmail') {
+        if (false) { // Gmail removed — Outlook-only
             await fetchData();
         } else {
             await handleSourceChange('outlook');
@@ -240,23 +239,7 @@ export default function Dashboard() {
 
             {/* ... Error Banner ... */}
 
-            {/* Source Toggle */}
-            <div className="source-toggle-container" style={{ display: 'flex', justifyContent: 'flex-end', padding: '0 24px 16px' }}>
-                <div className="toggle-switch">
-                    <button
-                        className={`toggle-option ${emailSource === 'gmail' ? 'active' : ''}`}
-                        onClick={() => handleSourceChange('gmail')}
-                    >
-                        Gmail
-                    </button>
-                    <button
-                        className={`toggle-option ${emailSource === 'outlook' ? 'active' : ''}`}
-                        onClick={() => handleSourceChange('outlook')}
-                    >
-                        Outlook (Local)
-                    </button>
-                </div>
-            </div>
+            {/* Source: Outlook Local only */}
 
             {/* Stats Bar */}
             <div className="stats-bar">
