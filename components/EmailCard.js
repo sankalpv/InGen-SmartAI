@@ -236,7 +236,19 @@ export default function EmailCard({ email }) {
                         )}
                     </div>
 
-                    <div className="email-body-preview" style={{ whiteSpace: 'pre-wrap' }}>
+                    <div style={{
+                        whiteSpace: 'pre-wrap',
+                        wordBreak: 'break-word',
+                        overflowY: 'auto',
+                        maxHeight: '400px',
+                        fontSize: '0.9rem',
+                        lineHeight: '1.65',
+                        color: 'var(--text-secondary)',
+                        padding: '12px',
+                        background: 'rgba(0,0,0,0.2)',
+                        borderRadius: '8px',
+                        marginTop: '8px',
+                    }}>
                         {email.body || email.snippet}
                     </div>
 
