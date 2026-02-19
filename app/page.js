@@ -72,11 +72,16 @@ export default function Dashboard() {
             try {
                 // Always fetch local Outlook calendar (ID 432)
                 const res = await fetch('/api/calendar');
+                if (!res.ok) {
+                    const errorText = await res.text();
+                    throw new Error(`API Error ${res.status}: ${errorText.substring(0, 50)}...`);
+                }
                 const data = await res.json();
                 if (data.error) errors.push(`Calendar: ${data.error}`);
                 else setMeetings(data.meetings || []);
             } catch (e) {
-                errors.push('Failed to connect to Calendar service');
+                console.error('Calendar Fetch Failed:', e);
+                errors.push(`Calendar: ${e.message}`);
             }
 
             // 3. Process Slack & Analysis (can remain parallel-ish or just after)

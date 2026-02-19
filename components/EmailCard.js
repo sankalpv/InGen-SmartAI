@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { ChevronDown, ChevronUp, Sparkles, Copy, Send, Clock, X } from 'lucide-react';
+import { ChevronDown, ChevronUp, Sparkles, Copy, Send, Clock, X, RefreshCw, MessageSquare } from 'lucide-react';
 
 const avatarColors = [
     'linear-gradient(135deg, #4f8cff, #3b6fd4)',
@@ -42,6 +42,11 @@ export default function EmailCard({ email }) {
     const [showSlots, setShowSlots] = useState(false);
     const [slots, setSlots] = useState([]);
     const [constraints, setConstraints] = useState(null);
+
+    // Ask Question State
+    const [question, setQuestion] = useState('');
+    const [answer, setAnswer] = useState(null);
+    const [isAsking, setIsAsking] = useState(false);
 
     const categoryConfig = {
         respond_now: { label: 'Respond Now', className: 'urgent' },
@@ -89,7 +94,7 @@ export default function EmailCard({ email }) {
         setDraft(prev => (prev ? prev + '\n\n' + text : text));
     };
 
-    const handleGenerateDraft = async (e) => {
+    const handleGenerateDraft = async (e, customIntent) => {
         e.stopPropagation();
         setIsGenerating(true);
         try {
@@ -98,9 +103,14 @@ export default function EmailCard({ email }) {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     email: email,
-                    intent: 'Reply positively and succinctly.' // Default intent
+                    intent: customIntent || 'Reply positively and succinctly.'
                 })
             });
+            if (!res.ok) {
+                const errorText = await res.text();
+                console.error('Draft API Error:', errorText);
+                throw new Error(`Server Error: ${res.status} ${res.statusText}`);
+            }
             const data = await res.json();
             if (data.draft) {
                 setDraft(data.draft);
@@ -109,6 +119,31 @@ export default function EmailCard({ email }) {
             console.error('Failed to generate draft:', error);
         } finally {
             setIsGenerating(false);
+        }
+    };
+
+    const handleAskQuestion = async (e) => {
+        e.stopPropagation();
+        if (!question.trim()) return;
+        setIsAsking(true);
+        setAnswer(null);
+        try {
+            const res = await fetch('/api/ask', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    emailBody: email.body || email.snippet,
+                    question: question
+                })
+            });
+            const data = await res.json();
+            if (data.answer) {
+                setAnswer(data.answer);
+            }
+        } catch (error) {
+            console.error('Ask Question failed:', error);
+        } finally {
+            setIsAsking(false);
         }
     };
 
@@ -163,31 +198,114 @@ export default function EmailCard({ email }) {
                         </div>
                     )}
 
+                    {/* Ask Question UI */}
+                    <div className="ask-question-section" style={{ marginBottom: '16px', padding: '12px', background: '#1e293b', borderRadius: '8px', border: '1px solid #334155' }}>
+                        <div style={{ display: 'flex', gap: '8px' }}>
+                            <input
+                                type="text"
+                                placeholder="Ask a question about this email..."
+                                value={question}
+                                onChange={(e) => setQuestion(e.target.value)}
+                                onClick={(e) => e.stopPropagation()}
+                                style={{
+                                    flex: 1,
+                                    background: '#0f172a',
+                                    border: '1px solid #334155',
+                                    borderRadius: '6px',
+                                    padding: '8px 12px',
+                                    color: 'white',
+                                    fontSize: '0.9rem'
+                                }}
+                                onKeyDown={(e) => {
+                                    if (e.key === 'Enter') handleAskQuestion(e);
+                                }}
+                            />
+                            <button
+                                className="btn btn-primary"
+                                onClick={handleAskQuestion}
+                                disabled={isAsking || !question.trim()}
+                                style={{ minWidth: '80px' }}
+                            >
+                                {isAsking ? <div className="loading-spinner" style={{ width: 16, height: 16 }} /> : <MessageSquare size={16} />}
+                            </button>
+                        </div>
+                        {answer && (
+                            <div style={{ marginTop: '12px', padding: '10px', background: '#0f172a', borderRadius: '6px', fontSize: '0.9rem', lineHeight: '1.5', borderLeft: '3px solid #10b981' }}>
+                                <strong>Answer:</strong> {answer}
+                            </div>
+                        )}
+                    </div>
+
                     <div className="email-body-preview" style={{ whiteSpace: 'pre-wrap' }}>
                         {email.body || email.snippet}
                     </div>
 
                     {(draft || isGenerating) ? (
                         <div className="email-reply-section">
-                            <div className="email-reply-label">
-                                <Sparkles size={14} />
-                                {isGenerating ? 'Agent Thinking...' : 'AI-Suggested Reply'}
+                            <div className="email-reply-label" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                <span>
+                                    <Sparkles size={14} style={{ display: 'inline', marginRight: '6px' }} />
+                                    {isGenerating ? 'Agent Thinking...' : 'AI-Suggested Reply (Editable)'}
+                                </span>
                             </div>
+
                             {isGenerating ? (
-                                <div className="loading-spinner" style={{ margin: '10px 0' }} />
+                                <div className="loading-spinner" style={{ margin: '20px auto', display: 'block' }} />
                             ) : (
-                                <div className="email-reply-text">{draft}</div>
+                                <textarea
+                                    className="email-reply-textarea"
+                                    value={draft}
+                                    onChange={(e) => setDraft(e.target.value)}
+                                    onClick={(e) => e.stopPropagation()}
+                                    style={{
+                                        width: '100%',
+                                        minHeight: '150px',
+                                        background: '#1e293b',
+                                        color: '#e2e8f0',
+                                        border: '1px solid #334155',
+                                        borderRadius: '6px',
+                                        padding: '12px',
+                                        fontSize: '0.95rem',
+                                        lineHeight: '1.5',
+                                        resize: 'vertical',
+                                        marginTop: '8px',
+                                        fontFamily: 'inherit'
+                                    }}
+                                />
                             )}
+
                             {!isGenerating && (
-                                <div className="email-reply-actions">
-                                    <button className="btn btn-secondary" onClick={handleCopy}>
-                                        <Copy size={14} />
-                                        {copied ? 'Copied!' : 'Copy Reply'}
-                                    </button>
-                                    <button className="btn btn-primary" onClick={(e) => e.stopPropagation()}>
-                                        <Send size={14} />
-                                        Send Reply
-                                    </button>
+                                <div className="email-reply-actions" style={{ flexDirection: 'column', gap: '8px', alignItems: 'stretch' }}>
+
+                                    {/* Action Row */}
+                                    <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end', marginTop: '8px' }}>
+                                        <button className="btn btn-secondary" onClick={handleCopy}>
+                                            <Copy size={14} />
+                                            {copied ? 'Copied!' : 'Copy'}
+                                        </button>
+                                        <button className="btn btn-primary" onClick={(e) => e.stopPropagation()}>
+                                            <Send size={14} />
+                                            Send Reply
+                                        </button>
+                                    </div>
+
+                                    {/* Regeneration Options */}
+                                    <div style={{ display: 'flex', gap: '6px', overflowX: 'auto', paddingBottom: '4px', borderTop: '1px solid #334155', paddingTop: '8px' }}>
+                                        <span style={{ fontSize: '0.8rem', color: '#94a3b8', alignSelf: 'center', marginRight: '4px' }}>Regenerate:</span>
+                                        <button className="btn btn-secondary btn-xs" onClick={(e) => handleGenerateDraft(e)} title="Retry with default settings">
+                                            <RefreshCw size={12} style={{ marginRight: '4px' }} />
+                                            Retry
+                                        </button>
+                                        <button className="btn btn-secondary btn-xs" onClick={(e) => handleGenerateDraft(e, 'Write a detailed and professional reply.')}>
+                                            Detailed
+                                        </button>
+                                        <button className="btn btn-secondary btn-xs" onClick={(e) => handleGenerateDraft(e, 'Write a concise and short reply.')}>
+                                            Concise
+                                        </button>
+                                        <button className="btn btn-secondary btn-xs" onClick={(e) => handleGenerateDraft(e, 'Write a polite but firm decline reply.')}>
+                                            Decline
+                                        </button>
+                                    </div>
                                 </div>
                             )}
                         </div>
@@ -197,7 +315,7 @@ export default function EmailCard({ email }) {
                                 <Clock size={14} style={{ marginRight: '6px' }} />
                                 {isFindingTime ? 'Scanning Calendar...' : 'Find Time'}
                             </button>
-                            <button className="btn btn-primary" onClick={handleGenerateDraft}>
+                            <button className="btn btn-primary" onClick={(e) => handleGenerateDraft(e)}>
                                 <Sparkles size={14} style={{ marginRight: '6px' }} />
                                 Draft Reply with Agent
                             </button>

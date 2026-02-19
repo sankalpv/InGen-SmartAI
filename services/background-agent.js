@@ -3,6 +3,7 @@ const fs = require('fs');
 const path = require('path');
 const { exec } = require('child_process');
 const vectorStore = require('./vector-store'); // Added import
+const logger = require('./logger').child('Agent');
 
 // Configuration
 const SYNC_INTERVAL_CRON = '*/15 * * * *'; // Every 15 minutes
@@ -35,8 +36,8 @@ async function runSync() {
     }
 
     isSyncing = true;
-    console.log(`[${new Date().toISOString()}] Starting Background Sync...`);
-    console.log(`Last Sync: ${state.lastSyncTimestamp}`);
+    logger.info('Starting Background Sync...');
+    logger.info('Last Sync:', state.lastSyncTimestamp);
 
 
     // ... (existing code) ...
@@ -46,27 +47,40 @@ async function runSync() {
     exec(command, { maxBuffer: 1024 * 1024 * 10, timeout: SYNC_TIMEOUT }, async (error, stdout, stderr) => { // Added timeout
         try {
             if (error) {
-                console.error(`[${new Date().toISOString()}] Sync Failed: ${error.message}`);
-                // Don't return, ensure we allow retry next time by clearing flag in finally
+                logger.error('Sync Failed:', error.message);
             }
             if (stderr) {
-                console.error(`[${new Date().toISOString()}] Sync Stderr: ${stderr}`);
+                logger.warn('Sync Stderr:', stderr);
             }
 
             if (!error) { // Only process if no exec error
                 try {
                     const emails = JSON.parse(stdout);
 
+                    // Load Settings for Filtering
+                    let ignoreExternal = false;
+                    try {
+                        const settingsPath = path.join(process.cwd(), 'config', 'settings.json');
+                        if (fs.existsSync(settingsPath)) {
+                            const settings = JSON.parse(fs.readFileSync(settingsPath, 'utf8'));
+                            ignoreExternal = settings.ignoreExternalEmails === true;
+                        }
+                    } catch (e) { console.error('Settings load error:', e); }
+
                     // Filter emails strictly newer than lastSyncTimestamp (handling AS "last 24h" broad fetch)
                     const newEmails = emails.filter(e => {
                         if (e.error) return false; // Skip errors
+                        if (ignoreExternal && (e.subject || '').includes('[EXTERNAL]')) {
+                            console.log(`Skipping external email: ${e.subject}`);
+                            return false;
+                        }
                         return new Date(e.received) > new Date(state.lastSyncTimestamp);
                     });
 
-                    console.log(`[${new Date().toISOString()}] Fetched ${emails.length} raw items. Found ${newEmails.length} NEW emails.`);
+                    logger.info(`Fetched ${emails.length} raw items. Found ${newEmails.length} NEW emails.`);
 
                     if (newEmails.length > 0) {
-                        console.log(`[${new Date().toISOString()}] Ingesting ${newEmails.length} emails into Vector Store...`);
+                        logger.info(`Ingesting ${newEmails.length} emails into Vector Store...`);
 
                         // Process sequentially to be nice to Ollama
                         for (const email of newEmails) {
@@ -77,12 +91,11 @@ async function runSync() {
                         state.lastSyncTimestamp = new Date().toISOString();
                         fs.writeFileSync(STATE_FILE, JSON.stringify(state, null, 2));
                     } else {
-                        console.log(`[${new Date().toISOString()}] No new emails.`);
+                        logger.info('No new emails.');
                     }
 
                 } catch (e) {
-                    console.error(`[${new Date().toISOString()}] Failed to parse Outlook response or ingest: ${e.message}`);
-                    console.error(`Output start: ${stdout ? stdout.substring(0, 100) : 'null'}...`);
+                    logger.error('Failed to parse Outlook response or ingest:', e.message);
                 }
             }
         } finally {
@@ -92,9 +105,8 @@ async function runSync() {
 }
 
 // Start Cron
-console.log('Starting Local Autonomous Agent Background Service...');
-console.log(`Schedule: ${SYNC_INTERVAL_CRON}`);
-
+logger.info('Starting Local Autonomous Agent Background Service...');
+logger.info('Schedule:', SYNC_INTERVAL_CRON);
 cron.schedule(SYNC_INTERVAL_CRON, () => {
     runSync();
 });

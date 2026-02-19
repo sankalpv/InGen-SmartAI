@@ -32,15 +32,26 @@ function getDuration(start, end) {
 
 export default function MeetingCard({ meeting }) {
     const [expanded, setExpanded] = useState(false);
-    const [brief, setBrief] = useState(meeting.aiContext || null);
+    // Pre-populate brief from data already fetched by the calendar API
+    const initialBrief = meeting.aiContext
+        ? { context: meeting.aiContext, questions: meeting.aiQuestions || [] }
+        : null;
+    const [brief, setBrief] = useState(initialBrief);
+
     const [loading, setLoading] = useState(false);
 
     const handleGenerateBrief = async (e) => {
-        e.stopPropagation(); // Prevent card collapse
+        e.stopPropagation();
         setLoading(true);
         try {
             const attendeesStr = meeting.attendees.map(a => a.email).join(',');
-            const res = await fetch(`/api/meeting-brief?title=${encodeURIComponent(meeting.title)}&attendees=${encodeURIComponent(attendeesStr)}`);
+            const params = new URLSearchParams({
+                title: meeting.title,
+                description: meeting.description || '',
+                attendees: attendeesStr,
+                startTime: meeting.startTime || '',
+            });
+            const res = await fetch(`/api/meeting-brief?${params}`);
             const data = await res.json();
             if (data.brief) setBrief(data.brief);
         } catch (err) {
@@ -111,7 +122,33 @@ export default function MeetingCard({ meeting }) {
                         </div>
 
                         {brief ? (
-                            <div className="meeting-context-text" style={{ whiteSpace: 'pre-line' }}>{brief}</div>
+                            <div>
+                                {/* Context section */}
+                                {(typeof brief === 'object' ? brief.context : brief) && (
+                                    <div style={{ marginBottom: '12px' }}>
+                                        <div style={{ fontSize: '11px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-muted)', marginBottom: '6px' }}>
+                                            Context
+                                        </div>
+                                        <div className="meeting-context-text" style={{ whiteSpace: 'pre-line' }}>
+                                            {typeof brief === 'object' ? brief.context : brief}
+                                        </div>
+                                    </div>
+                                )}
+
+                                {/* Questions / Action Items */}
+                                {typeof brief === 'object' && brief.questions?.length > 0 && (
+                                    <div>
+                                        <div style={{ fontSize: '11px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-muted)', marginBottom: '6px', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                            <HelpCircle size={12} /> Questions &amp; Action Items
+                                        </div>
+                                        <ol style={{ margin: 0, paddingLeft: '18px', display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                                            {brief.questions.map((q, i) => (
+                                                <li key={i} style={{ fontSize: '0.875rem', color: 'var(--text-secondary)', lineHeight: 1.5 }}>{q}</li>
+                                            ))}
+                                        </ol>
+                                    </div>
+                                )}
+                            </div>
                         ) : (
                             <div style={{ marginTop: '5px' }}>
                                 <button

@@ -1,14 +1,19 @@
-const { HierarchicalNSW } = require('hnswlib-node');
+let HierarchicalNSW;
+let VECTOR_STORE_AVAILABLE = false;
+try {
+    HierarchicalNSW = require('hnswlib-node').HierarchicalNSW;
+    VECTOR_STORE_AVAILABLE = true;
+} catch (e) {
+    console.error('[VectorStore] hnswlib-node not available. Vector search disabled. Run: npm install');
+}
 const { Ollama } = require('ollama');
 const fs = require('fs');
 const path = require('path');
+const logger = require('./logger').child('VectorStore');
 
 // Configuration
 const VECTOR_DIMENSION = 768; // nomic-embed-text dimension. gemma2 is 2048 or 2560? 
 // nomic-embed-text is 768.
-// mxbai-embed-large is 1024.
-// If we use gemma2:2b, it's 2304? or 2560? 
-// Let's stick to 'nomic-embed-text' as standard request. 
 const EMBEDDING_MODEL = 'nomic-embed-text';
 const INDEX_PATH = path.join(process.cwd(), 'brain', 'vector_index.bin');
 const METADATA_PATH = path.join(process.cwd(), 'brain', 'vector_metadata.json');
@@ -31,6 +36,10 @@ class VectorStore {
 
     async init() {
         if (this.loaded) return;
+        if (!VECTOR_STORE_AVAILABLE) {
+            logger.warn('Vector store unavailable (hnswlib-node missing). Skipping init.');
+            return;
+        }
 
         // Load Metadata
         if (fs.existsSync(METADATA_PATH)) {
@@ -52,8 +61,8 @@ class VectorStore {
             try {
                 this.index.readIndexSync(INDEX_PATH);
             } catch (e) {
-                console.error('Failed to read index, creating new one:', e);
-                this.index.initIndex(10000); // Max elements
+                logger.error('Failed to read index, creating new one:', e.message);
+                this.index.initIndex(10000);
             }
         } else {
             this.index.initIndex(10000);
@@ -70,15 +79,16 @@ class VectorStore {
             });
             return response.embedding;
         } catch (e) {
-            console.error(`Failed to generate embedding with ${EMBEDDING_MODEL}:`, e.message);
-            // Fallback? Or throw?
-            // If model is missing, we might need to pull it.
-            // But from code, we just fail for now.
+            logger.error(`Failed to generate embedding with ${EMBEDDING_MODEL}:`, e.message);
             throw e;
         }
     }
 
     async ingestEmail(email) {
+        if (!VECTOR_STORE_AVAILABLE) {
+            logger.warn('Skipping ingestion — vector store unavailable.');
+            return;
+        }
         if (!this.loaded) await this.init();
 
         // Check for duplicates via ID provided in email (Outlook ID)
@@ -93,8 +103,6 @@ class VectorStore {
         let textToEmbed = `Subject: ${email.subject}\nFrom: ${email.sender}\nDate: ${email.received}\n\n${email.body}`;
 
         // Truncate to avoid "input length exceeds context length"
-        // nomic-embed-text ~8192 tokens? But safe side 8000 chars is approx 2000-2500 tokens. 
-        // If limit is 2048 tokens, 8000 chars is pushing it. calculate approx 4 chars/token -> 2000 tokens.
         if (textToEmbed.length > 8000) {
             textToEmbed = textToEmbed.substring(0, 8000);
         }
@@ -102,7 +110,7 @@ class VectorStore {
         try {
             const vector = await this.getEmbedding(textToEmbed);
             if (vector.length !== VECTOR_DIMENSION) {
-                console.error(`Dimension mismatch: Model produced ${vector.length}, expected ${VECTOR_DIMENSION}`);
+                logger.error(`Dimension mismatch: Model produced ${vector.length}, expected ${VECTOR_DIMENSION}`);
                 return;
             }
 
@@ -114,17 +122,14 @@ class VectorStore {
                 subject: email.subject,
                 sender: email.sender,
                 received: email.received,
-                snippet: email.body.substring(0, 200) // Don't store full body in metadata to keep it light?
-                // Actually, for RAG we might need the full body. 
-                // Let's store full body for now, local disk is cheap.
-                // fullBody: email.body 
+                snippet: email.body.substring(0, 200),
+                fullBody: email.body
             };
-            this.metadata[internalId].fullBody = email.body;
 
             this.save();
-            console.log(`Ingested: ${email.subject}`);
+            logger.info('Ingested:', email.subject);
         } catch (e) {
-            console.error(`Ingestion failed for ${email.subject}:`, e.message);
+            logger.error(`Ingestion failed for ${email.subject}:`, e.message);
         }
     }
 
@@ -133,11 +138,15 @@ class VectorStore {
             this.index.writeIndexSync(INDEX_PATH);
             fs.writeFileSync(METADATA_PATH, JSON.stringify(this.metadata, null, 2));
         } catch (e) {
-            console.error('Failed to save vector store:', e);
+            logger.error('Failed to save vector store:', e.message);
         }
     }
 
     async search(query, k = 3) {
+        if (!VECTOR_STORE_AVAILABLE) {
+            logger.warn('Search skipped — vector store unavailable.');
+            return [];
+        }
         if (!this.loaded) await this.init();
 
         try {
@@ -154,7 +163,7 @@ class VectorStore {
 
             return hits;
         } catch (e) {
-            console.error('Search failed:', e);
+            logger.error('Search failed:', e.message);
             return [];
         }
     }

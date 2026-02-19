@@ -2,10 +2,21 @@
 import { exec } from 'child_process';
 import path from 'path';
 import { promisify } from 'util';
+import * as WindowsService from './outlook-windows';
+import fs from 'fs';
+import { createRequire } from 'module';
+
+const require = createRequire(import.meta.url);
+const logger = require('./logger').child('Outlook-Mac');
 
 const execAsync = promisify(exec);
+const isWin = process.platform === 'win32';
+const SETTINGS_PATH = path.join(process.cwd(), 'config', 'settings.json');
 
 export async function fetchOutlookEmails(count = 20) {
+    if (isWin) {
+        return WindowsService.fetchOutlookEmails(count);
+    }
     try {
         const scriptPath = path.join(process.cwd(), 'scripts', 'fetch_outlook_ui_optimized.js');
 
@@ -25,7 +36,7 @@ export async function fetchOutlookEmails(count = 20) {
         }
 
         if (stderr) {
-            console.error('Outlook Script Error:', stderr);
+            logger.warn('Outlook Script Error:', stderr);
         }
 
         const cleanJson = stdout.trim();
@@ -35,8 +46,23 @@ export async function fetchOutlookEmails(count = 20) {
 
         const emails = JSON.parse(cleanJson);
 
+        // Filter External Emails if configured
+        let ignoreExternal = false;
+        try {
+            if (fs.existsSync(SETTINGS_PATH)) {
+                const settings = JSON.parse(fs.readFileSync(SETTINGS_PATH, 'utf8'));
+                ignoreExternal = settings.ignoreExternalEmails === true;
+            }
+        } catch (e) {
+            console.error('Failed to read settings in outlook-local:', e);
+        }
+
+        const filteredEmails = ignoreExternal
+            ? emails.filter(e => !((e.subject || '').includes('[EXTERNAL]')))
+            : emails;
+
         // Normalize to match Gmail format for the UI
-        return emails.map(e => ({
+        return filteredEmails.map(e => ({
             id: e.id,
             source: 'outlook',
             from: parseSender(e.from),
@@ -63,6 +89,9 @@ let calendarCache = {
 const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
 
 export async function fetchOutlookCalendar(calendarId) {
+    if (isWin) {
+        return WindowsService.fetchOutlookCalendar(calendarId);
+    }
     // Check Cache (Include calendarId in cache key to avoid mixing data)
     const cacheKey = calendarId || 'default';
     const now = Date.now();
@@ -92,10 +121,10 @@ export async function fetchOutlookCalendar(calendarId) {
         const { stdout, stderr } = await execAsync(cmd, { timeout: 60000 });
 
         if (stderr) {
-            console.error('Outlook Calendar Script Error:', stderr);
+            logger.warn('Outlook Calendar Script Error:', stderr);
         }
 
-        console.log('Outlook Calendar Raw Output:', stdout); // Debug log
+        logger.debug('Outlook Calendar Raw Output:', stdout);
 
         // Parse Pipe-Delimited Output (ID|||Subject|||Start|||End|||Location|||Body)
         const lines = stdout.trim().split('\n');
@@ -130,7 +159,7 @@ export async function fetchOutlookCalendar(calendarId) {
 
         return mappedEvents;
     } catch (error) {
-        console.error('Failed to fetch Outlook calendar:', error);
+        logger.error('Failed to fetch Outlook calendar:', error.message);
         return [];
     }
 }
@@ -157,5 +186,24 @@ function parseDate(dateStr) {
         return date.toISOString();
     } catch (e) {
         return new Date().toISOString();
+    }
+}
+
+export async function getCalendarList() {
+    if (isWin) {
+        return WindowsService.getCalendarList();
+    }
+
+    // Mac Logic (Moved from Route for Facade consistency)
+    try {
+        const scriptPath = path.resolve(process.cwd(), 'scripts', 'get_calendar_list.scpt');
+        const { stdout, stderr } = await execAsync(`osascript "${scriptPath}"`);
+
+        if (stderr) console.error('Error fetching calendar list:', stderr);
+
+        return JSON.parse(stdout.trim());
+    } catch (error) {
+        logger.error('Failed to get calendar list:', error.message);
+        return [];
     }
 }

@@ -1,7 +1,10 @@
 
-
 import OpenAI from 'openai';
-import vectorStore from './vector-store.js'; // Import local vector store
+import { createRequire } from 'module';
+const require = createRequire(import.meta.url);
+const logger = require('./logger').child('AI');
+const promptLoader = require('./prompt-loader');
+// import vectorStore from './vector-store.js'; // Lazy loaded instead
 
 const USE_GEMINI = true; // Toggle this to switch between OpenAI and Gemini
 
@@ -17,18 +20,16 @@ const openai = new OpenAI({
 
 const AI_MODEL = USE_GEMINI ? 'gemini-2.0-flash' : 'gpt-4o';
 
-const SYSTEM_PROMPT = `
-You are the AI engine for 'SmartAI', a productivity dashboard.
-Your goal is to be helpful, concise, and proactive.
-Identify urgent items, categorize emails, and prepare meeting briefs.
-Sound professional but friendly.
-`;
+// SYSTEM_PROMPT is now loaded from config/prompts.json via prompt-loader (hot-reloadable)
+function getSystemPrompt() {
+    return promptLoader.get('system') || "You are the AI engine for 'SmartAI', a productivity dashboard. Be helpful, concise, and proactive.";
+}
 
 // Helper: Generate Completion (Switchable Provider)
 async function generateCompletion(systemPrompt, userPrompt, jsonMode = true, temperature = 0.7) {
     if (AI_PROVIDER === 'ollama') {
         try {
-            console.log(`[AI] Using Ollama model: '${OLLAMA_MODEL}' at ${OLLAMA_BASE_URL}`);
+            logger.info(`Using Ollama model: '${OLLAMA_MODEL}' at ${OLLAMA_BASE_URL}`);
 
             const body = {
                 model: OLLAMA_MODEL.trim(), // Ensure no whitespace
@@ -55,7 +56,7 @@ async function generateCompletion(systemPrompt, userPrompt, jsonMode = true, tem
             const data = await response.json();
             return data.response;
         } catch (error) {
-            console.error('Ollama generation failed:', error);
+            logger.error('Ollama generation failed:', error.message);
             throw error;
         }
     } else {
@@ -83,7 +84,7 @@ async function withRetry(fn, maxRetries = 2) {
         } catch (error) {
             if (error.status === 429 && attempt < maxRetries) {
                 const delay = Math.pow(2, attempt) * 1000 + Math.random() * 1000;
-                console.warn(`Rate limited, retrying in ${Math.round(delay)}ms...`);
+                logger.warn(`Rate limited, retrying in ${Math.round(delay)}ms...`);
                 await new Promise(resolve => setTimeout(resolve, delay));
             } else {
                 throw error;
@@ -93,18 +94,19 @@ async function withRetry(fn, maxRetries = 2) {
 }
 
 export async function analyzeEmails(emails) {
-    const system = `${SYSTEM_PROMPT}\nAnalyze these emails and categorize them in JSON: { "emails": [{ "id", "category", "urgency", "actionRequired", "summary" }] }`;
+    const systemSuffix = promptLoader.get('emailAnalysis.systemSuffix') || 'Analyze these emails and categorize them in JSON: { "emails": [{ "id", "category", "urgency", "actionRequired", "summary" }] }';
+    const system = `${getSystemPrompt()}\n${systemSuffix}`;
     const prompt = `Emails: ${JSON.stringify(emails)}`;
 
     try {
         const resultRaw = await withRetry(() => generateCompletion(system, prompt, true));
-        console.log('[AI] Email Analysis Raw:', resultRaw);
+        logger.debug('Email Analysis Raw:', resultRaw?.substring(0, 200));
 
         let result;
         try {
             result = JSON.parse(resultRaw);
         } catch (e) {
-            console.error('JSON Parse Error (Emails):', e);
+            logger.error('JSON Parse Error (Emails):', e.message);
             result = { emails: [] };
         }
 
@@ -120,7 +122,7 @@ export async function analyzeEmails(emails) {
             };
         });
     } catch (error) {
-        console.error('AI analysis failed:', error);
+        logger.error('AI analysis failed:', error.message);
         return emails.map(e => ({
             ...e,
             category: 'uncategorized',
@@ -132,18 +134,20 @@ export async function analyzeEmails(emails) {
 }
 
 export async function prepareMeetingBrief(meeting, relatedEmails) {
-    const system = `${SYSTEM_PROMPT}\nPrepare a meeting brief in JSON: { "context", "questions" }`;
+    const systemSuffix = promptLoader.get('meetingBrief.systemSuffix') || 'Prepare a meeting brief in JSON: { "context", "questions" }';
+    const system = `${getSystemPrompt()}\n${systemSuffix}`;
 
     // 1. RAG Context Injection
     let contextDocs = [];
     if (!relatedEmails || relatedEmails.length === 0) {
         // If no emails provided, search vector store using meeting title
         try {
-            console.log(`[AI] Searching RAG for meeting: "${meeting.title}"`);
+            logger.info(`Searching RAG for meeting: "${meeting.title}"`);
             const query = `${meeting.title} ${meeting.description || ''}`;
-            contextDocs = await vectorStore.search(query, 5); // Fetch top 5 related emails
+            const { default: vectorStore } = await import('./vector-store.js'); // Lazy load
+            contextDocs = await vectorStore.search(query, 5);
         } catch (e) {
-            console.error('Vector store search failed for meeting:', e);
+            logger.error('Vector store search failed for meeting:', e.message);
         }
     } else {
         contextDocs = relatedEmails;
@@ -184,11 +188,11 @@ OUTPUT JSON:
 `;
 
     try {
-        const resultRaw = await withRetry(() => generateCompletion(system, prompt, true, 0.3)); // Low temp for factual accuracy
-        console.log('[AI] Meeting Brief Raw:', resultRaw);
+        const resultRaw = await withRetry(() => generateCompletion(system, prompt, true, 0.3));
+        logger.debug('Meeting Brief Raw:', resultRaw?.substring(0, 200));
         return JSON.parse(resultRaw);
     } catch (error) {
-        console.error('AI meeting brief failed:', error);
+        logger.error('AI meeting brief failed:', error.message);
         return {
             context: meeting.description || 'No context available (AI Error).',
             questions: []
@@ -197,7 +201,8 @@ OUTPUT JSON:
 }
 
 export async function summarizeSlack(messages) {
-    const system = `${SYSTEM_PROMPT}\nSummarize Slack messages in JSON: { "messages": [{ "id", "summary", "actionItem" }] }`;
+    const systemSuffix = promptLoader.get('slackSummary.systemSuffix') || 'Summarize Slack messages in JSON: { "messages": [{ "id", "summary", "actionItem" }] }';
+    const system = `${getSystemPrompt()}\n${systemSuffix}`;
     const prompt = `Messages: ${JSON.stringify(messages)}`;
 
     try {
@@ -205,27 +210,31 @@ export async function summarizeSlack(messages) {
         const result = JSON.parse(resultRaw);
         return result.messages;
     } catch (error) {
+        logger.error('Slack summarization failed:', error.message);
         return messages.map(msg => ({ ...msg, summary: msg.text, actionItem: false }));
     }
 }
 
 export async function generateDailyBriefing(emails, meetings, slackMessages) {
-    const system = SYSTEM_PROMPT;
-
+    const system = getSystemPrompt();
 
     // Optimize context for local LLM (Modern models have 8k+ context)
-    const limitedEmails = emails.slice(0, 5).map(e => ({ from: e.from, subject: e.subject, snippet: (e.snippet || '').substring(0, 2000) })); // Increased to 2000 chars
+    const limitedEmails = emails.slice(0, 5).map(e => ({ from: e.from, subject: e.subject, snippet: (e.snippet || '').substring(0, 2000) }));
     const limitedSlack = slackMessages.slice(0, 5).map(m => ({ user: m.user, text: (m.text || '').substring(0, 200) }));
 
-    // Executive Assistant Prompt
-    const prompt = `You are my executive productivity assistant.
+    // Load prompt template from prompts.json (hot-reloadable from server)
+    const templateFromConfig = promptLoader.get('dailyBriefing.promptTemplate');
+    const prompt = templateFromConfig
+        ? templateFromConfig
+            .replace('{{EMAILS}}', JSON.stringify(limitedEmails))
+            .replace('{{MEETINGS}}', JSON.stringify(meetings.map(m => ({ title: m.title, time: m.start?.dateTime || m.date || 'All Day' }))))
+        : `You are my executive productivity assistant.
 
 INPUT:
 Emails: ${JSON.stringify(limitedEmails)}
 Meetings: ${JSON.stringify(meetings.map(m => ({ title: m.title, time: m.start?.dateTime || m.date || 'All Day' })))}
 
-TASK:
-Analyze the emails and meetings to produce a comprehensive Daily Briefing.
+TASK: Analyze the emails and meetings to produce a comprehensive Daily Briefing.
 
 Instructions:
 1. Identify high-impact items.
@@ -233,14 +242,10 @@ Instructions:
 3. Be direct, practical, and comprehensive.
 
 OUTPUT FORMAT:
+1. A detailed greeting paragraph (3-5 sentences) summarizing the day.
+2. Top Priorities (action-oriented, each starting with "- ")
 
-1. A detailed greeting paragraph (3-5 sentences) that comprehensively summarizes the day's workload, potential blockers, and key themes.
-
-2. “Top Priorities”
-   - Each line must begin with "- "
-   - Action-oriented phrasing (Start, Decide, Follow up)
-
-Provide as much detail as necessary to be helpful.`;
+Provide as much detail as necessary.`;
 
     try {
         // Strict timeout (60s)
@@ -318,7 +323,7 @@ Provide as much detail as necessary to be helpful.`;
 
 // Generate Meeting Brief based on title and email context
 export async function generateMeetingBrief(meetingTitle, emails) {
-    const system = SYSTEM_PROMPT;
+    const system = getSystemPrompt();
 
     // Safety check for empty emails
     if (!emails || emails.length === 0) {
@@ -360,7 +365,7 @@ If the emails are not relevant to the meeting title, just say "No relevant conte
 
 // Generate Weekly Retrospective
 export async function generateWeeklyRetro(stats, events, emails) {
-    const system = SYSTEM_PROMPT;
+    const system = getSystemPrompt();
 
     // Create a data summary for the AI
     const dataSummary = `
@@ -409,12 +414,13 @@ Keep it encouraging but analytical.`;
 export async function generateDraft(email, userIntent = '') {
     // vectorStore is imported at top level (see next tool call)
 
-    const system = `${SYSTEM_PROMPT}\nYou are an expert email drafter. Your goal is to write a reply that mimics the user's style based on past examples.`;
+    const system = `${getSystemPrompt()}\nYou are an expert email drafter. Your goal is to write a reply that mimics the user's style based on past examples.`;
 
     // 1. Retrieve Context (RAG)
     const query = `Subject: ${email.subject}\n\n${email.body}`;
     let contextDocs = [];
     try {
+        const { default: vectorStore } = await import('./vector-store.js'); // Lazy load
         contextDocs = await vectorStore.search(query, 3); // Top 3 similar emails
     } catch (e) {
         console.error('Vector store search failed:', e);
@@ -476,12 +482,13 @@ function getDuration(start, end) {
 
 // Chat with Data (RAG)
 export async function chatWithData(query, history = []) {
-    const system = `${SYSTEM_PROMPT}\nYou are a helpful assistant with access to the user's email and calendar data. Answer questions based on the provided context. Cite your sources.`;
+    const system = `${getSystemPrompt()}\nYou are a helpful assistant with access to the user's email and calendar data. Answer questions based on the provided context. Cite your sources.`;
 
     // 1. Retrieve Context
     let contextDocs = [];
     try {
         console.log(`[AI] Chat RAG search for: "${query}"`);
+        const { default: vectorStore } = await import('./vector-store.js'); // Lazy load
         contextDocs = await vectorStore.search(query, 5); // Top 5 chunks
     } catch (e) {
         console.error('Chat vector search failed:', e);
@@ -539,9 +546,31 @@ INSTRUCTIONS:
     }
 }
 
+// Answer specific question about an email
+export async function askQuestionAboutEmail(emailBody, question) {
+    const system = `${getSystemPrompt()}\nYou are a helpful assistant. Answer the user's question based strictly on the email content provided.`;
+    const prompt = `
+EMAIL CONTENT:
+"${emailBody}"
+
+USER QUESTION:
+${question}
+
+ANSWER:
+Answer the question directly and concisely based on the email above.`;
+
+    try {
+        const response = await withRetry(() => generateCompletion(system, prompt, false, 0.3));
+        return response;
+    } catch (error) {
+        console.error('askQuestionAboutEmail failed:', error);
+        return "I'm sorry, I couldn't generate an answer at this time.";
+    }
+}
+
 // Extract Time Constraints for Scheduling
 export async function extractTimeConstraints(emailBody) {
-    const system = `${SYSTEM_PROMPT}\nYou are a scheduling assistant. Extract time constraints and preferences from the email.`;
+    const system = `${getSystemPrompt()}\nYou are a scheduling assistant. Extract time constraints and preferences from the email.`;
     const prompt = `
 EMAIL BODY:
 "${emailBody}"
