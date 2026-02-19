@@ -260,32 +260,75 @@ Provide as much detail as necessary.`;
         console.log('[AI] Briefing Raw:', resultRaw);
 
         // Manual Parsing of Text Output
+        // Manual Parsing of Text Output
         let greeting = resultRaw;
         let topPriorities = [];
 
-        // Try to split greeting and bullets
-        const lines = resultRaw.split('\n');
-        // Look for defined bullets: "-", "* ", or "1. " (Avoids "**Bold**" headers)
-        const firstBulletIndex = lines.findIndex(l => l.trim().match(/^-\s/) || l.trim().match(/^\*\s/) || l.trim().match(/^\d+\.\s/));
+        // 1. Try Structured Parsing (## Headers)
+        const summaryMatch = resultRaw.match(/##\s*EXECUTIVE SUMMARY([\s\S]*?)(?=##|$)/i);
+        const prioritiesMatch = resultRaw.match(/##\s*TOP PRIORITIES([\s\S]*?)(?=##|$)/i);
 
-        if (firstBulletIndex !== -1) {
-            greeting = lines.slice(0, firstBulletIndex).join('\n').trim();
-            // Remove "Top X Priorities" header from greeting if present
-            greeting = greeting.replace(/\*\*?Top \d+ Priorities:?\*\*?/i, '').trim();
+        if (summaryMatch || prioritiesMatch) {
+            if (summaryMatch) greeting = summaryMatch[1].trim();
+            else greeting = "Here is your executive summary.";
 
-            const bullets = lines.slice(firstBulletIndex)
-                .filter(l => l.trim().length > 0)
-                .filter(l => !l.toLowerCase().includes('top 3 priorities')) // Ignore header if mistakenly captured
-                .filter(l => !l.toLowerCase().includes('top 5 priorities'))
-                .filter(l => !l.trim().endsWith(':')); // Ignore "Priorities:" lines
+            if (prioritiesMatch) {
+                const lines = prioritiesMatch[1].split('\n').filter(l => l.trim().length > 0);
+                topPriorities = lines.map(line => {
+                    // Start with cleanup
+                    const cleanLine = line.trim().replace(/^[-*•]\s*/, '');
 
-            topPriorities = bullets.map(b => ({
-                type: 'general',
-                title: b.replace(/^[-*•\d\.]+\s*/, '').replace(/\*\*/g, '').replace(/\*/g, '').trim(), // Clean markdown
-                urgency: 'medium',
-                deadline: 'today',
-                reason: 'AI suggested'
-            })).slice(0, 5);
+                    // Parse "[URGENCY: HIGH] Title | Reason"
+                    // Regex explanation:
+                    // 1. Optional [URGENCY: ...]
+                    // 2. Title part (non-greedy until pipe)
+                    // 3. Optional Pipe + Reason
+                    const complexMatch = cleanLine.match(/^(?:\[URGENCY:\s*(HIGH|MEDIUM|LOW)\])?\s*([^|]+)(?:\|\s*(.+))?$/i);
+
+                    if (complexMatch) {
+                        return {
+                            type: 'general',
+                            urgency: (complexMatch[1] || 'medium').toLowerCase(),
+                            title: complexMatch[2].trim(),
+                            reason: complexMatch[3] ? complexMatch[3].trim() : 'AI Highlight',
+                            deadline: 'today'
+                        };
+                    }
+                    // Fallback
+                    return {
+                        type: 'general',
+                        urgency: 'medium',
+                        title: cleanLine,
+                        reason: 'AI Suggested',
+                        deadline: 'today'
+                    };
+                }).slice(0, 5);
+            }
+        } else {
+            // 2. Legacy Fallback Parsing
+            const lines = resultRaw.split('\n');
+            // ... (rest of legacy logic could be here, or simplified)
+            const firstBulletIndex = lines.findIndex(l => l.trim().match(/^-\s/) || l.trim().match(/^\*\s/) || l.trim().match(/^\d+\.\s/));
+
+            if (firstBulletIndex !== -1) {
+                greeting = lines.slice(0, firstBulletIndex).join('\n').trim();
+                // Remove headers if present
+                greeting = greeting.replace(/\*\*?Top \d+ Priorities:?\*\*?/i, '').trim();
+
+                const bullets = lines.slice(firstBulletIndex)
+                    .filter(l => l.trim().length > 0)
+                    .filter(l => !l.toLowerCase().includes('top 3 priorities'))
+                    .filter(l => !l.toLowerCase().includes('top 5 priorities'))
+                    .filter(l => !l.trim().endsWith(':'));
+
+                topPriorities = bullets.map(b => ({
+                    type: 'general',
+                    title: b.replace(/^[-*•\d\.]+\s*/, '').replace(/\*\*/g, '').replace(/\*/g, '').trim(),
+                    urgency: 'medium',
+                    deadline: 'today',
+                    reason: 'AI suggested'
+                })).slice(0, 5);
+            }
         }
 
         // Construct robust result

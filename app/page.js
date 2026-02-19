@@ -311,6 +311,17 @@ export default function Dashboard() {
 
                     {briefing.topPriorities && briefing.topPriorities.length > 0 && (
                         <div className="priorities-list">
+                            <h3 style={{
+                                fontSize: '0.9rem',
+                                fontWeight: '700',
+                                textTransform: 'uppercase',
+                                letterSpacing: '0.05em',
+                                color: 'var(--accent-purple)',
+                                marginBottom: '12px',
+                                marginTop: '20px'
+                            }}>
+                                Top Priorities
+                            </h3>
                             {briefing.topPriorities.map((p, i) => (
                                 <div key={i} className="priority-item">
                                     <span className={`priority-badge ${p.urgency}`}>{p.urgency}</span>
