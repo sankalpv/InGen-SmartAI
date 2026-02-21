@@ -409,41 +409,98 @@ export function analyzeRelationshipHealth(emails, meetings, topN = 10) {
 }
 
 /**
- * ACTION ITEMS: Extract action items from emails and meetings
- * Uses RAG context to understand commitments across threads
+ * ACTION ITEMS: Extract and intelligently categorize action items
+ * Groups by timeline, owner, and project for executive-level clarity
  */
 export async function extractActionItems(emails, meetings) {
     const actionItems = [];
     const actionKeywords = [
         'todo', 'to-do', 'action item', 'follow up', 'will do',
         'need to', 'should', 'must', 'deadline', 'by end of',
-        'by eod', 'by eow', 'by friday', 'assigned to'
+        'by eod', 'by eow', 'by friday', 'assigned to', 'please',
+        'can you', 'could you', 'review', 'approve', 'schedule',
+        'update', 'send', 'share', 'prepare', 'finalize'
     ];
 
-    // Extract from emails
+    const deadlineKeywords = {
+        'by eod': 0, 'by end of day': 0, 'today': 0,
+        'by tomorrow': 1, 'tomorrow': 1,
+        'by friday': null, 'by eow': null, 'end of week': null, 'this week': null,
+        'next week': 7, 'by monday': null
+    };
+
+    // Extract from emails with richer metadata
     emails.forEach(email => {
         const body = (email.body || email.snippet || '').toLowerCase();
-        const hasActionKeyword = actionKeywords.some(keyword => body.includes(keyword));
+        const subject = (email.subject || '').toLowerCase();
+        const fullText = `${subject} ${body}`;
+        const hasActionKeyword = actionKeywords.some(keyword => fullText.includes(keyword));
 
         if (hasActionKeyword) {
+            // Determine if this is assigned TO me or BY me
+            const isSent = email.isSent === true || email.folder === 'Sent Items';
+            const owner = isSent ? 'delegated' : 'assigned_to_me';
+
+            // Extract deadline hints
+            let deadline = null;
+            let deadlineLabel = null;
+            for (const [keyword, daysOffset] of Object.entries(deadlineKeywords)) {
+                if (fullText.includes(keyword)) {
+                    if (daysOffset !== null) {
+                        const d = new Date();
+                        d.setDate(d.getDate() + daysOffset);
+                        deadline = d.toISOString();
+                        deadlineLabel = keyword;
+                    } else {
+                        deadlineLabel = keyword;
+                    }
+                    break;
+                }
+            }
+
+            // Classify the action type
+            let actionType = 'general';
+            if (fullText.includes('review') || fullText.includes('approve')) actionType = 'review';
+            else if (fullText.includes('schedule') || fullText.includes('meeting')) actionType = 'schedule';
+            else if (fullText.includes('send') || fullText.includes('share') || fullText.includes('forward')) actionType = 'communicate';
+            else if (fullText.includes('prepare') || fullText.includes('finalize') || fullText.includes('update')) actionType = 'create';
+            else if (fullText.includes('follow up') || fullText.includes('check')) actionType = 'follow_up';
+
+            // Extract the actual action sentence (find the sentence with the keyword)
+            const sentences = (email.body || email.snippet || '').split(/[.!?\n]+/);
+            let actionSentence = '';
+            for (const sentence of sentences) {
+                const lower = sentence.toLowerCase().trim();
+                if (actionKeywords.some(k => lower.includes(k)) && lower.length > 10 && lower.length < 200) {
+                    actionSentence = sentence.trim();
+                    break;
+                }
+            }
+
             actionItems.push({
                 id: `email-${email.id}`,
                 source: 'email',
                 sourceId: email.id,
                 subject: email.subject,
+                action: actionSentence || (email.body || email.snippet || '').substring(0, 150),
                 from: email.from?.name || email.from?.address || 'Unknown',
                 date: email.received || email.receivedDateTime || email.date,
-                snippet: (email.body || email.snippet || '').substring(0, 200),
                 urgency: determineUrgency(email),
+                owner,
+                actionType,
+                deadline,
+                deadlineLabel,
                 status: 'open'
             });
         }
     });
 
-    // Extract from meetings (descriptions)
+    // Extract from meetings
     meetings.forEach(meeting => {
         const description = (meeting.description || meeting.body || '').toLowerCase();
-        const hasActionKeyword = actionKeywords.some(keyword => description.includes(keyword));
+        const title = (meeting.title || meeting.subject || '').toLowerCase();
+        const fullText = `${title} ${description}`;
+        const hasActionKeyword = actionKeywords.some(keyword => fullText.includes(keyword));
 
         if (hasActionKeyword) {
             actionItems.push({
@@ -451,16 +508,69 @@ export async function extractActionItems(emails, meetings) {
                 source: 'meeting',
                 sourceId: meeting.id,
                 subject: meeting.title || meeting.subject,
+                action: (meeting.description || meeting.body || '').substring(0, 150),
+                from: 'Meeting',
                 date: meeting.start?.dateTime || meeting.startTime || meeting.date,
-                snippet: (meeting.description || meeting.body || '').substring(0, 200),
                 urgency: 'medium',
+                owner: 'from_meeting',
+                actionType: 'follow_up',
+                deadline: null,
+                deadlineLabel: null,
                 status: 'open'
             });
         }
     });
 
+    // Sort by urgency then date
+    const sorted = actionItems.sort((a, b) => {
+        const urgencyOrder = { high: 0, medium: 1, low: 2 };
+        const ua = urgencyOrder[a.urgency] ?? 1;
+        const ub = urgencyOrder[b.urgency] ?? 1;
+        if (ua !== ub) return ua - ub;
+        return new Date(b.date) - new Date(a.date);
+    });
+
+    // Group by timeline
+    const now = new Date();
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const tomorrow = new Date(today); tomorrow.setDate(tomorrow.getDate() + 1);
+    const weekEnd = new Date(today); weekEnd.setDate(weekEnd.getDate() + (7 - today.getDay()));
+
+    const byTimeline = {
+        overdue: sorted.filter(i => i.deadline && new Date(i.deadline) < now),
+        today: sorted.filter(i => {
+            const d = new Date(i.date);
+            return d >= today && d < tomorrow;
+        }),
+        thisWeek: sorted.filter(i => {
+            const d = new Date(i.date);
+            return d >= tomorrow && d <= weekEnd;
+        }),
+        older: sorted.filter(i => {
+            const d = new Date(i.date);
+            return d < today;
+        })
+    };
+
+    // Group by owner type
+    const byOwner = {
+        assigned_to_me: sorted.filter(i => i.owner === 'assigned_to_me'),
+        delegated: sorted.filter(i => i.owner === 'delegated'),
+        from_meeting: sorted.filter(i => i.owner === 'from_meeting')
+    };
+
+    // Group by action type
+    const byActionType = {};
+    sorted.forEach(item => {
+        if (!byActionType[item.actionType]) byActionType[item.actionType] = [];
+        byActionType[item.actionType].push(item);
+    });
+
     return {
-        items: actionItems.sort((a, b) => new Date(b.date) - new Date(a.date)),
+        items: sorted,
+        byTimeline,
+        byOwner,
+        byActionType,
         summary: {
             total: actionItems.length,
             byUrgency: {
@@ -471,7 +581,17 @@ export async function extractActionItems(emails, meetings) {
             bySource: {
                 email: actionItems.filter(i => i.source === 'email').length,
                 meeting: actionItems.filter(i => i.source === 'meeting').length
-            }
+            },
+            byOwner: {
+                assignedToMe: byOwner.assigned_to_me.length,
+                delegated: byOwner.delegated.length,
+                fromMeeting: byOwner.from_meeting.length
+            },
+            byActionType: Object.fromEntries(
+                Object.entries(byActionType).map(([k, v]) => [k, v.length])
+            ),
+            withDeadline: sorted.filter(i => i.deadlineLabel).length,
+            overdue: byTimeline.overdue.length
         }
     };
 }

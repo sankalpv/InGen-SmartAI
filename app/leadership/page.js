@@ -278,48 +278,217 @@ function RelationshipsView({ data }) {
     );
 }
 
-// Action Items Component
+// Action Items Component - Reimagined for Executive Clarity
 function ActionItemsView({ data }) {
+    const [viewMode, setViewMode] = useState('owner');
+    
+    const actionTypeLabels = {
+        review: { icon: '👀', label: 'Reviews & Approvals', color: 'text-blue-400' },
+        schedule: { icon: '📅', label: 'Scheduling', color: 'text-purple-400' },
+        communicate: { icon: '💬', label: 'Communications', color: 'text-green-400' },
+        create: { icon: '✏️', label: 'Create & Update', color: 'text-orange-400' },
+        follow_up: { icon: '🔄', label: 'Follow-ups', color: 'text-cyan-400' },
+        general: { icon: '📋', label: 'General', color: 'text-slate-400' }
+    };
+
+    const ownerLabels = {
+        assigned_to_me: { icon: '📥', label: 'Assigned to Me', color: 'bg-red-500/20 text-red-400', desc: 'Items others expect from you' },
+        delegated: { icon: '📤', label: 'Delegated by Me', color: 'bg-blue-500/20 text-blue-400', desc: 'Items you asked others to do' },
+        from_meeting: { icon: '🤝', label: 'From Meetings', color: 'bg-purple-500/20 text-purple-400', desc: 'Action items from meetings' }
+    };
+
     return (
         <div className="space-y-6">
-            {/* Summary */}
+            {/* Summary Cards - More Insightful */}
             <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-                <StatCard title="Total Items" value={data.summary.total} icon="📝" />
-                <StatCard title="High Priority" value={data.summary.byUrgency.high} icon="🔴" />
-                <StatCard title="Medium" value={data.summary.byUrgency.medium} icon="🟡" />
-                <StatCard title="Low" value={data.summary.byUrgency.low} icon="🟢" />
+                <StatCard 
+                    title="Assigned to Me" 
+                    value={data.summary.byOwner?.assignedToMe || 0} 
+                    subtitle="Items I need to act on"
+                    icon="📥" 
+                    tooltip="Emails received containing action keywords like 'please', 'can you', 'review', 'deadline', etc."
+                />
+                <StatCard 
+                    title="Delegated" 
+                    value={data.summary.byOwner?.delegated || 0} 
+                    subtitle="Items I asked others to do"
+                    icon="📤" 
+                    tooltip="Emails I sent containing action keywords. Track what you've asked others to deliver."
+                />
+                <StatCard 
+                    title="High Priority" 
+                    value={data.summary.byUrgency.high} 
+                    subtitle="Needs immediate attention"
+                    icon="🔴" 
+                    tooltip="Items containing urgent keywords: 'urgent', 'asap', 'immediate', 'critical', 'deadline'"
+                />
+                <StatCard 
+                    title="With Deadline" 
+                    value={data.summary.withDeadline || 0} 
+                    subtitle={data.summary.overdue > 0 ? `${data.summary.overdue} overdue` : 'on track'}
+                    icon="⏰" 
+                    tooltip="Items mentioning specific timeframes: 'by EOD', 'by Friday', 'next week', 'tomorrow'"
+                />
             </div>
 
-            {/* Items List */}
-            <div className="leadership-panel">
-                <h3 className="leadership-panel-title">Action Items</h3>
-                <div className="space-y-3">
-                    {data.items.slice(0, 20).map(item => (
-                        <div key={item.id} className="leadership-breakdown-item">
-                            <div className="flex items-start gap-3">
-                                <div className={`mt-1 w-3 h-3 rounded-full ${
-                                    item.urgency === 'high' ? 'bg-red-500' :
-                                    item.urgency === 'medium' ? 'bg-yellow-500' :
-                                    'bg-green-500'
-                                }`}></div>
-                                <div className="flex-1">
-                                    <div className="text-white font-medium mb-1">{item.subject}</div>
-                                    <div className="text-slate-400 text-sm mb-2">{item.snippet}</div>
-                                    <div className="flex items-center gap-3 text-xs text-slate-500">
-                                        <span className="flex items-center gap-1">
-                                            <span className={`px-2 py-0.5 rounded ${
-                                                item.source === 'email' ? 'bg-blue-500/20 text-blue-400' : 'bg-purple-500/20 text-purple-400'
-                                            }`}>
-                                                {item.source}
-                                            </span>
-                                        </span>
-                                        <span>{item.from}</span>
-                                        <span>{new Date(item.date).toLocaleDateString()}</span>
-                                    </div>
+            {/* View Mode Toggle */}
+            <div className="flex gap-2">
+                {[
+                    { id: 'owner', label: 'By Ownership' },
+                    { id: 'type', label: 'By Action Type' },
+                    { id: 'timeline', label: 'By Timeline' },
+                    { id: 'all', label: 'All Items' }
+                ].map(mode => (
+                    <button
+                        key={mode.id}
+                        onClick={() => setViewMode(mode.id)}
+                        style={{
+                            padding: '6px 14px',
+                            borderRadius: '8px',
+                            border: 'none',
+                            background: viewMode === mode.id ? 'rgba(139, 92, 246, 0.2)' : 'rgba(255, 255, 255, 0.05)',
+                            color: viewMode === mode.id ? '#a78bfa' : 'var(--text-secondary)',
+                            fontSize: '13px',
+                            fontWeight: '500',
+                            cursor: 'pointer',
+                            transition: 'all 0.2s ease'
+                        }}
+                    >
+                        {mode.label}
+                    </button>
+                ))}
+            </div>
+
+            {/* Owner View */}
+            {viewMode === 'owner' && data.byOwner && (
+                <div className="space-y-4">
+                    {Object.entries(data.byOwner).map(([ownerKey, items]) => {
+                        if (!items || items.length === 0) return null;
+                        const meta = ownerLabels[ownerKey] || { icon: '📋', label: ownerKey, color: 'bg-slate-500/20 text-slate-400', desc: '' };
+                        return (
+                            <div key={ownerKey} className="leadership-panel">
+                                <h3 className="leadership-panel-title" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                    <span>{meta.icon}</span>
+                                    {meta.label}
+                                    <span className={`ml-2 px-2 py-0.5 rounded text-xs ${meta.color}`}>{items.length}</span>
+                                </h3>
+                                {meta.desc && <p style={{ fontSize: '12px', color: 'var(--text-tertiary)', marginBottom: '12px', marginTop: '-4px' }}>{meta.desc}</p>}
+                                <div className="space-y-3">
+                                    {items.slice(0, 8).map(item => <ActionItemCard key={item.id} item={item} actionTypeLabels={actionTypeLabels} />)}
                                 </div>
                             </div>
+                        );
+                    })}
+                </div>
+            )}
+
+            {/* Action Type View */}
+            {viewMode === 'type' && data.byActionType && (
+                <div className="space-y-4">
+                    {Object.entries(data.byActionType).map(([typeKey, items]) => {
+                        if (!items || items.length === 0) return null;
+                        const meta = actionTypeLabels[typeKey] || { icon: '📋', label: typeKey, color: 'text-slate-400' };
+                        return (
+                            <div key={typeKey} className="leadership-panel">
+                                <h3 className="leadership-panel-title" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                    <span>{meta.icon}</span>
+                                    <span className={meta.color}>{meta.label}</span>
+                                    <span className="ml-2 px-2 py-0.5 rounded text-xs bg-white/10">{items.length}</span>
+                                </h3>
+                                <div className="space-y-3">
+                                    {items.slice(0, 8).map(item => <ActionItemCard key={item.id} item={item} actionTypeLabels={actionTypeLabels} />)}
+                                </div>
+                            </div>
+                        );
+                    })}
+                </div>
+            )}
+
+            {/* Timeline View */}
+            {viewMode === 'timeline' && data.byTimeline && (
+                <div className="space-y-4">
+                    {[
+                        { key: 'overdue', label: '🚨 Overdue', color: 'text-red-400' },
+                        { key: 'today', label: '📌 Today', color: 'text-orange-400' },
+                        { key: 'thisWeek', label: '📅 This Week', color: 'text-blue-400' },
+                        { key: 'older', label: '📁 Earlier', color: 'text-slate-400' }
+                    ].map(({ key, label, color }) => {
+                        const items = data.byTimeline[key] || [];
+                        if (items.length === 0) return null;
+                        return (
+                            <div key={key} className="leadership-panel">
+                                <h3 className="leadership-panel-title" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                    <span className={color}>{label}</span>
+                                    <span className="ml-2 px-2 py-0.5 rounded text-xs bg-white/10">{items.length}</span>
+                                </h3>
+                                <div className="space-y-3">
+                                    {items.slice(0, 8).map(item => <ActionItemCard key={item.id} item={item} actionTypeLabels={actionTypeLabels} />)}
+                                </div>
+                            </div>
+                        );
+                    })}
+                </div>
+            )}
+
+            {/* All Items View (flat list) */}
+            {viewMode === 'all' && (
+                <div className="leadership-panel">
+                    <h3 className="leadership-panel-title">All Action Items ({data.items.length})</h3>
+                    <div className="space-y-3">
+                        {data.items.slice(0, 20).map(item => <ActionItemCard key={item.id} item={item} actionTypeLabels={actionTypeLabels} />)}
+                    </div>
+                </div>
+            )}
+        </div>
+    );
+}
+
+// Reusable Action Item Card
+function ActionItemCard({ item, actionTypeLabels }) {
+    const typeMeta = actionTypeLabels[item.actionType] || { icon: '📋', label: item.actionType, color: 'text-slate-400' };
+    
+    return (
+        <div className="leadership-breakdown-item">
+            <div className="flex items-start gap-3">
+                <div className={`mt-1 w-3 h-3 rounded-full flex-shrink-0 ${
+                    item.urgency === 'high' ? 'bg-red-500' :
+                    item.urgency === 'medium' ? 'bg-yellow-500' :
+                    'bg-green-500'
+                }`}></div>
+                <div className="flex-1">
+                    <div className="text-white font-medium mb-1" style={{ fontSize: '14px' }}>{item.subject}</div>
+                    {item.action && (
+                        <div className="text-slate-300 text-sm mb-2" style={{ 
+                            padding: '8px 12px', 
+                            background: 'rgba(255,255,255,0.03)', 
+                            borderRadius: '6px',
+                            borderLeft: '2px solid rgba(139, 92, 246, 0.3)',
+                            fontStyle: 'italic'
+                        }}>
+                            "{item.action}"
                         </div>
-                    ))}
+                    )}
+                    <div className="flex items-center gap-2 flex-wrap text-xs">
+                        <span className={`px-2 py-0.5 rounded ${
+                            item.source === 'email' ? 'bg-blue-500/20 text-blue-400' : 'bg-purple-500/20 text-purple-400'
+                        }`}>
+                            {item.source}
+                        </span>
+                        <span className={`px-2 py-0.5 rounded bg-white/5 ${typeMeta.color}`}>
+                            {typeMeta.icon} {typeMeta.label}
+                        </span>
+                        {item.owner === 'assigned_to_me' && (
+                            <span className="px-2 py-0.5 rounded bg-red-500/15 text-red-400">📥 For Me</span>
+                        )}
+                        {item.owner === 'delegated' && (
+                            <span className="px-2 py-0.5 rounded bg-blue-500/15 text-blue-400">📤 Delegated</span>
+                        )}
+                        {item.deadlineLabel && (
+                            <span className="px-2 py-0.5 rounded bg-orange-500/15 text-orange-400">⏰ {item.deadlineLabel}</span>
+                        )}
+                        <span className="text-slate-500">{item.from}</span>
+                        <span className="text-slate-500">{new Date(item.date).toLocaleDateString()}</span>
+                    </div>
                 </div>
             </div>
         </div>
