@@ -73,13 +73,59 @@ async function fetchDirectReports(alias) {
             return [];
         }
 
-        // Parse the response content
+        // Parse the response - Phonetool returns structured JSON
         const content = typeof result.content === 'string' 
             ? result.content 
             : result.content.map(c => c.text || '').join('\n');
 
-        // Extract direct reports from the page content
-        const reports = parseDirectReports(content, alias);
+        // Try JSON parsing first (Phonetool API returns JSON)
+        // Note: MCP may append deprecation notices after JSON, so extract JSON portion
+        let reports = [];
+        try {
+            // Extract JSON from content (may have trailing text like deprecation warnings)
+            const jsonMatch = content.match(/^\s*(\{[\s\S]*\})\s*(?:⚠|$)/);
+            const jsonStr = jsonMatch ? jsonMatch[1] : content;
+            const parsed = JSON.parse(jsonStr);
+            const userData = parsed.content || parsed;
+            
+            if (userData.direct_reports && Array.isArray(userData.direct_reports)) {
+                logger.info(`Found ${userData.direct_reports.length} direct reports in JSON response`);
+                
+                // Direct reports only have login, need to fetch names
+                for (const report of userData.direct_reports) {
+                    const login = report.login || report.alias;
+                    if (!login) continue;
+                    
+                    // Try to fetch each report's name from Phonetool
+                    let name = login; // Default to login
+                    try {
+                        const reportUrl = `https://phonetool.amazon.com/users/${login}`;
+                        const reportResult = await mcpClient.callTool('amzn-mcp', 'read_internal_website', { url: reportUrl });
+                        const reportContent = typeof reportResult.content === 'string'
+                            ? reportResult.content
+                            : reportResult.content.map(c => c.text || '').join('\n');
+                        // Extract JSON (strip trailing deprecation notices)
+                        const rJsonMatch = reportContent.match(/^\s*(\{[\s\S]*\})\s*(?:⚠|$)/);
+                        const rJsonStr = rJsonMatch ? rJsonMatch[1] : reportContent;
+                        const reportData = JSON.parse(rJsonStr);
+                        const rd = reportData.content || reportData;
+                        name = rd.name || rd.first_name || login;
+                    } catch (e) {
+                        logger.warn(`Failed to fetch name for ${login}: ${e.message}`);
+                    }
+                    
+                    reports.push({
+                        name,
+                        alias: login,
+                        email: `${login}@amazon.com`
+                    });
+                }
+            }
+        } catch (jsonError) {
+            // Fallback to markdown parsing if not JSON
+            logger.info('Response is not JSON, trying markdown parsing');
+            reports = parseDirectReports(content, alias);
+        }
         
         logger.info(`Found ${reports.length} direct reports for ${alias}`);
 
