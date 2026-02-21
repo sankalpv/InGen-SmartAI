@@ -9,6 +9,8 @@ export default function WeekAheadPage() {
     const [loading, setLoading] = useState(true);
     const [expandedDay, setExpandedDay] = useState(0); // Today expanded by default
 
+    const [aiLoading, setAiLoading] = useState(false);
+
     useEffect(() => {
         fetchWeekAhead();
     }, []);
@@ -16,14 +18,29 @@ export default function WeekAheadPage() {
     async function fetchWeekAhead() {
         setLoading(true);
         try {
-            const res = await fetch('/api/week-ahead');
+            // PHASE 1: Fast calendar data only (no AI) - target <3s
+            const res = await fetch('/api/week-ahead?skipAI=true');
             const result = await res.json();
             if (result.success) {
                 setData(result);
+                setLoading(false); // Show page immediately with calendar data
+
+                // PHASE 2: Background AI analysis (non-blocking)
+                setAiLoading(true);
+                try {
+                    const aiRes = await fetch('/api/week-ahead?aiOnly=true');
+                    const aiResult = await aiRes.json();
+                    if (aiResult.success && aiResult.aiAnalysis) {
+                        setData(prev => ({ ...prev, aiAnalysis: aiResult.aiAnalysis }));
+                    }
+                } catch (aiErr) {
+                    console.warn('AI analysis failed:', aiErr);
+                } finally {
+                    setAiLoading(false);
+                }
             }
         } catch (error) {
             console.error('Failed to fetch week ahead:', error);
-        } finally {
             setLoading(false);
         }
     }
@@ -165,7 +182,7 @@ export default function WeekAheadPage() {
                     </div>
                 )}
 
-                {/* AI Loading State */}
+                {/* AI Loading State - Shows skeleton while AI generates */}
                 {!data.aiAnalysis && (
                     <div style={{
                         background: 'rgba(139, 92, 246, 0.05)',
@@ -173,11 +190,50 @@ export default function WeekAheadPage() {
                         borderRadius: '12px',
                         padding: '20px',
                         marginBottom: '24px',
-                        textAlign: 'center'
+                        overflow: 'hidden'
                     }}>
-                        <span style={{ fontSize: '14px', color: 'var(--text-tertiary)' }}>
-                            🤖 AI Weekly Coach analysis generating... (refresh to see results)
-                        </span>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '16px' }}>
+                            <span style={{ fontSize: '20px' }}>🤖</span>
+                            <h2 style={{ fontSize: '18px', fontWeight: '600', color: '#a78bfa', margin: 0 }}>AI Weekly Coach</h2>
+                            <span style={{
+                                display: 'inline-block',
+                                width: '8px',
+                                height: '8px',
+                                borderRadius: '50%',
+                                background: '#a78bfa',
+                                animation: 'pulse 1.2s ease-in-out infinite',
+                                marginLeft: '8px'
+                            }} />
+                            <span style={{ fontSize: '12px', color: 'var(--text-tertiary)' }}>
+                                {aiLoading ? 'Analyzing your week...' : 'Will generate on next load'}
+                            </span>
+                        </div>
+                        {/* Skeleton lines */}
+                        {[100, 85, 70].map((w, i) => (
+                            <div key={i} style={{
+                                height: '14px',
+                                width: `${w}%`,
+                                borderRadius: '6px',
+                                background: 'rgba(139, 92, 246, 0.1)',
+                                marginTop: i === 0 ? 0 : '8px',
+                                animation: `shimmer 1.6s ease-in-out ${i * 0.15}s infinite`,
+                                backgroundSize: '200% 100%',
+                                backgroundImage: 'linear-gradient(90deg, transparent 0%, rgba(139, 92, 246, 0.08) 50%, transparent 100%)',
+                            }} />
+                        ))}
+                        <div style={{ display: 'flex', gap: '12px', marginTop: '16px' }}>
+                            {[45, 45].map((w, i) => (
+                                <div key={i} style={{
+                                    height: '60px',
+                                    width: `${w}%`,
+                                    borderRadius: '8px',
+                                    background: 'rgba(139, 92, 246, 0.06)',
+                                    animation: `shimmer 1.6s ease-in-out ${0.4 + i * 0.1}s infinite`,
+                                    backgroundSize: '200% 100%',
+                                    backgroundImage: 'linear-gradient(90deg, transparent 0%, rgba(139, 92, 246, 0.05) 50%, transparent 100%)',
+                                }} />
+                            ))}
+                        </div>
                     </div>
                 )}
 

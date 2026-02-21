@@ -8,6 +8,10 @@ const logger = require('../../../services/logger.js').child('WeekAhead');
 
 export async function GET(request) {
     try {
+        const { searchParams } = new URL(request.url);
+        const skipAI = searchParams.get('skipAI') === 'true';
+        const aiOnly = searchParams.get('aiOnly') === 'true';
+
         // Fetch next 8 days of calendar (today + 7 days ahead)
         const meetings = await fetchOutlookCalendar(null, 1, 8);
 
@@ -130,8 +134,31 @@ export async function GET(request) {
         const heaviestDay = weekDays.reduce((max, d) => parseFloat(d.totalMeetingHours) > parseFloat(max.totalMeetingHours) ? d : max, weekDays[0]);
         const lightestDay = weekDays.reduce((min, d) => parseFloat(d.totalMeetingHours) < parseFloat(min.totalMeetingHours) ? d : min, weekDays[0]);
 
-        // AI Analysis - Generate weekly coaching brief
+        // AI Analysis - Generate weekly coaching brief (skip if requested for fast load)
         let aiAnalysis = null;
+        if (skipAI) {
+            // Fast path: Return calendar data immediately, no AI
+            return NextResponse.json({
+                success: true,
+                days,
+                aiAnalysis: null,
+                summary: {
+                    totalMeetings,
+                    totalMeetingHours: totalMeetingHours.toFixed(1),
+                    totalDeepWorkHours: totalDeepWorkHours.toFixed(1),
+                    total1x1s,
+                    heaviestDay: { name: heaviestDay?.dayName, hours: heaviestDay?.totalMeetingHours },
+                    lightestDay: { name: lightestDay?.dayName, hours: lightestDay?.totalMeetingHours },
+                    avgMeetingsPerDay: (totalMeetings / weekDays.length).toFixed(1),
+                    meetingPercentage: ((totalMeetingHours / (weekDays.length * 8)) * 100).toFixed(0)
+                },
+                dateRange: {
+                    start: days[0]?.dateFormatted,
+                    end: days[days.length - 1]?.dateFormatted
+                }
+            });
+        }
+
         try {
             const weekContext = days.filter(d => !d.isWeekend).map(d => 
                 `${d.dayName} (${d.dateFormatted}): ${d.totalMeetings} meetings (${d.totalMeetingHours}h), ${d.deepWorkHours}h deep work, ${d.oneOnOnes} 1:1s. Load: ${d.loadLevel}. Meetings: ${d.meetings.map(m => `${m.timeFormatted} ${m.title} (${m.duration}m, ${m.attendeeCount} people${m.is1x1 ? ', 1:1' : ''})`).join('; ')}`
