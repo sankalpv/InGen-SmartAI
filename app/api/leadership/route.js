@@ -10,9 +10,9 @@ export async function GET(request) {
         const analysisType = searchParams.get('type') || 'all';
         const dateRange = parseInt(searchParams.get('range') || '7');
 
-        // Fetch data
+        // Fetch data with proper date range
         const emails = await fetchOutlookEmails(100); // Get more emails for better analysis
-        const meetings = await fetchOutlookCalendar();
+        const meetings = await fetchOutlookCalendar(null, dateRange); // Pass date range to calendar fetch
 
         const results = {};
 

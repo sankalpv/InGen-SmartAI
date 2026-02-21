@@ -9,10 +9,19 @@ on run argv
                 return ""
             end if
             
-            -- Date range: Last 7 days + Next 3 days (for analytics)
+            -- Date range: Configurable lookback + Next 3 days
             set today to (current date)
             set time of today to 0
-            set startDate to today - (7 * days)
+            
+            -- Get lookback days from second argument (default 7)
+            set lookbackDays to 7
+            if (count of argv) > 1 then
+                try
+                    set lookbackDays to (item 2 of argv) as integer
+                end try
+            end if
+            
+            set startDate to today - (lookbackDays * days)
             set endDate to today + (3 * days)
             
             set outputList to {}

@@ -36,7 +36,14 @@ export default function LeadershipDashboard() {
                     {/* Header */}
                     <div className="mb-8">
                         <h1 className="text-4xl font-bold text-white mb-3">Leadership Analytics</h1>
-                        <p className="text-lg text-slate-300">Data-driven insights for senior leaders</p>
+                        <p className="text-lg text-slate-300">
+                            Data-driven insights for senior leaders
+                            {analytics && (
+                                <span className="ml-2 text-sm text-slate-400">
+                                    · {analytics.timeAudit?.meetings?.total || 0} meetings analyzed over {dateRange} days
+                                </span>
+                            )}
+                        </p>
                         
                         {/* Date Range Selector - Apple Glass Style */}
                         <div className="mt-6 date-selector-container">
@@ -114,8 +121,9 @@ function TimeAuditView({ data }) {
                 <StatCard
                     title="Total Meetings"
                     value={data.meetings.total}
-                    subtitle={`${data.meetings.avgPerDay} per day`}
+                    subtitle={`${data.meetings.avgPerDay} per day · Busy/Tentative only`}
                     icon="📅"
+                    tooltip="Includes meetings marked as Busy or Tentative. Excludes Out-of-Office and Free time blocks."
                 />
                 <StatCard
                     title="Meeting Hours"
@@ -128,13 +136,15 @@ function TimeAuditView({ data }) {
                     value={`${data.deepWork.totalHours}h`}
                     subtitle={`${data.deepWork.percentageOfWorkDay}% of work time`}
                     icon="🎯"
+                    tooltip="Calculated as: Total work time (8h/day) minus meeting time. Represents time available for focused work."
                 />
                 <StatCard
                     title="Balance"
                     value={data.balance.assessment.replace(/-/g, ' ')}
-                    subtitle={`${data.balance.meetingToDeepWorkRatio}:1 ratio`}
+                    subtitle={`${data.balance.meetingToDeepWorkRatio}:1 meeting-to-deep-work ratio`}
                     icon="⚖️"
                     valueClass="text-2xl"
+                    tooltip="Balance assessment based on meeting percentage: >70% = meeting-heavy, 50-70% = balanced, 30-50% = deep-work-focused, <30% = minimal-meetings"
                 />
             </div>
 
@@ -405,17 +415,67 @@ function DecisionsView({ data }) {
 }
 
 // Stat Card Component
-function StatCard({ title, value, subtitle, icon, valueClass = "leadership-stat-value" }) {
+function StatCard({ title, value, subtitle, icon, valueClass = "leadership-stat-value", tooltip }) {
+    const [showTooltip, setShowTooltip] = useState(false);
+    
     return (
-        <div className="leadership-stat-card">
+        <div 
+            className="leadership-stat-card" 
+            style={{ position: 'relative' }}
+            onMouseEnter={() => tooltip && setShowTooltip(true)}
+            onMouseLeave={() => setShowTooltip(false)}
+        >
             <div className="flex items-start justify-between mb-3">
-                <div className="leadership-stat-title">{title}</div>
+                <div className="leadership-stat-title">
+                    {title}
+                    {tooltip && (
+                        <span className="ml-1 text-slate-500 text-xs">ℹ️</span>
+                    )}
+                </div>
                 {icon && <span className="leadership-stat-icon">{icon}</span>}
             </div>
             <div className={valueClass}>
                 {value}
             </div>
             {subtitle && <div className="leadership-stat-subtitle">{subtitle}</div>}
+            
+            {/* Tooltip */}
+            {tooltip && showTooltip && (
+                <div style={{
+                    position: 'absolute',
+                    bottom: '100%',
+                    left: '50%',
+                    transform: 'translateX(-50%)',
+                    marginBottom: '8px',
+                    background: 'rgba(17, 24, 39, 0.98)',
+                    backdropFilter: 'blur(20px)',
+                    border: '1px solid rgba(139, 92, 246, 0.3)',
+                    borderRadius: '8px',
+                    padding: '12px',
+                    width: '280px',
+                    fontSize: '12px',
+                    lineHeight: '1.5',
+                    color: 'var(--text-secondary)',
+                    boxShadow: '0 10px 40px rgba(0, 0, 0, 0.3)',
+                    zIndex: 1000,
+                    pointerEvents: 'none'
+                }}>
+                    <div style={{
+                        position: 'absolute',
+                        bottom: '-6px',
+                        left: '50%',
+                        transform: 'translateX(-50%)',
+                        width: '12px',
+                        height: '12px',
+                        background: 'rgba(17, 24, 39, 0.98)',
+                        border: '1px solid rgba(139, 92, 246, 0.3)',
+                        borderTop: 'none',
+                        borderLeft: 'none',
+                        transform: 'translateX(-50%) rotate(45deg)'
+                    }} />
+                    {tooltip}
+                </div>
+            )}
         </div>
     );
 }

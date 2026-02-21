@@ -122,35 +122,37 @@ export function clearCalendarCache() {
     console.log('[Outlook] Calendar cache cleared');
 }
 
-export async function fetchOutlookCalendar(calendarId) {
+export async function fetchOutlookCalendar(calendarId, lookbackDays = 30) {
     if (isWin) {
         const WindowsService = await getWindowsService();
         return WindowsService.fetchOutlookCalendar(calendarId);
     }
-    // Check Cache (Include calendarId in cache key to avoid mixing data)
-    const cacheKey = calendarId || 'default';
+    // Check Cache (Include calendarId AND lookback days in cache key)
+    const cacheKey = `${calendarId || 'default'}_${lookbackDays}`;
     const now = Date.now();
 
-    // Simple cache invalidation if ID changes or TTL expires
-    // ideally we'd map cache by ID but for now let's just clear if ID is different
+    // Simple cache invalidation if key changes or TTL expires
     if (calendarCache.id !== cacheKey) {
         calendarCache.data = [];
     }
 
     if (calendarCache.data.length > 0 && (now - calendarCache.timestamp < CACHE_TTL)) {
-        console.log('Returning cached Outlook calendar data');
+        console.log(`Returning cached Outlook calendar data (${lookbackDays} days)`);
         return calendarCache.data;
     }
 
     try {
         // Use absolute path to ensure script is found regardless of CWD
-        // process.cwd() in Next.js api routes is usually the project root, but let's be explicit
         const scriptPath = path.resolve(process.cwd(), 'scripts/fetch_calendar_local.scpt');
 
+        // Pass both calendarId and lookbackDays as arguments
         let cmd = `osascript "${scriptPath}"`;
         if (calendarId) {
-            cmd += ` "${calendarId}"`; // Pass ID as argument
+            cmd += ` "${calendarId}"`;
         }
+        cmd += ` "${lookbackDays}"`; // Always pass lookback days
+        
+        logger.info(`Fetching calendar with ${lookbackDays} days lookback`);
 
         // AppleScript doesn't need -l JavaScript
         const { stdout, stderr } = await execAsync(cmd, { timeout: 60000 });
