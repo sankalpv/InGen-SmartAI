@@ -200,7 +200,8 @@ export default function Dashboard() {
         setIsBriefingLoading(true); // Show skeleton immediately
 
         try {
-            const emailUrl = currentSource === 'outlook' ? '/api/outlook-local' : '/api/emails';
+            // Fetch more emails to support date range filtering (default was 20, now 100)
+            const emailUrl = currentSource === 'outlook' ? '/api/outlook-local?count=100' : '/api/emails';
 
             // Fire all requests in parallel — none block each other
             const [emailRes, calendarRes] = await Promise.allSettled([
