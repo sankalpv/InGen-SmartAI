@@ -71,10 +71,11 @@ on run argv
                 end try
 
                 -- PHASE 2: Get recurring events whose master start is BEFORE our range
-                -- Only include BUSY events from last 1 year to reduce noise
+                -- Only include BUSY events from last 90 days to minimize stale/infrequent meetings
+                -- (Quarterly meetings created >90 days ago won't appear)
                 try
-                    set oneYearAgo to today - (365 * days)
-                    set recurringEvts to (every calendar event of targetCal whose is recurring is true and start time < startDate and start time > oneYearAgo and free busy status is busy)
+                    set ninetyDaysAgo to today - (90 * days)
+                    set recurringEvts to (every calendar event of targetCal whose is recurring is true and start time < startDate and start time > ninetyDaysAgo and free busy status is busy)
                     
                     repeat with evt in recurringEvts
                         try
@@ -89,12 +90,16 @@ on run argv
                             -- Get day of week of the master event (1=Sun, 2=Mon, etc.)
                             set evtDayOfWeek to weekday of evtStart
                             
-                            -- Skip free/cancelled events (only expand busy/tentative)
+                            -- Skip free/cancelled events and check for duration sanity
                             set evtBusy to "busy"
                             try
                                 set evtBusy to (free busy status of evt) as string
                             end try
-                            if evtBusy is not "free" then
+                            
+                            -- Skip all-day and multi-day events (OOO blocks)
+                            if evtDuration > (23 * 60 * 60) then
+                                -- Skip: duration > 23 hours = all-day event
+                            else if evtBusy is not "free" then
                                 -- Check each day in our range to see if this recurring event falls on it
                                 set checkDate to startDate
                                 repeat while checkDate < endDate
@@ -114,6 +119,7 @@ on run argv
                                     end if
                                     set checkDate to checkDate + 1 * days
                                 end repeat
+                            end if
                             end if
                         on error
                             -- Skip problematic recurring events
