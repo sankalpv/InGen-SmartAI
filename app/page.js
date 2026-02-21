@@ -23,6 +23,22 @@ import AIChat from '@/components/AIChat'; // Added
 
 // Email Priority Lanes Component - Visual swim lanes by urgency
 function EmailPriorityLanes({ emails }) {
+    const [emailDateRange, setEmailDateRange] = useState(1); // Default: today (1 day)
+
+    // Filter emails by date range
+    const cutoffDate = new Date(Date.now() - emailDateRange * 24 * 60 * 60 * 1000);
+    const filteredEmails = emails.filter(e => {
+        const emailDate = new Date(e.date || e.received || e.receivedDateTime);
+        return emailDate >= cutoffDate;
+    });
+
+    const dateRangeOptions = [
+        { value: 1, label: 'Today' },
+        { value: 7, label: '7 days' },
+        { value: 14, label: '14 days' },
+        { value: 30, label: '30 days' },
+    ];
+
     const lanes = [
         {
             id: 'respond_now',
@@ -30,7 +46,7 @@ function EmailPriorityLanes({ emails }) {
             color: '#ef4444',
             bgColor: 'rgba(239, 68, 68, 0.08)',
             borderColor: 'rgba(239, 68, 68, 0.25)',
-            emails: emails.filter(e => (e.aiCategory || '').toLowerCase() === 'respond_now'),
+            emails: filteredEmails.filter(e => (e.aiCategory || '').toLowerCase() === 'respond_now'),
             defaultOpen: true
         },
         {
@@ -39,7 +55,7 @@ function EmailPriorityLanes({ emails }) {
             color: '#eab308',
             bgColor: 'rgba(234, 179, 8, 0.06)',
             borderColor: 'rgba(234, 179, 8, 0.2)',
-            emails: emails.filter(e => (e.aiCategory || '').toLowerCase() === 'respond_today'),
+            emails: filteredEmails.filter(e => (e.aiCategory || '').toLowerCase() === 'respond_today'),
             defaultOpen: true
         },
         {
@@ -48,7 +64,7 @@ function EmailPriorityLanes({ emails }) {
             color: '#6b7280',
             bgColor: 'rgba(107, 114, 128, 0.05)',
             borderColor: 'rgba(107, 114, 128, 0.15)',
-            emails: emails.filter(e => {
+            emails: filteredEmails.filter(e => {
                 const cat = (e.aiCategory || 'fyi').toLowerCase();
                 return cat !== 'respond_now' && cat !== 'respond_today';
             }),
@@ -66,6 +82,34 @@ function EmailPriorityLanes({ emails }) {
 
     return (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+            {/* Date Range Filter */}
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <span style={{ fontSize: '13px', color: 'var(--text-tertiary)' }}>
+                    Showing {filteredEmails.length} of {emails.length} emails
+                </span>
+                <div style={{ display: 'flex', gap: '6px' }}>
+                    {dateRangeOptions.map(opt => (
+                        <button
+                            key={opt.value}
+                            onClick={() => setEmailDateRange(opt.value)}
+                            style={{
+                                padding: '5px 12px',
+                                borderRadius: '6px',
+                                border: 'none',
+                                background: emailDateRange === opt.value ? 'rgba(139, 92, 246, 0.2)' : 'rgba(255, 255, 255, 0.05)',
+                                color: emailDateRange === opt.value ? '#a78bfa' : 'var(--text-secondary)',
+                                fontSize: '12px',
+                                fontWeight: '500',
+                                cursor: 'pointer',
+                                transition: 'all 0.2s ease'
+                            }}
+                        >
+                            {opt.label}
+                        </button>
+                    ))}
+                </div>
+            </div>
+
             {lanes.map(lane => (
                 <div key={lane.id} style={{
                     background: lane.bgColor,
