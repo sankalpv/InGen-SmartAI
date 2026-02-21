@@ -71,6 +71,16 @@ export async function POST(request) {
                 }
                 result = await insightStore.markAsActed(id, actionType, feedback);
                 break;
+            case 'feedback':
+                const { score, comment } = body;
+                if (score === undefined) {
+                    return NextResponse.json(
+                        { error: 'score required for feedback action' },
+                        { status: 400 }
+                    );
+                }
+                result = await insightStore.submitFeedback(id, score, comment);
+                break;
             default:
                 return NextResponse.json(
                     { error: `Unknown action: ${action}` },

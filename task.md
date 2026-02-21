@@ -63,14 +63,14 @@
 - [x] Created `services/proactive-agent.js` (Orchestrates all insights) <!-- id: 45 -->
 - [x] Added sqlite3 dependency to package.json <!-- id: 46 -->
 
-### Week 2: Frontend & API (Next Phase)
-- [ ] Create `/api/insights` endpoint (GET unread, POST actions) <!-- id: 47 -->
-- [ ] Create `components/InsightNotifications.js` (Toast system) <!-- id: 48 -->
-- [ ] Create `components/InsightFeed.js` (Insight center) <!-- id: 49 -->
-- [ ] Add insight badge to Header/Sidebar <!-- id: 50 -->
-- [ ] Integrate proactive agent with background-agent.js <!-- id: 51 -->
+### Week 2: Frontend & API ✅ COMPLETE
+- [x] Create `/api/insights` endpoint (GET unread, POST actions) <!-- id: 47 -->
+- [x] Create `components/InsightNotifications.js` (Toast system) <!-- id: 48 -->
+- [x] Create `components/InsightFeed.js` (Insight center) <!-- id: 49 -->
+- [x] Add insight badge to Header/Sidebar <!-- id: 50 -->
+- [x] Integrate proactive agent with background-agent.js <!-- id: 51 -->
 
-### Week 3: Actions & Polish (Planned)
+### Week 3: Actions & Polish (Next Phase)
 - [ ] Implement "Generate Brief" action handler <!-- id: 52 -->
 - [ ] Implement "Draft Check-in" action handler <!-- id: 53 -->
 - [ ] Add insight feedback mechanism (helpful/not helpful) <!-- id: 54 -->

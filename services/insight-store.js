@@ -53,7 +53,9 @@ class InsightStore {
                             dismissed_at INTEGER,
                             acted_at INTEGER,
                             action_type TEXT,
-                            feedback TEXT
+                            feedback TEXT,
+                            feedback_score INTEGER,
+                            feedback_comment TEXT
                         )
                     `);
 
@@ -248,6 +250,29 @@ class InsightStore {
                     reject(err);
                 } else {
                     logger.info(`Marked insight as acted: ${insightId}`);
+                    resolve();
+                }
+            });
+        });
+    }
+
+    /**
+     * Submit feedback for an insight
+     */
+    async submitFeedback(insightId, score, comment = null) {
+        if (!this.initialized) await this.init();
+
+        return new Promise((resolve, reject) => {
+            this.db.run(`
+                UPDATE insights 
+                SET feedback_score = ?, feedback_comment = ? 
+                WHERE id = ?
+            `, [score, comment, insightId], (err) => {
+                if (err) {
+                    logger.error('Failed to submit feedback:', err);
+                    reject(err);
+                } else {
+                    logger.info(`Submitted feedback for insight: ${insightId} (score: ${score})`);
                     resolve();
                 }
             });

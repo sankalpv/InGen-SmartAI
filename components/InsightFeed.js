@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { X, Lightbulb, AlertCircle, Calendar, Mail, TrendingUp, Filter, Eye, EyeOff, Trash2, CheckCircle } from 'lucide-react';
+import { X, Lightbulb, AlertCircle, Calendar, Mail, TrendingUp, Filter, Eye, EyeOff, Trash2, CheckCircle, ThumbsUp, ThumbsDown } from 'lucide-react';
 
 export default function InsightFeed({ isOpen, onClose, initialInsight = null }) {
     const [activeTab, setActiveTab] = useState('unread');
@@ -52,6 +52,19 @@ export default function InsightFeed({ isOpen, onClose, initialInsight = null }) 
             await fetchInsights(); // Refresh
         } catch (error) {
             console.error(`Failed to ${action} insight:`, error);
+        }
+    };
+
+    const handleFeedback = async (insightId, score) => {
+        try {
+            await fetch('/api/insights', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ id: insightId, action: 'feedback', score })
+            });
+            await fetchInsights(); // Refresh
+        } catch (error) {
+            console.error('Failed to submit feedback:', error);
         }
     };
 
@@ -450,6 +463,75 @@ export default function InsightFeed({ isOpen, onClose, initialInsight = null }) 
                                                             <Trash2 size={14} />
                                                             Dismiss
                                                         </button>
+                                                    )}
+
+                                                    {/* Feedback Buttons */}
+                                                    {insight.read_at && !insight.feedback_score && (
+                                                        <>
+                                                            <div style={{
+                                                                width: '1px',
+                                                                height: '24px',
+                                                                background: 'rgba(255, 255, 255, 0.1)',
+                                                                margin: '0 4px'
+                                                            }} />
+                                                            <button
+                                                                onClick={() => handleFeedback(insight.id, 1)}
+                                                                style={{
+                                                                    padding: '6px 12px',
+                                                                    borderRadius: '6px',
+                                                                    border: '1px solid rgba(34, 197, 94, 0.3)',
+                                                                    background: 'rgba(34, 197, 94, 0.1)',
+                                                                    color: '#22c55e',
+                                                                    fontSize: '12px',
+                                                                    fontWeight: '500',
+                                                                    cursor: 'pointer',
+                                                                    display: 'flex',
+                                                                    alignItems: 'center',
+                                                                    gap: '6px',
+                                                                    transition: 'all 0.2s ease',
+                                                                }}
+                                                                title="This was helpful"
+                                                            >
+                                                                <ThumbsUp size={14} />
+                                                            </button>
+                                                            <button
+                                                                onClick={() => handleFeedback(insight.id, -1)}
+                                                                style={{
+                                                                    padding: '6px 12px',
+                                                                    borderRadius: '6px',
+                                                                    border: '1px solid rgba(239, 68, 68, 0.3)',
+                                                                    background: 'rgba(239, 68, 68, 0.1)',
+                                                                    color: '#ef4444',
+                                                                    fontSize: '12px',
+                                                                    fontWeight: '500',
+                                                                    cursor: 'pointer',
+                                                                    display: 'flex',
+                                                                    alignItems: 'center',
+                                                                    gap: '6px',
+                                                                    transition: 'all 0.2s ease',
+                                                                }}
+                                                                title="This was not helpful"
+                                                            >
+                                                                <ThumbsDown size={14} />
+                                                            </button>
+                                                        </>
+                                                    )}
+
+                                                    {/* Show feedback status */}
+                                                    {insight.feedback_score && (
+                                                        <span style={{
+                                                            fontSize: '11px',
+                                                            padding: '4px 8px',
+                                                            borderRadius: '4px',
+                                                            background: insight.feedback_score > 0 
+                                                                ? 'rgba(34, 197, 94, 0.15)' 
+                                                                : 'rgba(239, 68, 68, 0.15)',
+                                                            color: insight.feedback_score > 0 ? '#22c55e' : '#ef4444',
+                                                            fontWeight: '500',
+                                                            marginLeft: '8px',
+                                                        }}>
+                                                            Feedback: {insight.feedback_score > 0 ? 'Helpful 👍' : 'Not helpful 👎'}
+                                                        </span>
                                                     )}
                                                 </div>
                                             </div>
