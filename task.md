@@ -48,3 +48,38 @@
 - [x] Implement `vectorStore.search` integration in Draft API <!-- id: 38 -->
 - [x] Verify Vector Search accuracy with test queries <!-- id: 39 -->
 - [x] Implement RAG for Meeting Briefs (`prepareMeetingBrief`) <!-- id: 40 -->
+
+## Phase 7: AI-Native Proactive Intelligence 🤖
+### Week 1: AI Infrastructure ✅ COMPLETE
+- [x] Enhanced `services/vector-store.js` with filtered vector search <!-- id: 41 -->
+- [x] Added metadata tracking and update methods to vector store <!-- id: 42 -->
+- [x] Created `services/ai-insights.js` (AI-powered insight generation) <!-- id: 43 -->
+  - [x] `predictMeetingOutcome()` - Predict meeting patterns
+  - [x] `generateContextualInsights()` - LLM-driven insights from activity
+  - [x] `predictBlockers()` - Proactive blocker detection
+  - [x] `scoreEmailImportance()` - AI email prioritization
+  - [x] `generateWeeklyPrediction()` - Predictive weekly reports
+- [x] Created `services/insight-store.js` (SQLite storage for insights) <!-- id: 44 -->
+- [x] Created `services/proactive-agent.js` (Orchestrates all insights) <!-- id: 45 -->
+- [x] Added sqlite3 dependency to package.json <!-- id: 46 -->
+
+### Week 2: Frontend & API (Next Phase)
+- [ ] Create `/api/insights` endpoint (GET unread, POST actions) <!-- id: 47 -->
+- [ ] Create `components/InsightNotifications.js` (Toast system) <!-- id: 48 -->
+- [ ] Create `components/InsightFeed.js` (Insight center) <!-- id: 49 -->
+- [ ] Add insight badge to Header/Sidebar <!-- id: 50 -->
+- [ ] Integrate proactive agent with background-agent.js <!-- id: 51 -->
+
+### Week 3: Actions & Polish (Planned)
+- [ ] Implement "Generate Brief" action handler <!-- id: 52 -->
+- [ ] Implement "Draft Check-in" action handler <!-- id: 53 -->
+- [ ] Add insight feedback mechanism (helpful/not helpful) <!-- id: 54 -->
+- [ ] Create insight analytics dashboard <!-- id: 55 -->
+- [ ] Add confidence-based filtering <!-- id: 56 -->
+
+### Week 4-5: Production & Optimization (Planned)
+- [ ] Optimize LLM prompts for accuracy <!-- id: 57 -->
+- [ ] Add embedding caching for performance <!-- id: 58 -->
+- [ ] Implement adaptive confidence tuning <!-- id: 59 -->
+- [ ] Add A/B testing for insight types <!-- id: 60 -->
+- [ ] Launch beta with telemetry <!-- id: 61 -->

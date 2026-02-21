@@ -152,7 +152,7 @@ class VectorStore {
         }
     }
 
-    async search(query, k = 3) {
+    async search(query, k = 3, options = {}) {
         if (!VECTOR_STORE_AVAILABLE) {
             logger.warn('Search skipped — vector store unavailable.');
             return [];
@@ -161,21 +161,119 @@ class VectorStore {
 
         try {
             const vector = await this.getEmbedding(query);
-            const result = this.index.searchKnn(vector, k);
-
-            // result is { neighbors: [id1, id2], distances: [0.1, 0.2] }
-            const hits = result.neighbors.map((id, index) => {
-                return {
-                    ...this.metadata[id],
-                    distance: result.distances[index]
-                };
-            });
-
-            return hits;
+            return await this.searchByVector(vector, { ...options, limit: k });
         } catch (e) {
             logger.error('Search failed:', e.message);
             return [];
         }
+    }
+
+    /**
+     * Search using a pre-computed vector with optional metadata filters
+     * @param {Array<number>} vector - The embedding vector
+     * @param {Object} options - Search options
+     * @param {Object} options.filter - Metadata filters (e.g., {source: 'email', hasBlocker: true})
+     * @param {number} options.limit - Number of results (default: 3)
+     * @param {number} options.maxDistance - Maximum distance threshold (default: Infinity)
+     * @returns {Array} Matching documents with metadata and distance scores
+     */
+    async searchByVector(vector, options = {}) {
+        if (!VECTOR_STORE_AVAILABLE) {
+            logger.warn('Vector search skipped — vector store unavailable.');
+            return [];
+        }
+        if (!this.loaded) await this.init();
+
+        const { filter = {}, limit = 3, maxDistance = Infinity } = options;
+
+        try {
+            // Search with larger k to account for filtering
+            const searchK = Math.min(limit * 10, 100);
+            const result = this.index.searchKnn(vector, searchK);
+
+            // Apply filters and distance threshold
+            const hits = result.neighbors
+                .map((id, index) => ({
+                    id,
+                    metadata: this.metadata[id],
+                    distance: result.distances[index]
+                }))
+                .filter(hit => {
+                    // Apply distance threshold
+                    if (hit.distance > maxDistance) return false;
+
+                    // Apply metadata filters
+                    for (const [key, value] of Object.entries(filter)) {
+                        if (hit.metadata[key] !== value) return false;
+                    }
+
+                    return true;
+                })
+                .slice(0, limit)
+                .map(hit => ({
+                    ...hit.metadata,
+                    distance: hit.distance
+                }));
+
+            return hits;
+        } catch (e) {
+            logger.error('Vector search failed:', e.message);
+            return [];
+        }
+    }
+
+    /**
+     * Update metadata for an existing document
+     * @param {string} outlookId - The Outlook ID of the document
+     * @param {Object} updates - Metadata fields to update
+     */
+    updateMetadata(outlookId, updates) {
+        const internalId = Object.keys(this.metadata).find(
+            key => this.metadata[key].outlookId === outlookId
+        );
+
+        if (internalId) {
+            this.metadata[internalId] = {
+                ...this.metadata[internalId],
+                ...updates,
+                lastUpdated: new Date().toISOString()
+            };
+            this.save();
+            logger.info(`Updated metadata for ${outlookId}`);
+            return true;
+        }
+
+        logger.warn(`Document not found: ${outlookId}`);
+        return false;
+    }
+
+    /**
+     * Get document metadata by Outlook ID
+     */
+    getMetadata(outlookId) {
+        const internalId = Object.keys(this.metadata).find(
+            key => this.metadata[key].outlookId === outlookId
+        );
+        return internalId ? this.metadata[internalId] : null;
+    }
+
+    /**
+     * Get statistics about the vector store
+     */
+    getStats() {
+        const docs = Object.values(this.metadata);
+        return {
+            totalDocuments: docs.length,
+            byType: {
+                email: docs.filter(d => d.type === 'email').length,
+                meeting: docs.filter(d => d.type === 'meeting').length
+            },
+            withActionItems: docs.filter(d => d.hasActionItem).length,
+            withBlockers: docs.filter(d => d.hasBlocker).length,
+            withDecisions: docs.filter(d => d.hasDecision).length,
+            dimension: VECTOR_DIMENSION,
+            model: EMBEDDING_MODEL
+        };
     }
 }
 
