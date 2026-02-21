@@ -63,10 +63,14 @@ export async function GET(request) {
                 // For recurring expansions (R-prefixed IDs), be more selective
                 const isRecurringExpansion = (m.id || '').startsWith('R');
                 if (isRecurringExpansion) {
-                    // Only include if: user's meeting (small), or marked busy
+                    // Only include if marked busy
                     if (status !== 'busy') return false;
-                    // Skip very large meetings (likely org-wide, user probably doesn't attend all)
+                    // Skip very large meetings (likely org-wide)
                     if (attendeeCount > 50 && !is1x1WithUser) return false;
+                    // Skip biweekly/monthly/quarterly meetings - can't verify correct week
+                    const isBiweekly = mtitle.includes('bi-weekly') || mtitle.includes('biweekly') || mtitle.includes('bi weekly');
+                    const isMonthly = mtitle.includes('monthly') || mtitle.includes('quarterly');
+                    if (isBiweekly || isMonthly) return false;
                 }
                 
                 return status === 'busy' || status === 'tentative' || is1x1WithUser;
