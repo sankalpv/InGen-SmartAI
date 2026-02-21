@@ -288,15 +288,17 @@ CRITICAL INSTRUCTIONS FOR QUIP DOCUMENTS:
     }
 
     try {
-        // Strict timeout (60s)
+        // Increased timeout to 120s for complex briefings with Quip documents
         const timeoutPromise = new Promise((_, reject) =>
-            setTimeout(() => reject(new Error('AI_TIMEOUT')), 60000)
+            setTimeout(() => reject(new Error('AI_TIMEOUT: Briefing generation exceeded 120s. Try reducing email count or disabling Quip.')), 120000)
         );
 
         // Turn OFF jsonMode, Low Temperature (0.2) for stability
+        logger.info('Starting daily briefing generation...');
         const completionPromise = withRetry(() => generateCompletion(system, prompt, false, 0.2));
 
         const resultRaw = await Promise.race([completionPromise, timeoutPromise]);
+        logger.info('Daily briefing generated successfully');
         console.log('[AI] Briefing Raw:', resultRaw);
 
         // Manual Parsing of Text Output
