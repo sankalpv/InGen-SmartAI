@@ -17,6 +17,7 @@ import EmailCard from '@/components/EmailCard';
 import MeetingCard from '@/components/MeetingCard';
 import SlackCard from '@/components/SlackCard';
 import WeeklyRetroModal from '@/components/WeeklyRetroModal'; // Added
+import InsightNotifications from '@/components/InsightNotifications'; // Added
 
 import AIChat from '@/components/AIChat'; // Added
 
@@ -32,6 +33,8 @@ export default function Dashboard() {
     const [isRefreshing, setIsRefreshing] = useState(false);
     const [error, setError] = useState(null);
     const [showRetro, setShowRetro] = useState(false); // Added
+    const [showInsightFeed, setShowInsightFeed] = useState(false); // Added
+    const [selectedInsight, setSelectedInsight] = useState(null); // Added
     const [emailSource, setEmailSource] = useState('outlook');
 
     const fetchData = useCallback(async (sourceOverride) => {
@@ -442,6 +445,14 @@ export default function Dashboard() {
             )}
             {/* Chat Interface */}
             <AIChat />
+
+            {/* Toast Notifications */}
+            <InsightNotifications 
+                onInsightClick={(insight) => {
+                    setSelectedInsight(insight);
+                    setShowInsightFeed(true);
+                }} 
+            />
         </div>
     );
 }

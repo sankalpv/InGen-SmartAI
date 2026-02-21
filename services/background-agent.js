@@ -3,16 +3,20 @@ const fs = require('fs');
 const path = require('path');
 const { exec } = require('child_process');
 const vectorStore = require('./vector-store'); // Added import
+const proactiveAgent = require('./proactive-agent'); // Added import
 const logger = require('./logger').child('Agent');
 
 // Configuration
 const SYNC_INTERVAL_CRON = '*/15 * * * *'; // Every 15 minutes
+const INSIGHT_INTERVAL_CRON = '*/30 * * * *'; // Every 30 minutes
 const STATE_FILE = path.join(process.cwd(), 'sync_state.json');
 const SCRIPT_PATH = path.join(process.cwd(), 'scripts', 'fetch_outlook_incremental.js');
 
 // Initialize State
 let state = {
-    lastSyncTimestamp: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString() // Default to 24h ago
+    lastSyncTimestamp: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(), // Default to 24h ago
+    lastInsightRun: null,
+    insightsGenerated: 0
 };
 
 if (fs.existsSync(STATE_FILE)) {
@@ -28,6 +32,7 @@ if (fs.existsSync(STATE_FILE)) {
 const SYNC_TIMEOUT = 1000 * 60 * 5; // 5 minutes timeout
 
 let isSyncing = false;
+let isGeneratingInsights = false;
 
 async function runSync() {
     if (isSyncing) {
@@ -104,12 +109,49 @@ async function runSync() {
     });
 }
 
-// Start Cron
+// Insight Generation Function
+async function generateInsights() {
+    if (isGeneratingInsights) {
+        logger.info('Insight generation already in progress, skipping...');
+        return;
+    }
+
+    isGeneratingInsights = true;
+    logger.info('Starting AI Insight Generation...');
+
+    try {
+        const result = await proactiveAgent.runProactiveAnalysis();
+        
+        logger.info(`Insight generation complete. Generated ${result.generated} insights.`);
+        
+        // Update state
+        state.lastInsightRun = new Date().toISOString();
+        state.insightsGenerated = (state.insightsGenerated || 0) + result.generated;
+        fs.writeFileSync(STATE_FILE, JSON.stringify(state, null, 2));
+        
+    } catch (error) {
+        logger.error('Insight generation failed:', error.message);
+        logger.error(error.stack);
+    } finally {
+        isGeneratingInsights = false;
+    }
+}
+
+// Start Cron Jobs
 logger.info('Starting Local Autonomous Agent Background Service...');
-logger.info('Schedule:', SYNC_INTERVAL_CRON);
+logger.info('Email Sync Schedule:', SYNC_INTERVAL_CRON);
+logger.info('Insight Generation Schedule:', INSIGHT_INTERVAL_CRON);
+
+// Email sync cron
 cron.schedule(SYNC_INTERVAL_CRON, () => {
     runSync();
 });
 
+// Insight generation cron
+cron.schedule(INSIGHT_INTERVAL_CRON, () => {
+    generateInsights();
+});
+
 // Run once immediately on start for testing
 runSync();
+generateInsights();
