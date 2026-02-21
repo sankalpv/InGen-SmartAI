@@ -146,13 +146,11 @@ export async function fetchOutlookCalendar(calendarId, lookbackDays = 30) {
         const scriptPath = path.resolve(process.cwd(), 'scripts/fetch_calendar_local.scpt');
 
         // Pass both calendarId and lookbackDays as arguments
-        let cmd = `osascript "${scriptPath}"`;
-        if (calendarId) {
-            cmd += ` "${calendarId}"`;
-        }
-        cmd += ` "${lookbackDays}"`; // Always pass lookback days
+        // IMPORTANT: AppleScript expects: argv[0]=calendarId, argv[1]=lookbackDays
+        const calId = calendarId || '432'; // Default calendar ID
+        const cmd = `osascript "${scriptPath}" "${calId}" "${lookbackDays}"`;
         
-        logger.info(`Fetching calendar with ${lookbackDays} days lookback`);
+        logger.info(`Fetching calendar ID ${calId} with ${lookbackDays} days lookback`);
 
         // AppleScript doesn't need -l JavaScript
         const { stdout, stderr } = await execAsync(cmd, { timeout: 60000 });
