@@ -21,8 +21,16 @@ on run argv
                 end try
             end if
             
+            -- Get forward days from third argument (default 3)
+            set forwardDays to 3
+            if (count of argv) > 2 then
+                try
+                    set forwardDays to (item 3 of argv) as integer
+                end try
+            end if
+            
             set startDate to today - (lookbackDays * days)
-            set endDate to today + (3 * days)
+            set endDate to today + (forwardDays * days)
             
             set outputList to {}
             set targetCal to missing value

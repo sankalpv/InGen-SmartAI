@@ -9,6 +9,7 @@ import {
     Sparkles,
     TrendingUp,
     BarChart2,
+    CalendarDays,
 } from 'lucide-react';
 
 export default function Sidebar() {
@@ -16,6 +17,7 @@ export default function Sidebar() {
 
     const navItems = [
         { href: '/', label: 'Dashboard', icon: LayoutDashboard },
+        { href: '/week-ahead', label: 'Week Ahead', icon: CalendarDays },
         { href: '/leadership', label: 'Leadership', icon: TrendingUp },
         { href: '/insights/analytics', label: 'Insights', icon: BarChart2 },
         { href: '/settings', label: 'Settings', icon: Settings },

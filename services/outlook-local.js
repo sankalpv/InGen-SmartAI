@@ -122,7 +122,7 @@ export function clearCalendarCache() {
     console.log('[Outlook] Calendar cache cleared');
 }
 
-export async function fetchOutlookCalendar(calendarId, lookbackDays = 30) {
+export async function fetchOutlookCalendar(calendarId, lookbackDays = 30, forwardDays = 3) {
     if (isWin) {
         const WindowsService = await getWindowsService();
         return WindowsService.fetchOutlookCalendar(calendarId);
@@ -145,12 +145,11 @@ export async function fetchOutlookCalendar(calendarId, lookbackDays = 30) {
         // Use absolute path to ensure script is found regardless of CWD
         const scriptPath = path.resolve(process.cwd(), 'scripts/fetch_calendar_local.scpt');
 
-        // Pass both calendarId and lookbackDays as arguments
-        // IMPORTANT: AppleScript expects: argv[0]=calendarId, argv[1]=lookbackDays
+        // Pass calendarId, lookbackDays, and forwardDays as arguments
         const calId = calendarId || '432'; // Default calendar ID
-        const cmd = `osascript "${scriptPath}" "${calId}" "${lookbackDays}"`;
+        const cmd = `osascript "${scriptPath}" "${calId}" "${lookbackDays}" "${forwardDays}"`;
         
-        logger.info(`Fetching calendar ID ${calId} with ${lookbackDays} days lookback`);
+        logger.info(`Fetching calendar ID ${calId} with ${lookbackDays} days back, ${forwardDays} days forward`);
 
         // AppleScript doesn't need -l JavaScript
         const { stdout, stderr } = await execAsync(cmd, { timeout: 60000 });
