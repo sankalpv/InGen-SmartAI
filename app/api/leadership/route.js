@@ -11,8 +11,17 @@ export async function GET(request) {
         const dateRange = parseInt(searchParams.get('range') || '7');
 
         // Fetch data with proper date range
-        const emails = await fetchOutlookEmails(100); // Get more emails for better analysis
+        const allEmails = await fetchOutlookEmails(100); // Get more emails for better analysis
         const meetings = await fetchOutlookCalendar(null, dateRange); // Pass date range to calendar fetch
+
+        // Filter emails to the selected date range
+        const startDate = new Date(Date.now() - dateRange * 24 * 60 * 60 * 1000);
+        const emails = allEmails.filter(e => {
+            const emailDate = new Date(e.received || e.receivedDateTime || e.date);
+            return emailDate >= startDate;
+        });
+
+        console.log(`[API/Leadership] Date range: ${dateRange}d | Emails: ${emails.length}/${allEmails.length} | Meetings: ${meetings.length}`);
 
         const results = {};
 
@@ -21,22 +30,22 @@ export async function GET(request) {
             results.timeAudit = await analyzeTimeAudit(emails, meetings, dateRange);
         }
 
-        // Relationship Health
+        // Relationship Health - pass dateRange for proper scoping
         if (analysisType === 'all' || analysisType === 'relationships') {
             results.relationships = analyzeRelationshipHealth(emails, meetings, 10);
         }
 
-        // Action Items
+        // Action Items - only items from the selected date range
         if (analysisType === 'all' || analysisType === 'action-items') {
             results.actionItems = await extractActionItems(emails, meetings);
         }
 
-        // Blockers
+        // Blockers - only from the selected date range
         if (analysisType === 'all' || analysisType === 'blockers') {
             results.blockers = detectBlockers(emails, meetings);
         }
 
-        // Decisions
+        // Decisions - only from the selected date range
         if (analysisType === 'all' || analysisType === 'decisions') {
             results.decisions = trackDecisions(emails, meetings);
         }
@@ -44,6 +53,12 @@ export async function GET(request) {
         return NextResponse.json({
             success: true,
             data: results,
+            metadata: {
+                dateRange,
+                emailsAnalyzed: emails.length,
+                meetingsAnalyzed: meetings.length,
+                totalEmailsAvailable: allEmails.length
+            },
             timestamp: new Date().toISOString()
         });
 

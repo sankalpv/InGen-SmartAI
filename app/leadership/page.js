@@ -13,6 +13,8 @@ export default function LeadershipDashboard() {
         fetchAnalytics();
     }, [dateRange]);
 
+    const [metadata, setMetadata] = useState(null);
+
     async function fetchAnalytics() {
         setLoading(true);
         try {
@@ -20,6 +22,7 @@ export default function LeadershipDashboard() {
             const data = await response.json();
             if (data.success) {
                 setAnalytics(data.data);
+                setMetadata(data.metadata);
             }
         } catch (error) {
             console.error('Failed to fetch leadership analytics:', error);
@@ -38,9 +41,9 @@ export default function LeadershipDashboard() {
                         <h1 className="text-4xl font-bold text-white mb-3">Leadership Analytics</h1>
                         <p className="text-lg text-slate-300">
                             Data-driven insights for senior leaders
-                            {analytics && (
+                            {metadata && (
                                 <span className="ml-2 text-sm text-slate-400">
-                                    · {analytics.timeAudit?.meetings?.total || 0} meetings analyzed over {dateRange} days
+                                    · {metadata.meetingsAnalyzed} meetings · {metadata.emailsAnalyzed} emails · Last {metadata.dateRange} days
                                 </span>
                             )}
                         </p>
