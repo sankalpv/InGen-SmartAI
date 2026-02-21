@@ -159,10 +159,19 @@ Only include insights with confidence > 0.7. Be specific and actionable.`;
             format: 'json'
         });
         
-        const insights = JSON.parse(response);
+        let insights;
+        try {
+            const parsed = JSON.parse(response);
+            // Handle both array responses and object-wrapped arrays
+            insights = Array.isArray(parsed) ? parsed : (parsed.insights || parsed.data || [parsed]);
+        } catch (parseError) {
+            logger.error('Failed to parse contextual insights JSON:', parseError.message);
+            return [];
+        }
+        
         logger.info(`Generated ${insights.length} contextual insights`);
         
-        return insights.filter(i => i.confidence > 0.7);
+        return insights.filter(i => i && i.confidence > 0.7);
         
     } catch (error) {
         logger.error(`Failed to generate contextual insights: ${error.message}`);
