@@ -12,8 +12,8 @@ export async function GET(request) {
         const skipAI = searchParams.get('skipAI') === 'true';
         const aiOnly = searchParams.get('aiOnly') === 'true';
 
-        // Fetch next 8 days of calendar (today + 7 days ahead)
-        const meetings = await fetchOutlookCalendar(null, 1, 8);
+        // Fetch next 7 days of calendar (today forward only, no lookback)
+        const meetings = await fetchOutlookCalendar(null, 0, 8);
 
         const now = new Date();
         const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
@@ -28,16 +28,27 @@ export async function GET(request) {
 
             const dayMeetings = meetings.filter(m => {
                 const mDate = new Date(m.startTime);
+                // For today, only show meetings that haven't ended yet
+                if (i === 0) {
+                    const mEnd = new Date(m.endTime);
+                    return mDate >= dayStart && mDate < dayEnd && mEnd > now;
+                }
                 return mDate >= dayStart && mDate < dayEnd;
             });
 
-            // Filter to busy/tentative only (exclude OOO, free)
+            // Filter to busy/tentative only (exclude OOO, free, cancelled, all-day)
             const activeMeetings = dayMeetings.filter(m => {
                 const status = (m.busyStatus || 'busy').toLowerCase();
-                const title = (m.title || '').toLowerCase();
-                const is1x1 = title.includes('1:1') || title.includes('1-on-1') || 
-                              (title.includes('/') && title.includes('sankalp')) ||
-                              (title.match(/\w+\s*-\s*sankalp/i));
+                const mtitle = (m.title || '').toLowerCase();
+                const is1x1 = mtitle.includes('1:1') || mtitle.includes('1-on-1') || 
+                              (mtitle.includes('/') && mtitle.includes('sankalp')) ||
+                              (mtitle.match(/\w+\s*-\s*sankalp/i));
+                // Also filter out cancelled meetings and very long all-day OOO blocks
+                const isCancelled = mtitle.includes('canceled:') || mtitle.includes('cancelled:');
+                const duration = Math.round((new Date(m.endTime) - new Date(m.startTime)) / (1000 * 60));
+                const isAllDay = duration >= 1440; // 24+ hours = all-day event
+                
+                if (isCancelled || isAllDay) return false;
                 return status === 'busy' || status === 'tentative' || is1x1;
             });
 
