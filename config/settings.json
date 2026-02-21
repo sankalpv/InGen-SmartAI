@@ -1,6 +1,7 @@
 {
   "outlookCalendarId": "432",
   "ignoreExternalEmails": true,
+  "insightConfidenceThreshold": 0.7,
   "logUploadUrl": "",
   "promptUpdateUrl": "https://gist.githubusercontent.com/sankalpv/3ceed22582916bbe0c3d22e27e10790c/raw/3bd7b948d80d89c6bcc8a0cd0fdc4d5b08b0bf12/%257B%257D%2520prompts.json",
   "quip": {

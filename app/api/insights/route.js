@@ -1,5 +1,7 @@
 import { NextResponse } from 'next/server';
 import insightStore from '@/services/insight-store';
+import fs from 'fs';
+import path from 'path';
 
 export async function GET(request) {
     try {
@@ -17,7 +19,22 @@ export async function GET(request) {
             insights = await insightStore.getAllInsights();
         }
 
-        // Apply filters
+        // Load confidence threshold from settings
+        let confidenceThreshold = 0.7; // default
+        try {
+            const settingsPath = path.join(process.cwd(), 'config', 'settings.json');
+            if (fs.existsSync(settingsPath)) {
+                const settings = JSON.parse(fs.readFileSync(settingsPath, 'utf8'));
+                confidenceThreshold = settings.insightConfidenceThreshold || 0.7;
+            }
+        } catch (e) {
+            console.warn('Failed to load confidence threshold, using default:', e.message);
+        }
+
+        // Filter by confidence threshold
+        insights = insights.filter(i => (i.confidence || 0) >= confidenceThreshold);
+
+        // Apply other filters
         if (type) {
             insights = insights.filter(i => i.type === type);
         }
@@ -31,7 +48,8 @@ export async function GET(request) {
         return NextResponse.json({
             insights,
             stats,
-            count: insights.length
+            count: insights.length,
+            confidenceThreshold
         });
     } catch (error) {
         console.error('Failed to fetch insights:', error);

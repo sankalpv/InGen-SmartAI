@@ -8,6 +8,7 @@ import {
     Zap,
     Sparkles,
     TrendingUp,
+    BarChart2,
 } from 'lucide-react';
 
 export default function Sidebar() {
@@ -16,6 +17,7 @@ export default function Sidebar() {
     const navItems = [
         { href: '/', label: 'Dashboard', icon: LayoutDashboard },
         { href: '/leadership', label: 'Leadership', icon: TrendingUp },
+        { href: '/insights/analytics', label: 'Insights', icon: BarChart2 },
         { href: '/settings', label: 'Settings', icon: Settings },
     ];
 

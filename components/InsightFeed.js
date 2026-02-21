@@ -68,6 +68,63 @@ export default function InsightFeed({ isOpen, onClose, initialInsight = null }) 
         }
     };
 
+    const handleInsightAction = async (insight, actionType) => {
+        try {
+            // Mark as acted
+            await handleAction(insight.id, 'act', actionType);
+
+            // Execute the actual action
+            if (actionType === 'generate_brief' && insight.metadata?.meetingTitle) {
+                // Open meeting brief
+                window.open(`/api/meeting-brief?title=${encodeURIComponent(insight.metadata.meetingTitle)}&description=${encodeURIComponent(insight.metadata.meetingTitle)}`, '_blank');
+            } else if (actionType === 'draft_checkin' && insight.metadata?.person) {
+                // Trigger draft email (could open a modal or redirect)
+                alert(`Draft check-in email to ${insight.metadata.person} - Feature coming soon!`);
+            } else if (actionType === 'view_emails' && insight.metadata?.emails) {
+                // Navigate to emails tab on dashboard
+                window.location.href = '/?tab=emails';
+            }
+        } catch (error) {
+            console.error('Failed to execute action:', error);
+        }
+    };
+
+    const getActionButtons = (insight) => {
+        const actions = [];
+
+        // Meeting prep insights
+        if (insight.type === 'meeting_prep' && insight.metadata?.meetingTitle) {
+            actions.push({
+                label: 'Generate Brief',
+                actionType: 'generate_brief',
+                icon: '📋',
+                color: '#3b82f6'
+            });
+        }
+
+        // Relationship insights
+        if (insight.type === 'relationship_alert' && insight.metadata?.person) {
+            actions.push({
+                label: 'Draft Check-in',
+                actionType: 'draft_checkin',
+                icon: '✉️',
+                color: '#8b5cf6'
+            });
+        }
+
+        // Email priority insights
+        if (insight.type === 'urgent_emails' && insight.metadata?.emails) {
+            actions.push({
+                label: 'View Emails',
+                actionType: 'view_emails',
+                icon: '📬',
+                color: '#f97316'
+            });
+        }
+
+        return actions;
+    };
+
     const getIcon = (type) => {
         switch (type) {
             case 'meeting_prep': return Calendar;
@@ -418,6 +475,39 @@ export default function InsightFeed({ isOpen, onClose, initialInsight = null }) 
                                                         {isExpanded ? <EyeOff size={14} /> : <Eye size={14} />}
                                                         {isExpanded ? 'Hide Details' : 'View Details'}
                                                     </button>
+
+                                                    {/* Action Buttons */}
+                                                    {getActionButtons(insight).map((action, idx) => (
+                                                        <button
+                                                            key={idx}
+                                                            onClick={() => handleInsightAction(insight, action.actionType)}
+                                                            style={{
+                                                                padding: '6px 12px',
+                                                                borderRadius: '6px',
+                                                                border: `1px solid ${action.color}30`,
+                                                                background: `${action.color}15`,
+                                                                color: action.color,
+                                                                fontSize: '12px',
+                                                                fontWeight: '500',
+                                                                cursor: 'pointer',
+                                                                display: 'flex',
+                                                                alignItems: 'center',
+                                                                gap: '6px',
+                                                                transition: 'all 0.2s ease',
+                                                            }}
+                                                            onMouseEnter={(e) => {
+                                                                e.currentTarget.style.background = `${action.color}25`;
+                                                                e.currentTarget.style.transform = 'translateY(-1px)';
+                                                            }}
+                                                            onMouseLeave={(e) => {
+                                                                e.currentTarget.style.background = `${action.color}15`;
+                                                                e.currentTarget.style.transform = 'translateY(0)';
+                                                            }}
+                                                        >
+                                                            <span>{action.icon}</span>
+                                                            {action.label}
+                                                        </button>
+                                                    ))}
 
                                                     {!insight.read_at && (
                                                         <button

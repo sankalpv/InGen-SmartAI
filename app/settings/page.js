@@ -8,6 +8,12 @@ export default function SettingsPage() {
     const { data: session, status } = useSession();
     const isGoogleConnected = !!session?.user;
     
+    // Insight confidence threshold state
+    const [confidenceThreshold, setConfidenceThreshold] = useState(0.7);
+    const [thresholdLoading, setThresholdLoading] = useState(true);
+    const [thresholdSaving, setThresholdSaving] = useState(false);
+    const [thresholdMessage, setThresholdMessage] = useState('');
+    
     // Quip settings state
     const [quipSettings, setQuipSettings] = useState({
         enabled: true,
@@ -19,10 +25,49 @@ export default function SettingsPage() {
     const [quipSaving, setQuipSaving] = useState(false);
     const [quipMessage, setQuipMessage] = useState('');
     
-    // Load Quip settings on mount
+    // Load settings on mount
     useEffect(() => {
         fetchQuipSettings();
+        fetchConfidenceThreshold();
     }, []);
+
+    async function fetchConfidenceThreshold() {
+        try {
+            const res = await fetch('/api/settings/config');
+            const data = await res.json();
+            if (data.insightConfidenceThreshold !== undefined) {
+                setConfidenceThreshold(data.insightConfidenceThreshold);
+            }
+        } catch (error) {
+            console.error('Failed to load confidence threshold:', error);
+        } finally {
+            setThresholdLoading(false);
+        }
+    }
+
+    async function saveConfidenceThreshold() {
+        setThresholdSaving(true);
+        setThresholdMessage('');
+        
+        try {
+            const res = await fetch('/api/settings/config', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ insightConfidenceThreshold: confidenceThreshold })
+            });
+            
+            if (res.ok) {
+                setThresholdMessage('✅ Confidence threshold saved');
+                setTimeout(() => setThresholdMessage(''), 3000);
+            } else {
+                setThresholdMessage('❌ Failed to save threshold');
+            }
+        } catch (error) {
+            setThresholdMessage('❌ Failed to save threshold');
+        } finally {
+            setThresholdSaving(false);
+        }
+    }
     
     async function fetchQuipSettings() {
         try {
@@ -343,6 +388,79 @@ export default function SettingsPage() {
                             </div>
                         )}
                     </>
+                )}
+            </div>
+
+            <div className="settings-section">
+                <div className="settings-section-title">
+                    <Cpu size={20} />
+                    Insight Settings
+                </div>
+
+                <div className="settings-card">
+                    <div className="settings-card-info">
+                        <div className="settings-card-icon" style={{ background: 'rgba(139, 92, 246, 0.1)' }}>
+                            🎯
+                        </div>
+                        <div className="settings-card-text">
+                            <h3>Confidence Threshold</h3>
+                            <p>Minimum confidence level for showing insights (0.5 = more insights, 0.9 = fewer but higher quality)</p>
+                            <div style={{ marginTop: '16px', display: 'flex', alignItems: 'center', gap: '16px' }}>
+                                <input
+                                    type="range"
+                                    min="0.5"
+                                    max="0.9"
+                                    step="0.05"
+                                    value={confidenceThreshold}
+                                    onChange={(e) => setConfidenceThreshold(parseFloat(e.target.value))}
+                                    disabled={thresholdLoading}
+                                    style={{ flex: 1, cursor: 'pointer' }}
+                                />
+                                <span style={{
+                                    fontSize: '18px',
+                                    fontWeight: '600',
+                                    color: 'var(--accent-purple)',
+                                    minWidth: '60px',
+                                    textAlign: 'right'
+                                }}>
+                                    {(confidenceThreshold * 100).toFixed(0)}%
+                                </span>
+                            </div>
+                            <div style={{
+                                marginTop: '12px',
+                                display: 'flex',
+                                justifyContent: 'space-between',
+                                fontSize: '11px',
+                                color: 'var(--text-tertiary)'
+                            }}>
+                                <span>More insights</span>
+                                <span>Fewer insights</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <button
+                    className="btn btn-primary"
+                    onClick={saveConfidenceThreshold}
+                    disabled={thresholdSaving || thresholdLoading}
+                    style={{ width: '100%', marginTop: '8px' }}
+                >
+                    {thresholdSaving ? 'Saving...' : 'Save Threshold'}
+                </button>
+
+                {thresholdMessage && (
+                    <div style={{
+                        padding: '12px',
+                        marginTop: '12px',
+                        borderRadius: '8px',
+                        background: thresholdMessage.includes('✅') ? 'rgba(34, 197, 94, 0.1)' : 'rgba(239, 68, 68, 0.1)',
+                        border: `1px solid ${thresholdMessage.includes('✅') ? 'rgba(34, 197, 94, 0.3)' : 'rgba(239, 68, 68, 0.3)'}`,
+                        fontSize: '0.9rem',
+                        textAlign: 'center'
+                    }}>
+                        {thresholdMessage}
+                    </div>
                 )}
             </div>
 
