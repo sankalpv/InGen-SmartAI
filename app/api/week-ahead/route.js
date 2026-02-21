@@ -1,7 +1,10 @@
 import { NextResponse } from 'next/server';
 import { fetchOutlookCalendar } from '../../../services/outlook-local.js';
+import { fetchOutlookEmails } from '../../../services/outlook-local.js';
 import { createRequire } from 'module';
 const require = createRequire(import.meta.url);
+const ollamaClient = require('../../../services/ollama-client.js');
+const logger = require('../../../services/logger.js').child('WeekAhead');
 
 export async function GET(request) {
     try {
@@ -127,9 +130,64 @@ export async function GET(request) {
         const heaviestDay = weekDays.reduce((max, d) => parseFloat(d.totalMeetingHours) > parseFloat(max.totalMeetingHours) ? d : max, weekDays[0]);
         const lightestDay = weekDays.reduce((min, d) => parseFloat(d.totalMeetingHours) < parseFloat(min.totalMeetingHours) ? d : min, weekDays[0]);
 
+        // AI Analysis - Generate weekly coaching brief
+        let aiAnalysis = null;
+        try {
+            const weekContext = days.filter(d => !d.isWeekend).map(d => 
+                `${d.dayName} (${d.dateFormatted}): ${d.totalMeetings} meetings (${d.totalMeetingHours}h), ${d.deepWorkHours}h deep work, ${d.oneOnOnes} 1:1s. Load: ${d.loadLevel}. Meetings: ${d.meetings.map(m => `${m.timeFormatted} ${m.title} (${m.duration}m, ${m.attendeeCount} people${m.is1x1 ? ', 1:1' : ''})`).join('; ')}`
+            ).join('\n');
+
+            const aiPrompt = `You are an executive AI assistant analyzing the upcoming week's calendar for a senior engineering leader.
+
+UPCOMING WEEK:
+${weekContext}
+
+WEEKLY STATS:
+- Total meetings: ${totalMeetings} (${totalMeetingHours.toFixed(1)}h)
+- Deep work available: ${totalDeepWorkHours.toFixed(1)}h
+- 1:1s: ${total1x1s}
+- Heaviest day: ${heaviestDay?.dayName} (${heaviestDay?.totalMeetingHours}h)
+- Lightest day: ${lightestDay?.dayName} (${lightestDay?.totalMeetingHours}h)
+
+Generate a strategic weekly preparation brief. Be specific, actionable, and reference actual meeting names.
+
+Respond in JSON:
+{
+  "weekSummary": "2-3 sentence executive summary of the week ahead",
+  "topPrepItems": ["Most important thing to prepare", "Second most important", "Third"],
+  "dailyCoaching": {
+    "Monday": "1 sentence coaching tip for this specific day",
+    "Tuesday": "...",
+    "Wednesday": "...",
+    "Thursday": "...",
+    "Friday": "..."
+  },
+  "energyManagement": "Advice on managing energy across heavy/light days",
+  "riskAlerts": ["Any scheduling risks or concerns"],
+  "strategicOpportunity": "One strategic opportunity the leader should leverage this week"
+}`;
+
+            logger.info('Generating AI weekly analysis...');
+            const aiResponse = await ollamaClient.generate(aiPrompt, { temperature: 0.3, format: 'json' });
+            
+            try {
+                const parsed = JSON.parse(aiResponse);
+                aiAnalysis = Array.isArray(parsed) ? parsed[0] : parsed;
+            } catch (parseErr) {
+                // Try extracting JSON
+                const jsonMatch = aiResponse.match(/\{[\s\S]*\}/);
+                if (jsonMatch) aiAnalysis = JSON.parse(jsonMatch[0]);
+            }
+            
+            logger.info('AI weekly analysis generated successfully');
+        } catch (aiError) {
+            logger.error('AI weekly analysis failed:', aiError.message);
+        }
+
         return NextResponse.json({
             success: true,
             days,
+            aiAnalysis,
             summary: {
                 totalMeetings,
                 totalMeetingHours: totalMeetingHours.toFixed(1),

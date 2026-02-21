@@ -74,6 +74,113 @@ export default function WeekAheadPage() {
                     <SummaryCard icon="🌿" label="Lightest Day" value={data.summary.lightestDay?.name || '-'} subtitle={`${data.summary.lightestDay?.hours || 0}h meetings`} color="#22c55e" />
                 </div>
 
+                {/* AI Weekly Coaching Brief */}
+                {data.aiAnalysis && (
+                    <div style={{
+                        background: 'rgba(139, 92, 246, 0.08)',
+                        border: '1px solid rgba(139, 92, 246, 0.25)',
+                        borderRadius: '12px',
+                        padding: '20px',
+                        marginBottom: '24px'
+                    }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px' }}>
+                            <span style={{ fontSize: '20px' }}>🤖</span>
+                            <h2 style={{ fontSize: '18px', fontWeight: '600', color: '#a78bfa', margin: 0 }}>AI Weekly Coach</h2>
+                            <span style={{ fontSize: '11px', padding: '2px 8px', borderRadius: '4px', background: 'rgba(139, 92, 246, 0.2)', color: '#a78bfa' }}>Powered by GenAI</span>
+                        </div>
+                        
+                        {/* Executive Summary */}
+                        {data.aiAnalysis.weekSummary && (
+                            <p style={{ fontSize: '15px', lineHeight: '1.6', color: 'var(--text-primary)', margin: '0 0 16px 0' }}>
+                                {data.aiAnalysis.weekSummary}
+                            </p>
+                        )}
+
+                        {/* Top Prep Items */}
+                        {data.aiAnalysis.topPrepItems && data.aiAnalysis.topPrepItems.length > 0 && (
+                            <div style={{ marginBottom: '16px' }}>
+                                <div style={{ fontSize: '12px', fontWeight: '600', textTransform: 'uppercase', letterSpacing: '0.5px', color: '#a78bfa', marginBottom: '8px' }}>
+                                    📋 Top Preparation Items
+                                </div>
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                                    {data.aiAnalysis.topPrepItems.map((item, i) => (
+                                        <div key={i} style={{
+                                            display: 'flex',
+                                            alignItems: 'flex-start',
+                                            gap: '8px',
+                                            padding: '8px 12px',
+                                            background: 'rgba(255, 255, 255, 0.03)',
+                                            borderRadius: '8px',
+                                            borderLeft: `3px solid ${i === 0 ? '#ef4444' : i === 1 ? '#f97316' : '#3b82f6'}`
+                                        }}>
+                                            <span style={{ fontSize: '14px', fontWeight: '600', color: i === 0 ? '#ef4444' : i === 1 ? '#f97316' : '#3b82f6', minWidth: '20px' }}>
+                                                {i + 1}.
+                                            </span>
+                                            <span style={{ fontSize: '14px', color: 'var(--text-primary)', lineHeight: '1.4' }}>{item}</span>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                        )}
+
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+                            {/* Energy Management */}
+                            {data.aiAnalysis.energyManagement && (
+                                <div style={{ padding: '12px', background: 'rgba(34, 197, 94, 0.06)', borderRadius: '8px', borderLeft: '3px solid #22c55e' }}>
+                                    <div style={{ fontSize: '11px', fontWeight: '600', textTransform: 'uppercase', color: '#22c55e', marginBottom: '6px' }}>
+                                        ⚡ Energy Management
+                                    </div>
+                                    <p style={{ fontSize: '13px', color: 'var(--text-secondary)', lineHeight: '1.5', margin: 0 }}>
+                                        {data.aiAnalysis.energyManagement}
+                                    </p>
+                                </div>
+                            )}
+
+                            {/* Strategic Opportunity */}
+                            {data.aiAnalysis.strategicOpportunity && (
+                                <div style={{ padding: '12px', background: 'rgba(59, 130, 246, 0.06)', borderRadius: '8px', borderLeft: '3px solid #3b82f6' }}>
+                                    <div style={{ fontSize: '11px', fontWeight: '600', textTransform: 'uppercase', color: '#3b82f6', marginBottom: '6px' }}>
+                                        🎯 Strategic Opportunity
+                                    </div>
+                                    <p style={{ fontSize: '13px', color: 'var(--text-secondary)', lineHeight: '1.5', margin: 0 }}>
+                                        {data.aiAnalysis.strategicOpportunity}
+                                    </p>
+                                </div>
+                            )}
+                        </div>
+
+                        {/* Risk Alerts */}
+                        {data.aiAnalysis.riskAlerts && data.aiAnalysis.riskAlerts.length > 0 && (
+                            <div style={{ marginTop: '12px', padding: '10px 12px', background: 'rgba(239, 68, 68, 0.06)', borderRadius: '8px', borderLeft: '3px solid #ef4444' }}>
+                                <div style={{ fontSize: '11px', fontWeight: '600', textTransform: 'uppercase', color: '#ef4444', marginBottom: '6px' }}>
+                                    ⚠️ Risk Alerts
+                                </div>
+                                {data.aiAnalysis.riskAlerts.map((alert, i) => (
+                                    <p key={i} style={{ fontSize: '13px', color: 'var(--text-secondary)', lineHeight: '1.5', margin: i > 0 ? '4px 0 0 0' : 0 }}>
+                                        • {alert}
+                                    </p>
+                                ))}
+                            </div>
+                        )}
+                    </div>
+                )}
+
+                {/* AI Loading State */}
+                {!data.aiAnalysis && (
+                    <div style={{
+                        background: 'rgba(139, 92, 246, 0.05)',
+                        border: '1px solid rgba(139, 92, 246, 0.15)',
+                        borderRadius: '12px',
+                        padding: '20px',
+                        marginBottom: '24px',
+                        textAlign: 'center'
+                    }}>
+                        <span style={{ fontSize: '14px', color: 'var(--text-tertiary)' }}>
+                            🤖 AI Weekly Coach analysis generating... (refresh to see results)
+                        </span>
+                    </div>
+                )}
+
                 {/* Day-by-Day Breakdown */}
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
                     {data.days.map((day, index) => (
