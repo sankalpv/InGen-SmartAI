@@ -144,11 +144,14 @@ export default function Dashboard() {
         setIsRefreshing(false);
     };
 
+    // Filter out sent emails - only show received emails in triage
+    const receivedEmails = emails.filter(e => !e.isSent && e.folder !== 'Sent Items');
+
     // Filter Logic to handle "FYI" fallback for unknown AI categories
-    const urgentEmails = emails.filter(e => e.aiCategory === 'respond_now');
+    const urgentEmails = receivedEmails.filter(e => e.aiCategory === 'respond_now');
 
     // Improved sort: Don't drop emails with unknown categories
-    const sortedEmails = [...emails].sort((a, b) => {
+    const sortedEmails = [...receivedEmails].sort((a, b) => {
         const priority = { 'respond_now': 0, 'respond_today': 1, 'fyi': 2 };
 
         // Normalize categories to lowercase to handle AI inconsistencies
@@ -164,7 +167,7 @@ export default function Dashboard() {
     const actionSlack = slackMessages.filter(m => m.needsResponse || m.actionItem);
 
     const tabs = [
-        { id: 'emails', label: 'Email Triage', icon: Mail, count: emails.length },
+        { id: 'emails', label: 'Email Triage', icon: Mail, count: receivedEmails.length },
         { id: 'meetings', label: 'Meeting Prep', icon: Calendar, count: meetings.length },
         { id: 'slack', label: 'Slack Digest', icon: MessageSquare, count: slackMessages.length },
     ];
