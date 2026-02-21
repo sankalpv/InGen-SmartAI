@@ -2,7 +2,6 @@
 import { exec } from 'child_process';
 import path from 'path';
 import { promisify } from 'util';
-import * as WindowsService from './outlook-windows';
 import fs from 'fs';
 import { createRequire } from 'module';
 
@@ -13,8 +12,15 @@ const execAsync = promisify(exec);
 const isWin = process.platform === 'win32';
 const SETTINGS_PATH = path.join(process.cwd(), 'config', 'settings.json');
 
+// Conditionally import Windows service - use dynamic import inline where needed
+const getWindowsService = async () => {
+    if (!isWin) return null;
+    return await import('./outlook-windows.js');
+};
+
 export async function fetchOutlookEmails(count = 20) {
     if (isWin) {
+        const WindowsService = await getWindowsService();
         return WindowsService.fetchOutlookEmails(count);
     }
     try {
@@ -118,6 +124,7 @@ export function clearCalendarCache() {
 
 export async function fetchOutlookCalendar(calendarId) {
     if (isWin) {
+        const WindowsService = await getWindowsService();
         return WindowsService.fetchOutlookCalendar(calendarId);
     }
     // Check Cache (Include calendarId in cache key to avoid mixing data)
@@ -223,6 +230,7 @@ function parseDate(dateStr) {
 
 export async function getCalendarList() {
     if (isWin) {
+        const WindowsService = await getWindowsService();
         return WindowsService.getCalendarList();
     }
 

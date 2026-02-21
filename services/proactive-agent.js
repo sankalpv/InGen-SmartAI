@@ -4,9 +4,6 @@
  * Runs periodically to analyze patterns and surface recommendations
  */
 
-const { createRequire } = require('module');
-const require = createRequire(import.meta.url);
-
 const logger = require('./logger').child('ProactiveAgent');
 const aiInsights = require('./ai-insights');
 const insightStore = require('./insight-store');
@@ -19,8 +16,13 @@ const { fetchOutlookCalendar } = require('./outlook-local');
  * Called periodically by background agent (every 30 minutes)
  */
 async function runProactiveAnalysis() {
+    let generated = 0;
+    let skipped = 0;
+    
     try {
         logger.info('Starting proactive analysis run');
+        
+        const startCount = (await insightStore.getStats()).total || 0;
         
         // Fetch recent data
         const emails = await fetchOutlookEmails();
@@ -54,10 +56,16 @@ async function runProactiveAnalysis() {
         // 6. Cleanup old insights
         await insightStore.cleanupOldInsights(90);
         
-        logger.info('Proactive analysis complete');
+        const endCount = (await insightStore.getStats()).total || 0;
+        generated = endCount - startCount;
+        
+        logger.info(`Proactive analysis complete. Generated ${generated} new insights.`);
+        
+        return { generated, skipped };
         
     } catch (error) {
         logger.error(`Proactive analysis failed: ${error.message}`);
+        return { generated, skipped, error: error.message };
     }
 }
 

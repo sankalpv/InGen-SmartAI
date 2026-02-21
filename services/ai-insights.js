@@ -3,9 +3,6 @@
  * Generates proactive, predictive insights using LLMs and vector similarity
  */
 
-const { createRequire } = require('module');
-const require = createRequire(import.meta.url);
-
 const logger = require('./logger').child('AIInsights');
 const ollamaClient = require('./ollama-client');
 const vectorStore = require('./vector-store');
