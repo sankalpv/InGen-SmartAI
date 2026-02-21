@@ -21,6 +21,118 @@ import InsightNotifications from '@/components/InsightNotifications'; // Added
 
 import AIChat from '@/components/AIChat'; // Added
 
+// Email Priority Lanes Component - Visual swim lanes by urgency
+function EmailPriorityLanes({ emails }) {
+    const lanes = [
+        {
+            id: 'respond_now',
+            label: '🔴 Respond Now',
+            color: '#ef4444',
+            bgColor: 'rgba(239, 68, 68, 0.08)',
+            borderColor: 'rgba(239, 68, 68, 0.25)',
+            emails: emails.filter(e => (e.aiCategory || '').toLowerCase() === 'respond_now'),
+            defaultOpen: true
+        },
+        {
+            id: 'respond_today',
+            label: '🟡 Respond Today',
+            color: '#eab308',
+            bgColor: 'rgba(234, 179, 8, 0.06)',
+            borderColor: 'rgba(234, 179, 8, 0.2)',
+            emails: emails.filter(e => (e.aiCategory || '').toLowerCase() === 'respond_today'),
+            defaultOpen: true
+        },
+        {
+            id: 'fyi',
+            label: '🟢 FYI / Low Priority',
+            color: '#6b7280',
+            bgColor: 'rgba(107, 114, 128, 0.05)',
+            borderColor: 'rgba(107, 114, 128, 0.15)',
+            emails: emails.filter(e => {
+                const cat = (e.aiCategory || 'fyi').toLowerCase();
+                return cat !== 'respond_now' && cat !== 'respond_today';
+            }),
+            defaultOpen: false
+        }
+    ];
+
+    const [openLanes, setOpenLanes] = useState(
+        lanes.reduce((acc, lane) => ({ ...acc, [lane.id]: lane.defaultOpen }), {})
+    );
+
+    const toggleLane = (laneId) => {
+        setOpenLanes(prev => ({ ...prev, [laneId]: !prev[laneId] }));
+    };
+
+    return (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+            {lanes.map(lane => (
+                <div key={lane.id} style={{
+                    background: lane.bgColor,
+                    border: `1px solid ${lane.borderColor}`,
+                    borderRadius: '12px',
+                    overflow: 'hidden'
+                }}>
+                    {/* Lane Header */}
+                    <div
+                        onClick={() => toggleLane(lane.id)}
+                        style={{
+                            padding: '12px 16px',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'space-between',
+                            cursor: 'pointer',
+                            borderBottom: openLanes[lane.id] && lane.emails.length > 0 ? `1px solid ${lane.borderColor}` : 'none'
+                        }}
+                    >
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                            <span style={{ fontSize: '15px', fontWeight: '600', color: 'var(--text-primary)' }}>
+                                {lane.label}
+                            </span>
+                            <span style={{
+                                background: lane.emails.length > 0 ? lane.color : 'rgba(107, 114, 128, 0.3)',
+                                color: 'white',
+                                fontSize: '12px',
+                                fontWeight: '600',
+                                padding: '2px 8px',
+                                borderRadius: '10px',
+                                minWidth: '24px',
+                                textAlign: 'center'
+                            }}>
+                                {lane.emails.length}
+                            </span>
+                        </div>
+                        <span style={{ color: 'var(--text-tertiary)', fontSize: '14px', transition: 'transform 0.2s' }}>
+                            {openLanes[lane.id] ? '▾' : '▸'}
+                        </span>
+                    </div>
+
+                    {/* Lane Content */}
+                    {openLanes[lane.id] && lane.emails.length > 0 && (
+                        <div style={{ padding: '8px' }}>
+                            {lane.emails.map(email => (
+                                <EmailCard key={email.id} email={email} />
+                            ))}
+                        </div>
+                    )}
+
+                    {/* Empty Lane */}
+                    {openLanes[lane.id] && lane.emails.length === 0 && (
+                        <div style={{
+                            padding: '16px',
+                            textAlign: 'center',
+                            color: 'var(--text-tertiary)',
+                            fontSize: '13px'
+                        }}>
+                            No emails in this category
+                        </div>
+                    )}
+                </div>
+            ))}
+        </div>
+    );
+}
+
 export default function Dashboard() {
     const [activeTab, setActiveTab] = useState('emails');
     const [briefing, setBriefing] = useState(null);
@@ -410,9 +522,7 @@ export default function Dashboard() {
                             <div className="empty-state-text">No emails to show</div>
                         </div>
                     ) : (
-                        sortedEmails.map((email) => (
-                            <EmailCard key={email.id} email={email} />
-                        ))
+                        <EmailPriorityLanes emails={sortedEmails} />
                     )}
                 </div>
             )}
