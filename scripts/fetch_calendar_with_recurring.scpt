@@ -120,7 +120,6 @@ on run argv
                                     set checkDate to checkDate + 1 * days
                                 end repeat
                             end if
-                            end if
                         on error
                             -- Skip problematic recurring events
                         end try
