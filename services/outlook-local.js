@@ -142,8 +142,8 @@ export async function fetchOutlookCalendar(calendarId, lookbackDays = 30, forwar
     }
 
     try {
-        // Use absolute path to ensure script is found regardless of CWD
-        const scriptPath = path.resolve(process.cwd(), 'scripts/fetch_calendar_local.scpt');
+        // Use enhanced script that also expands recurring events
+        const scriptPath = path.resolve(process.cwd(), 'scripts/fetch_calendar_with_recurring.scpt');
 
         // Pass calendarId, lookbackDays, and forwardDays as arguments
         const calId = calendarId || '432'; // Default calendar ID
@@ -152,7 +152,8 @@ export async function fetchOutlookCalendar(calendarId, lookbackDays = 30, forwar
         logger.info(`Fetching calendar ID ${calId} with ${lookbackDays} days back, ${forwardDays} days forward`);
 
         // AppleScript doesn't need -l JavaScript
-        const { stdout, stderr } = await execAsync(cmd, { timeout: 60000 });
+        // Increased timeout for recurring event expansion (can take 30-60s)
+        const { stdout, stderr } = await execAsync(cmd, { timeout: 120000, maxBuffer: 1024 * 1024 * 10 });
 
         if (stderr) {
             logger.warn('Outlook Calendar Script Error:', stderr);
@@ -185,17 +186,28 @@ export async function fetchOutlookCalendar(calendarId, lookbackDays = 30, forwar
             })
             .filter(evt => evt !== null);
 
+        // Deduplicate: recurring expansions may create duplicates of events already in phase 1
+        const seen = new Set();
+        const deduped = mappedEvents.filter(evt => {
+            // Create a key from title + start time (ignore ID prefix R for recurring)
+            const key = `${evt.title}_${evt.startTime}`;
+            if (seen.has(key)) return false;
+            seen.add(key);
+            return true;
+        });
+
+        logger.info(`Calendar fetch: ${mappedEvents.length} raw events → ${deduped.length} after dedup`);
+
         // Update Cache ONLY if we found events
-        // This prevents caching temporary failures or empty results if that's wrong
-        if (mappedEvents.length > 0) {
+        if (deduped.length > 0) {
             calendarCache = {
-                data: mappedEvents,
+                data: deduped,
                 timestamp: Date.now(),
                 id: cacheKey
             };
         }
 
-        return mappedEvents;
+        return deduped;
     } catch (error) {
         logger.error('Failed to fetch Outlook calendar:', error.message);
         return [];
