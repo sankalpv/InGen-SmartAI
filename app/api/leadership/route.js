@@ -3,6 +3,7 @@ import { analyzeTimeAudit, analyzeRelationshipHealth, extractActionItems, detect
 import { fetchOutlookEmails, fetchOutlookCalendar } from '../../../services/outlook-local.js';
 import { createRequire } from 'module';
 const require = createRequire(import.meta.url);
+const phonetool = require('../../../services/phonetool.js');
 
 export async function GET(request) {
     try {
@@ -33,6 +34,44 @@ export async function GET(request) {
         // Relationship Health - pass dateRange for proper scoping
         if (analysisType === 'all' || analysisType === 'relationships') {
             results.relationships = analyzeRelationshipHealth(emails, meetings, 10);
+            
+            // Fetch direct reports if alias is configured
+            const alias = phonetool.getAlias();
+            if (alias) {
+                try {
+                    const directReports = await phonetool.fetchDirectReports(alias);
+                    if (directReports.length > 0) {
+                        // Cross-reference direct reports with relationship health
+                        const allRelationships = results.relationships.topRelationships || [];
+                        results.relationships.team = directReports.map(report => {
+                            // Find matching relationship data
+                            const match = allRelationships.find(r => {
+                                const rEmail = (r.email || '').toLowerCase();
+                                const reportEmail = (report.email || '').toLowerCase();
+                                const reportAlias = (report.alias || '').toLowerCase();
+                                return rEmail === reportEmail || 
+                                       rEmail.includes(reportAlias) ||
+                                       (r.name || '').toLowerCase() === (report.name || '').toLowerCase();
+                            });
+                            
+                            return {
+                                ...report,
+                                healthScore: match?.healthScore || null,
+                                status: match?.status || 'unknown',
+                                emailsSent: match?.emailsSent || 0,
+                                emailsReceived: match?.emailsReceived || 0,
+                                meetingsTogether: match?.meetingsTogether || 0,
+                                daysSinceLastContact: match?.daysSinceLastContact || null,
+                                totalInteractions: match?.totalInteractions || 0,
+                                hasData: !!match
+                            };
+                        });
+                        results.relationships.teamAlias = alias;
+                    }
+                } catch (error) {
+                    console.error('[API/Leadership] Phonetool fetch failed:', error.message);
+                }
+            }
         }
 
         // Action Items - only items from the selected date range

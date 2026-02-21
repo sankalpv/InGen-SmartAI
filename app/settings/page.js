@@ -8,6 +8,11 @@ export default function SettingsPage() {
     const { data: session, status } = useSession();
     const isGoogleConnected = !!session?.user;
     
+    // Phonetool alias state
+    const [phonetoolAlias, setPhonetoolAlias] = useState('');
+    const [aliasSaving, setAliasSaving] = useState(false);
+    const [aliasMessage, setAliasMessage] = useState('');
+
     // Insight confidence threshold state
     const [confidenceThreshold, setConfidenceThreshold] = useState(0.7);
     const [thresholdLoading, setThresholdLoading] = useState(true);
@@ -29,7 +34,44 @@ export default function SettingsPage() {
     useEffect(() => {
         fetchQuipSettings();
         fetchConfidenceThreshold();
+        fetchPhonetoolAlias();
     }, []);
+
+    async function fetchPhonetoolAlias() {
+        try {
+            const res = await fetch('/api/settings/config');
+            const data = await res.json();
+            if (data.phonetoolAlias) {
+                setPhonetoolAlias(data.phonetoolAlias);
+            }
+        } catch (error) {
+            console.error('Failed to load phonetool alias:', error);
+        }
+    }
+
+    async function savePhonetoolAlias() {
+        setAliasSaving(true);
+        setAliasMessage('');
+        
+        try {
+            const res = await fetch('/api/settings/config', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ phonetoolAlias })
+            });
+            
+            if (res.ok) {
+                setAliasMessage('✅ Alias saved! Direct reports will appear in Leadership → Relationships tab.');
+                setTimeout(() => setAliasMessage(''), 5000);
+            } else {
+                setAliasMessage('❌ Failed to save alias');
+            }
+        } catch (error) {
+            setAliasMessage('❌ Failed to save alias');
+        } finally {
+            setAliasSaving(false);
+        }
+    }
 
     async function fetchConfidenceThreshold() {
         try {
@@ -388,6 +430,64 @@ export default function SettingsPage() {
                             </div>
                         )}
                     </>
+                )}
+            </div>
+
+            <div className="settings-section">
+                <div className="settings-section-title">
+                    <User size={20} />
+                    Team Settings
+                </div>
+
+                <div className="settings-card">
+                    <div className="settings-card-info">
+                        <div className="settings-card-icon" style={{ background: 'rgba(59, 130, 246, 0.1)' }}>
+                            👥
+                        </div>
+                        <div className="settings-card-text">
+                            <h3>Phonetool Alias</h3>
+                            <p>Enter your Amazon alias to automatically fetch your direct reports and track relationship health with your team.</p>
+                            <input
+                                type="text"
+                                value={phonetoolAlias}
+                                onChange={(e) => setPhonetoolAlias(e.target.value)}
+                                placeholder="e.g. sankalpv"
+                                style={{
+                                    width: '100%',
+                                    padding: '8px 12px',
+                                    marginTop: '8px',
+                                    borderRadius: '6px',
+                                    border: '1px solid var(--glass-border)',
+                                    background: 'var(--bg-secondary)',
+                                    color: 'var(--text-primary)',
+                                    fontSize: '0.9rem'
+                                }}
+                            />
+                        </div>
+                    </div>
+                </div>
+
+                <button
+                    className="btn btn-primary"
+                    onClick={savePhonetoolAlias}
+                    disabled={aliasSaving}
+                    style={{ width: '100%', marginTop: '8px' }}
+                >
+                    {aliasSaving ? 'Saving...' : 'Save Alias & Fetch Team'}
+                </button>
+
+                {aliasMessage && (
+                    <div style={{
+                        padding: '12px',
+                        marginTop: '12px',
+                        borderRadius: '8px',
+                        background: aliasMessage.includes('✅') ? 'rgba(34, 197, 94, 0.1)' : 'rgba(239, 68, 68, 0.1)',
+                        border: `1px solid ${aliasMessage.includes('✅') ? 'rgba(34, 197, 94, 0.3)' : 'rgba(239, 68, 68, 0.3)'}`,
+                        fontSize: '0.9rem',
+                        textAlign: 'center'
+                    }}>
+                        {aliasMessage}
+                    </div>
                 )}
             </div>
 

@@ -214,6 +214,146 @@ function RelationshipsView({ data }) {
                 />
             </div>
 
+            {/* My Team Section - Direct Reports */}
+            {data.team && data.team.length > 0 && (
+                <div className="leadership-panel" style={{ borderLeft: '3px solid #8b5cf6' }}>
+                    <h3 className="leadership-panel-title" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        👥 My Direct Reports
+                        <span style={{ fontSize: '12px', color: 'var(--text-tertiary)', fontWeight: '400' }}>
+                            via Phonetool ({data.teamAlias})
+                        </span>
+                    </h3>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '12px' }}>
+                        {data.team.map((report) => {
+                            const statusConfig = {
+                                healthy: { color: '#22c55e', bg: 'rgba(34, 197, 94, 0.15)', label: 'Healthy' },
+                                stable: { color: '#eab308', bg: 'rgba(234, 179, 8, 0.15)', label: 'Stable' },
+                                'at-risk': { color: '#f97316', bg: 'rgba(249, 115, 22, 0.15)', label: 'At Risk' },
+                                neglected: { color: '#ef4444', bg: 'rgba(239, 68, 68, 0.15)', label: 'Neglected' },
+                                unknown: { color: '#6b7280', bg: 'rgba(107, 114, 128, 0.15)', label: 'No Data' }
+                            };
+                            const st = statusConfig[report.status] || statusConfig.unknown;
+                            const needsAttention = report.daysSinceLastContact > 14 || !report.hasData;
+                            
+                            return (
+                                <div key={report.alias} style={{
+                                    background: 'rgba(255, 255, 255, 0.03)',
+                                    border: `1px solid ${needsAttention ? 'rgba(239, 68, 68, 0.3)' : 'rgba(255, 255, 255, 0.08)'}`,
+                                    borderRadius: '12px',
+                                    padding: '16px',
+                                    position: 'relative'
+                                }}>
+                                    {needsAttention && (
+                                        <div style={{
+                                            position: 'absolute',
+                                            top: '-6px',
+                                            right: '-6px',
+                                            background: '#ef4444',
+                                            color: 'white',
+                                            fontSize: '10px',
+                                            padding: '2px 6px',
+                                            borderRadius: '8px',
+                                            fontWeight: '600'
+                                        }}>
+                                            ⚠️ Needs Attention
+                                        </div>
+                                    )}
+                                    
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '12px' }}>
+                                        <div style={{
+                                            width: '44px',
+                                            height: '44px',
+                                            borderRadius: '50%',
+                                            background: 'linear-gradient(135deg, #8b5cf6, #ec4899)',
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            justifyContent: 'center',
+                                            color: 'white',
+                                            fontWeight: '700',
+                                            fontSize: '16px'
+                                        }}>
+                                            {report.name.charAt(0)}
+                                        </div>
+                                        <div>
+                                            <div style={{ color: 'white', fontWeight: '600', fontSize: '15px' }}>{report.name}</div>
+                                            <div style={{ color: 'var(--text-tertiary)', fontSize: '12px' }}>{report.alias}@</div>
+                                        </div>
+                                    </div>
+                                    
+                                    {/* Health Score */}
+                                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
+                                        <span style={{
+                                            padding: '3px 10px',
+                                            borderRadius: '6px',
+                                            background: st.bg,
+                                            color: st.color,
+                                            fontSize: '12px',
+                                            fontWeight: '600'
+                                        }}>
+                                            {st.label}
+                                        </span>
+                                        {report.healthScore !== null && (
+                                            <span style={{
+                                                fontSize: '24px',
+                                                fontWeight: '700',
+                                                color: st.color
+                                            }}>
+                                                {report.healthScore}
+                                            </span>
+                                        )}
+                                    </div>
+                                    
+                                    {/* Stats */}
+                                    {report.hasData ? (
+                                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px', fontSize: '12px' }}>
+                                            <div style={{ color: 'var(--text-tertiary)' }}>
+                                                📧 {report.emailsSent + report.emailsReceived} emails
+                                            </div>
+                                            <div style={{ color: 'var(--text-tertiary)' }}>
+                                                📅 {report.meetingsTogether} meetings
+                                            </div>
+                                            <div style={{ color: report.daysSinceLastContact > 14 ? '#ef4444' : 'var(--text-tertiary)' }}>
+                                                ⏰ {report.daysSinceLastContact !== null ? `${report.daysSinceLastContact}d ago` : 'No contact'}
+                                            </div>
+                                            <div style={{ color: 'var(--text-tertiary)' }}>
+                                                🤝 {report.totalInteractions} total
+                                            </div>
+                                        </div>
+                                    ) : (
+                                        <div style={{ fontSize: '12px', color: 'var(--text-tertiary)', fontStyle: 'italic' }}>
+                                            No email/meeting data found in selected period
+                                        </div>
+                                    )}
+                                </div>
+                            );
+                        })}
+                    </div>
+                </div>
+            )}
+
+            {/* Prompt to configure if no team data */}
+            {!data.team && (
+                <div className="leadership-panel" style={{ textAlign: 'center', padding: '24px' }}>
+                    <div style={{ fontSize: '32px', marginBottom: '12px' }}>👥</div>
+                    <h3 style={{ color: 'var(--text-primary)', marginBottom: '8px' }}>Track Your Team</h3>
+                    <p style={{ color: 'var(--text-secondary)', fontSize: '14px', marginBottom: '16px' }}>
+                        Enter your Phonetool alias in Settings to see your direct reports and track relationship health with each team member.
+                    </p>
+                    <a href="/settings" style={{
+                        display: 'inline-block',
+                        padding: '8px 16px',
+                        borderRadius: '8px',
+                        background: 'rgba(139, 92, 246, 0.2)',
+                        color: '#a78bfa',
+                        textDecoration: 'none',
+                        fontSize: '14px',
+                        fontWeight: '500'
+                    }}>
+                        Configure in Settings →
+                    </a>
+                </div>
+            )}
+
             {/* Top Relationships */}
             <div className="leadership-panel">
                 <h3 className="leadership-panel-title">Top Relationships ({data.topRelationships.length} contacts)</h3>
