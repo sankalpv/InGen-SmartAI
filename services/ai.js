@@ -4,14 +4,15 @@ import { createRequire } from 'module';
 const require = createRequire(import.meta.url);
 const logger = require('./logger').child('AI');
 const promptLoader = require('./prompt-loader');
+const quipFetcher = require('./quip-fetcher');
 // import vectorStore from './vector-store.js'; // Lazy loaded instead
 
-const USE_GEMINI = true; // Toggle this to switch between OpenAI and Gemini
+const USE_GEMINI = false; // Use Ollama with qwen3:latest instead
 
-// Configuration
-const AI_PROVIDER = process.env.AI_PROVIDER || 'openai'; // 'openai' | 'ollama'
-const OLLAMA_MODEL = process.env.OLLAMA_MODEL || 'llama3';
-const OLLAMA_BASE_URL = process.env.OLLAMA_BASE_URL || 'http://127.0.0.1:11434'; // Force IPv4
+// Configuration - Use Ollama with qwen3:latest
+const AI_PROVIDER = process.env.AI_PROVIDER || 'ollama'; // 'openai' | 'ollama'
+const OLLAMA_MODEL = process.env.LLM_MODEL || process.env.OLLAMA_MODEL || 'qwen3:latest';
+const OLLAMA_BASE_URL = process.env.OLLAMA_BASE_URL || 'http://127.0.0.1:11434';
 
 const openai = new OpenAI({
     apiKey: USE_GEMINI ? process.env.GEMINI_API_KEY : process.env.OPENAI_API_KEY,
@@ -222,9 +223,32 @@ export async function generateDailyBriefing(emails, meetings, slackMessages) {
     const limitedEmails = emails.slice(0, 5).map(e => ({ from: e.from, subject: e.subject, snippet: (e.snippet || '').substring(0, 2000) }));
     const limitedSlack = slackMessages.slice(0, 5).map(m => ({ user: m.user, text: (m.text || '').substring(0, 200) }));
 
+    // NEW: Quip Document Context for Daily Briefing
+    const quipSettings = quipFetcher.getQuipSettings();
+    let quipContext = '';
+    
+    if (quipSettings.enabled) {
+        try {
+            logger.info('Scanning emails for Quip documents in daily briefing...');
+            const quipUrls = quipFetcher.extractQuipUrlsFromEmails(emails);
+            
+            if (quipUrls.length > 0) {
+                logger.info(`Found ${quipUrls.length} Quip URLs across emails, fetching documents...`);
+                const quipDocs = await quipFetcher.fetchMultipleQuipDocs(quipUrls);
+                
+                if (quipDocs.length > 0) {
+                    quipContext = quipFetcher.formatQuipContextForAI(quipDocs);
+                    logger.info(`Successfully fetched ${quipDocs.length} Quip documents for daily briefing`);
+                }
+            }
+        } catch (error) {
+            logger.error('Failed to fetch Quip documents for briefing:', error.message);
+        }
+    }
+
     // Load prompt template from prompts.json (hot-reloadable from server)
     const templateFromConfig = promptLoader.get('dailyBriefing.promptTemplate');
-    const prompt = templateFromConfig
+    let prompt = templateFromConfig
         ? templateFromConfig
             .replace('{{EMAILS}}', JSON.stringify(limitedEmails))
             .replace('{{MEETINGS}}', JSON.stringify(meetings.map(m => ({ title: m.title, time: m.start?.dateTime || m.date || 'All Day' }))))
@@ -247,6 +271,22 @@ OUTPUT FORMAT:
 
 Provide as much detail as necessary.`;
 
+    // Add Quip context if available
+    if (quipContext) {
+        const quipInstructions = promptLoader.get('dailyBriefing.withQuipContext') || 
+            `LINKED DOCUMENTS:
+{{quipContext}}
+
+CRITICAL INSTRUCTIONS FOR QUIP DOCUMENTS:
+1. Extract and quote specific goals, deadlines, or action items from the document content
+2. Reference the document by title when mentioning specific information
+3. Include concrete details like "The document states..." or "According to [Document Title]..."
+4. If a document mentions goals, deadlines, or key decisions, include those in the priorities
+5. Use direct quotes from the document when relevant (e.g., "Goal SIM: Goal 132 and Goal 125")`;
+        
+        prompt += `\n\n${quipInstructions.replace('{{quipContext}}', quipContext)}`;
+    }
+
     try {
         // Strict timeout (60s)
         const timeoutPromise = new Promise((_, reject) =>
@@ -260,17 +300,23 @@ Provide as much detail as necessary.`;
         console.log('[AI] Briefing Raw:', resultRaw);
 
         // Manual Parsing of Text Output
-        // Manual Parsing of Text Output
         let greeting = resultRaw;
+        let linkedDocuments = null;
         let topPriorities = [];
 
         // 1. Try Structured Parsing (## Headers)
         const summaryMatch = resultRaw.match(/##\s*EXECUTIVE SUMMARY([\s\S]*?)(?=##|$)/i);
+        const linkedDocsMatch = resultRaw.match(/##\s*LINKED DOCUMENTS([\s\S]*?)(?=##|$)/i);
         const prioritiesMatch = resultRaw.match(/##\s*TOP PRIORITIES([\s\S]*?)(?=##|$)/i);
 
         if (summaryMatch || prioritiesMatch) {
             if (summaryMatch) greeting = summaryMatch[1].trim();
             else greeting = "Here is your executive summary.";
+
+            // Parse LINKED DOCUMENTS section if present
+            if (linkedDocsMatch) {
+                linkedDocuments = linkedDocsMatch[1].trim();
+            }
 
             if (prioritiesMatch) {
                 const lines = prioritiesMatch[1].split('\n').filter(l => l.trim().length > 0);
@@ -342,6 +388,7 @@ Provide as much detail as necessary.`;
                 generatedAt: new Date().toISOString()
             },
             greeting: greeting || "Here is your daily briefing.",
+            linkedDocuments: linkedDocuments || null,
             topPriorities: topPriorities
         };
 
@@ -455,9 +502,8 @@ Keep it encouraging but analytical.`;
 
 // Generate Draft Reply with RAG
 export async function generateDraft(email, userIntent = '') {
-    // vectorStore is imported at top level (see next tool call)
-
-    const system = `${getSystemPrompt()}\nYou are an expert email drafter. Your goal is to write a reply that mimics the user's style based on past examples.`;
+    const systemSuffix = promptLoader.get('draftReply.systemSuffix') || 'You are an expert email drafter. Your goal is to write a reply that mimics the user\'s style based on past examples.';
+    const system = `${getSystemPrompt()}\n${systemSuffix}`;
 
     // 1. Retrieve Context (RAG)
     const query = `Subject: ${email.subject}\n\n${email.body}`;
@@ -481,37 +527,76 @@ ${doc.snippet || doc.fullBody || ''}
 ---`).join('\n');
     }
 
-    // 2. Construct Prompt
-    const prompt = `
+    // 2. NEW: Quip Document Context
+    const quipSettings = quipFetcher.getQuipSettings();
+    let quipContext = '';
+    
+    if (quipSettings.enabled) {
+        try {
+            logger.info('Checking for Quip documents in email...');
+            const quipUrls = quipFetcher.extractQuipUrls(email.body || email.snippet);
+            
+            if (quipUrls.length > 0) {
+                logger.info(`Found ${quipUrls.length} Quip URLs, fetching documents...`);
+                const quipDocs = await quipFetcher.fetchMultipleQuipDocs(quipUrls);
+                
+                if (quipDocs.length > 0) {
+                    quipContext = quipFetcher.formatQuipContextForAI(quipDocs);
+                    logger.info(`Successfully fetched ${quipDocs.length} Quip documents for draft context`);
+                }
+            }
+        } catch (error) {
+            logger.error('Failed to fetch Quip documents for draft:', error.message);
+        }
+    }
+
+    // 3. Construct Prompt with optional Quip context
+    let prompt = promptLoader.get('draftReply.promptTemplate') || `
 I need a draft reply for this email:
 
 INCOMING EMAIL:
-From: ${email.from.name || email.from}
-Subject: ${email.subject}
+From: {{SENDER}}
+Subject: {{SUBJECT}}
 Body:
-${email.body || email.snippet}
+{{BODY}}
 
-USER INTENT: ${userIntent || 'Reply positively and professionally.'}
+USER INTENT: {{INTENT}}
 
 CONTEXT (My past similar emails - MIMIC THIS STYLE):
-${contextStr}
+{{CONTEXT}}
 
 DRAFT:
 Write a draft reply. Do not include subject line. Just the body.`;
 
-    try {
-        console.log(`[AI] Generating draft for: "${email.subject}" with RAG context.`);
+    // Replace template variables
+    prompt = prompt
+        .replace('{{SENDER}}', email.from.name || email.from)
+        .replace('{{SUBJECT}}', email.subject)
+        .replace('{{BODY}}', email.body || email.snippet)
+        .replace('{{INTENT}}', userIntent || 'Reply positively and professionally.')
+        .replace('{{CONTEXT}}', contextStr);
 
-        // Timeout 30s
-        const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error('AI_TIMEOUT')), 30000));
+    // Add Quip context if available
+    if (quipContext) {
+        const quipInstructions = promptLoader.get('draftReply.withQuipContext') || 
+            'The incoming email references these documents:\n{{quipContext}}\n\nAcknowledge and reference the documents in your reply.';
+        
+        prompt += `\n\n${quipInstructions.replace('{{quipContext}}', quipContext)}`;
+    }
+
+    try {
+        logger.info(`Generating draft for: "${email.subject}" with RAG context${quipContext ? ' and Quip documents' : ''}`);
+
+        // Timeout 90s (increased for slower hardware/complex prompts)
+        const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error('AI_TIMEOUT')), 90000));
 
         const completionPromise = withRetry(() => generateCompletion(system, prompt, false, 0.4));
 
         const result = await Promise.race([completionPromise, timeoutPromise]);
         return result;
     } catch (error) {
-        console.error('generateDraft failed:', error);
-        return "Failed to generate draft (AI Error).";
+        logger.error('generateDraft failed:', error.message);
+        throw error; // Re-throw to surface the actual error
     }
 }
 
@@ -590,17 +675,59 @@ INSTRUCTIONS:
 }
 
 // Answer specific question about an email
-export async function askQuestionAboutEmail(emailBody, question) {
-    const system = `${getSystemPrompt()}\nYou are a helpful assistant. Answer the user's question based strictly on the email content provided.`;
-    const prompt = `
+export async function askQuestionAboutEmail(emailBody, question, email = null) {
+    const system = `${getSystemPrompt()}\nYou are a helpful assistant. Answer the user's question based on the email content and any linked documents provided.`;
+    
+    // NEW: Check for Quip documents in the email
+    let quipContext = '';
+    const quipSettings = quipFetcher.getQuipSettings();
+    
+    if (quipSettings.enabled && email) {
+        try {
+            logger.info('Checking for Quip documents for email question...');
+            const quipUrls = quipFetcher.extractQuipUrls(emailBody);
+            
+            if (quipUrls.length > 0) {
+                logger.info(`Found ${quipUrls.length} Quip URLs, fetching for Q&A...`);
+                const quipDocs = await quipFetcher.fetchMultipleQuipDocs(quipUrls);
+                
+                if (quipDocs.length > 0) {
+                    quipContext = quipFetcher.formatQuipContextForAI(quipDocs);
+                    logger.info(`Successfully fetched ${quipDocs.length} Quip documents for Q&A`);
+                }
+            }
+        } catch (error) {
+            logger.error('Failed to fetch Quip documents for Q&A:', error.message);
+        }
+    }
+    
+    let prompt = `
 EMAIL CONTENT:
 "${emailBody}"
 
 USER QUESTION:
 ${question}
+`;
+
+    // Add Quip context if available
+    if (quipContext) {
+        prompt += `
+
+LINKED DOCUMENTS:
+${quipContext}
+
+INSTRUCTIONS:
+1. Answer the question using information from BOTH the email and the linked documents
+2. If the answer is in the Quip document, quote specific sections
+3. Reference which source you're using (email or document title)
+4. Provide comprehensive answers by combining information from all sources
+`;
+    }
+
+    prompt += `
 
 ANSWER:
-Answer the question directly and concisely based on the email above.`;
+Answer the question directly and concisely based on the email and any linked documents above.`;
 
     try {
         const response = await withRetry(() => generateCompletion(system, prompt, false, 0.3));

@@ -1,12 +1,68 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useSession, signIn, signOut } from 'next-auth/react';
-import { Cloud, Cpu, ExternalLink, CheckCircle2, LogOut, User } from 'lucide-react';
+import { Cloud, Cpu, ExternalLink, CheckCircle2, LogOut, User, FileText } from 'lucide-react';
 
 export default function SettingsPage() {
     const { data: session, status } = useSession();
     const isGoogleConnected = !!session?.user;
+    
+    // Quip settings state
+    const [quipSettings, setQuipSettings] = useState({
+        enabled: true,
+        baseUrl: 'https://quip-amazon.com',
+        maxDocsPerEmail: 5,
+        timeoutSeconds: 30
+    });
+    const [quipLoading, setQuipLoading] = useState(true);
+    const [quipSaving, setQuipSaving] = useState(false);
+    const [quipMessage, setQuipMessage] = useState('');
+    
+    // Load Quip settings on mount
+    useEffect(() => {
+        fetchQuipSettings();
+    }, []);
+    
+    async function fetchQuipSettings() {
+        try {
+            const res = await fetch('/api/settings/quip');
+            const data = await res.json();
+            if (data.quip) {
+                setQuipSettings(data.quip);
+            }
+        } catch (error) {
+            console.error('Failed to load Quip settings:', error);
+        } finally {
+            setQuipLoading(false);
+        }
+    }
+    
+    async function saveQuipSettings() {
+        setQuipSaving(true);
+        setQuipMessage('');
+        
+        try {
+            const res = await fetch('/api/settings/quip', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(quipSettings)
+            });
+            
+            const data = await res.json();
+            
+            if (res.ok) {
+                setQuipMessage('✅ Settings saved successfully');
+                setTimeout(() => setQuipMessage(''), 3000);
+            } else {
+                setQuipMessage(`❌ Error: ${data.error}`);
+            }
+        } catch (error) {
+            setQuipMessage('❌ Failed to save settings');
+        } finally {
+            setQuipSaving(false);
+        }
+    }
 
     const handleGoogleConnect = () => {
         signIn('google', { callbackUrl: '/settings' });
@@ -160,6 +216,134 @@ export default function SettingsPage() {
                         )}
                     </div>
                 ))}
+            </div>
+
+            <div className="settings-section">
+                <div className="settings-section-title">
+                    <FileText size={20} />
+                    Document Context
+                </div>
+
+                <div className="settings-card">
+                    <div className="settings-card-info">
+                        <div className="settings-card-icon" style={{ background: 'rgba(139, 92, 246, 0.1)' }}>
+                            📄
+                        </div>
+                        <div className="settings-card-text">
+                            <h3>Quip Document Reading</h3>
+                            <p>Automatically fetch linked Quip documents to provide better context for AI-generated drafts and daily briefings</p>
+                        </div>
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <label style={{ display: 'flex', alignItems: 'center', cursor: 'pointer' }}>
+                            <input
+                                type="checkbox"
+                                checked={quipSettings.enabled}
+                                onChange={(e) => setQuipSettings({ ...quipSettings, enabled: e.target.checked })}
+                                disabled={quipLoading}
+                                style={{ marginRight: '8px', cursor: 'pointer' }}
+                            />
+                            <span style={{ fontSize: '0.9rem', fontWeight: 500 }}>
+                                {quipSettings.enabled ? 'Enabled' : 'Disabled'}
+                            </span>
+                        </label>
+                    </div>
+                </div>
+
+                {quipSettings.enabled && (
+                    <>
+                        <div className="settings-card">
+                            <div className="settings-card-info">
+                                <div className="settings-card-text">
+                                    <h3 style={{ fontSize: '0.95rem' }}>Base URL</h3>
+                                    <input
+                                        type="text"
+                                        value={quipSettings.baseUrl}
+                                        onChange={(e) => setQuipSettings({ ...quipSettings, baseUrl: e.target.value })}
+                                        disabled={quipLoading}
+                                        placeholder="https://quip-amazon.com"
+                                        style={{
+                                            width: '100%',
+                                            padding: '8px 12px',
+                                            marginTop: '8px',
+                                            borderRadius: '6px',
+                                            border: '1px solid var(--glass-border)',
+                                            background: 'var(--bg-secondary)',
+                                            color: 'var(--text-primary)',
+                                            fontSize: '0.9rem'
+                                        }}
+                                    />
+                                </div>
+                            </div>
+                        </div>
+
+                        <div className="settings-card" style={{ display: 'flex', gap: '16px' }}>
+                            <div style={{ flex: 1 }}>
+                                <h3 style={{ fontSize: '0.95rem', marginBottom: '8px' }}>Max Docs Per Email</h3>
+                                <input
+                                    type="number"
+                                    min="1"
+                                    max="20"
+                                    value={quipSettings.maxDocsPerEmail}
+                                    onChange={(e) => setQuipSettings({ ...quipSettings, maxDocsPerEmail: parseInt(e.target.value) })}
+                                    disabled={quipLoading}
+                                    style={{
+                                        width: '100%',
+                                        padding: '8px 12px',
+                                        borderRadius: '6px',
+                                        border: '1px solid var(--glass-border)',
+                                        background: 'var(--bg-secondary)',
+                                        color: 'var(--text-primary)',
+                                        fontSize: '0.9rem'
+                                    }}
+                                />
+                            </div>
+                            <div style={{ flex: 1 }}>
+                                <h3 style={{ fontSize: '0.95rem', marginBottom: '8px' }}>Timeout (seconds)</h3>
+                                <input
+                                    type="number"
+                                    min="5"
+                                    max="120"
+                                    value={quipSettings.timeoutSeconds}
+                                    onChange={(e) => setQuipSettings({ ...quipSettings, timeoutSeconds: parseInt(e.target.value) })}
+                                    disabled={quipLoading}
+                                    style={{
+                                        width: '100%',
+                                        padding: '8px 12px',
+                                        borderRadius: '6px',
+                                        border: '1px solid var(--glass-border)',
+                                        background: 'var(--bg-secondary)',
+                                        color: 'var(--text-primary)',
+                                        fontSize: '0.9rem'
+                                    }}
+                                />
+                            </div>
+                        </div>
+
+                        <button
+                            className="btn btn-primary"
+                            onClick={saveQuipSettings}
+                            disabled={quipSaving || quipLoading}
+                            style={{ width: '100%', marginTop: '8px' }}
+                        >
+                            {quipSaving ? 'Saving...' : 'Save Quip Settings'}
+                        </button>
+
+                        {quipMessage && (
+                            <div style={{
+                                padding: '12px',
+                                marginTop: '12px',
+                                borderRadius: '8px',
+                                background: quipMessage.includes('✅') ? 'rgba(34, 197, 94, 0.1)' : 'rgba(239, 68, 68, 0.1)',
+                                border: `1px solid ${quipMessage.includes('✅') ? 'rgba(34, 197, 94, 0.3)' : 'rgba(239, 68, 68, 0.3)'}`,
+                                fontSize: '0.9rem',
+                                textAlign: 'center'
+                            }}>
+                                {quipMessage}
+                            </div>
+                        )}
+                    </>
+                )}
             </div>
 
             <div className="settings-section">

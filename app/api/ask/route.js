@@ -3,7 +3,7 @@ import { askQuestionAboutEmail } from '@/services/ai';
 
 export async function POST(req) {
     try {
-        const { emailBody, question } = await req.json();
+        const { emailBody, question, email } = await req.json();
 
         if (!emailBody || !question) {
             return NextResponse.json(
@@ -13,7 +13,7 @@ export async function POST(req) {
         }
 
         console.log(`[API] Asking question about email: "${question}"`);
-        const answer = await askQuestionAboutEmail(emailBody, question);
+        const answer = await askQuestionAboutEmail(emailBody, question, email);
 
         return NextResponse.json({ answer });
     } catch (error) {

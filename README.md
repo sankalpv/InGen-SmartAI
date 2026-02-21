@@ -125,6 +125,58 @@ All services now use a centralized, structured logger:
 - `scripts/windows/` — PowerShell scripts for fetching emails, calendar events, and calendars.
 - `setup_windows.bat` / `start_windows.bat` — one-click setup and launch.
 
+### Phase 10: Quip Document Context Integration (Server-Side MCP)
+
+#### 📄 Standalone Document Intelligence
+SmartAI now automatically fetches and analyzes Quip documents linked in your emails — **no cloud APIs, no external dependencies**. Built on the Model Context Protocol (MCP), this feature runs entirely locally using your Amazon credentials.
+
+#### 🏗️ Server-Side MCP Client (`services/mcp-client.js`)
+- Direct communication with local MCP servers (e.g., `amzn-mcp`)
+- Connection caching and automatic reconnection
+- Graceful shutdown handling
+- **Zero dependency on Cline or VS Code** — runs standalone
+
+#### 🔗 Smart Document Detection (`services/quip-fetcher.js`)
+- **URL Extraction:** Automatically scans email subjects and bodies for Quip links
+- **Parallel Fetching:** Fetches up to 5 documents concurrently with configurable limits
+- **Smart Caching:** 1-hour in-memory cache to reduce API calls
+- **Metadata Extraction:** Automatically extracts document title, author, and last modified date
+- **Prompt-Based Formatting:** Citation format controlled via hot-reloadable prompts
+
+#### 🎯 AI Context Enrichment
+The AI now has access to full document content when drafting replies or creating briefings:
+- **Daily Briefing:** "Review 'CPP Drift Detection Mental Model' (shared by Verma, last updated Feb 19, 2024)"
+- **Draft Replies:** "Thanks for sharing the 'API Design Doc'. I reviewed Section 3 about..."
+- **Natural Citations:** Documents referenced with proper attribution and dates
+
+#### ⚙️ Configuration & Settings
+- **Settings UI:** Toggle Quip integration on/off, configure base URL, max docs, timeout
+- **API Endpoint:** `/api/settings/quip` for programmatic configuration
+- **MCP Servers:** Configured in `config/settings.json` with command paths and environment
+
+#### 🌍 Cross-Platform Ready
+**Mac Setup:**
+```bash
+# 1. Configure MCP server path in config/settings.json
+# 2. Set up Quip API token
+mkdir -p ~/.amazon-internal-mcp-server
+echo "QUIP_API_TOKEN=your-token" > ~/.amazon-internal-mcp-server/.env
+```
+
+**Windows Setup:**
+```cmd
+mkdir %USERPROFILE%\.amazon-internal-mcp-server
+echo QUIP_API_TOKEN=your-token > %USERPROFILE%\.amazon-internal-mcp-server\.env
+```
+
+#### 🧪 Testing
+```bash
+# Test MCP connection and Quip document fetching
+node test-mcp-connection.js
+```
+
+See `DEPLOYMENT.md` for complete installation and configuration guide.
+
 ---
 
 ## Technical Architecture
@@ -145,6 +197,8 @@ All services now use a centralized, structured logger:
 |---|---|
 | `services/ai.js` | All AI functions: analyze, draft, brief, chat, schedule |
 | `services/vector-store.js` | Local email vector DB (HNSWLib) |
+| `services/mcp-client.js` | Server-side MCP client for local tool integration |
+| `services/quip-fetcher.js` | Quip document detection, fetching, caching, and formatting |
 | `services/background-agent.js` | Mac incremental email sync (cron) |
 | `services/background-agent-windows.js` | Windows incremental email sync (cron) |
 | `services/outlook-local.js` | Mac Outlook bridge (JXA) |
@@ -160,29 +214,33 @@ All services now use a centralized, structured logger:
 | `/api/outlook-local` | GET | Fetch emails from local Outlook |
 | `/api/calendar` | GET | Fetch calendar events + pre-generate meeting briefs |
 | `/api/meeting-brief` | GET | On-demand meeting brief (RAG) |
-| `/api/draft` | POST | Generate email draft reply (RAG) |
+| `/api/draft` | POST | Generate email draft reply (RAG + Quip context) |
 | `/api/ask` | POST | Ask a question about a specific email |
 | `/api/agent-status` | GET | Background agent status |
 | `/api/settings/config` | GET/POST | Read/write `config/settings.json` |
 | `/api/settings/calendars` | GET | List available Outlook calendars |
+| `/api/settings/quip` | GET/POST | Quip document integration settings |
 | `/api/settings/update-prompts` | POST | Fetch and hot-reload prompts from remote URL |
 | `/api/logs/upload` | POST | Upload `smartai.log` to a secret GitHub Gist |
 
 ### Data Flow
 ```
-Outlook (local app)
-    │
-    ▼ AppleScript / PowerShell
-background-agent.js  ──►  data/emails.json  ──►  vector-store.js
-                                                        │
-                                                        ▼
-                                                 HNSWLib index
-                                                        │
-                                              ┌─────────┴──────────┐
-                                              ▼                     ▼
-                                          ai.js                 chat UI
-                                       (RAG context)        (citations)
-                                              │
-                                              ▼
-                                      Gemini / Ollama
+Outlook (local app)                    Quip Documents
+    │                                        │
+    ▼ AppleScript / PowerShell               ▼ MCP (stdio)
+background-agent.js  ──►  data/emails.json   quip-fetcher.js
+                              │                    │
+                              ▼                    ▼
+                       vector-store.js    Document Cache (1hr TTL)
+                              │                    │
+                              ▼                    │
+                       HNSWLib index               │
+                              │                    │
+                    ┌─────────┴──────────┬─────────┘
+                    ▼                     ▼
+                ai.js                 chat UI
+         (RAG + Quip context)      (citations)
+                    │
+                    ▼
+            Gemini / Ollama
 ```

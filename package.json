@@ -10,6 +10,7 @@
     "lint": "eslint"
   },
   "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.26.0",
     "hnswlib-node": "^3.0.0",
     "lucide-react": "^0.564.0",
     "next": "16.1.6",

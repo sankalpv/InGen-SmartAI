@@ -6,25 +6,22 @@ try {
 } catch (e) {
     console.error('[VectorStore] hnswlib-node not available. Vector search disabled. Run: npm install');
 }
-const { Ollama } = require('ollama');
 const fs = require('fs');
 const path = require('path');
 const logger = require('./logger').child('VectorStore');
+const ollamaClient = require('./ollama-client');
 
-// Configuration
-const VECTOR_DIMENSION = 768; // nomic-embed-text dimension. gemma2 is 2048 or 2560? 
-// nomic-embed-text is 768.
-const EMBEDDING_MODEL = 'nomic-embed-text';
+// Configuration - Updated for qwen3-embedding (4096 dimensions)
+const VECTOR_DIMENSION = parseInt(process.env.EMBEDDING_DIMENSIONS || '4096');
+const EMBEDDING_MODEL = process.env.EMBEDDING_MODEL || 'qwen3-embedding';
 const INDEX_PATH = path.join(process.cwd(), 'brain', 'vector_index.bin');
 const METADATA_PATH = path.join(process.cwd(), 'brain', 'vector_metadata.json');
 const BRAIN_DIR = path.join(process.cwd(), 'brain');
 
 // Ensure brain dir exists
 if (!fs.existsSync(BRAIN_DIR)) {
-    fs.mkdirSync(BRAIN_DIR);
+    fs.mkdirSync(BRAIN_DIR, { recursive: true });
 }
-
-const ollama = new Ollama();
 
 class VectorStore {
     constructor() {
@@ -73,11 +70,15 @@ class VectorStore {
 
     async getEmbedding(text) {
         try {
-            const response = await ollama.embeddings({
-                model: EMBEDDING_MODEL,
-                prompt: text,
-            });
-            return response.embedding;
+            // Use new ollama-client with 8k token support (30k chars)
+            const embedding = await ollamaClient.embed(text, { maxLength: 30000 });
+            
+            if (embedding.length !== VECTOR_DIMENSION) {
+                logger.error(`Dimension mismatch: Got ${embedding.length}, expected ${VECTOR_DIMENSION}`);
+                throw new Error(`Vector dimension mismatch: ${embedding.length} !== ${VECTOR_DIMENSION}`);
+            }
+            
+            return embedding;
         } catch (e) {
             logger.error(`Failed to generate embedding with ${EMBEDDING_MODEL}:`, e.message);
             throw e;
@@ -102,10 +103,8 @@ class VectorStore {
 
         let textToEmbed = `Subject: ${email.subject}\nFrom: ${email.sender}\nDate: ${email.received}\n\n${email.body}`;
 
-        // Truncate to avoid "input length exceeds context length"
-        if (textToEmbed.length > 8000) {
-            textToEmbed = textToEmbed.substring(0, 8000);
-        }
+        // qwen3-embedding supports 8k tokens (~30k chars) - no need to truncate as aggressively
+        // The embed function will handle truncation if needed
 
         try {
             const vector = await this.getEmbedding(textToEmbed);
@@ -117,13 +116,24 @@ class VectorStore {
             const internalId = this.currentId++;
             this.index.addPoint(vector, internalId);
 
+            // Enhanced metadata for leadership features
             this.metadata[internalId] = {
+                type: 'email',
                 outlookId: email.id,
                 subject: email.subject,
                 sender: email.sender,
+                from: email.from || email.sender,
+                to: email.to || '',
                 received: email.received,
-                snippet: email.body.substring(0, 200),
-                fullBody: email.body
+                date: email.received,
+                snippet: email.body.substring(0, 500), // Longer snippet
+                fullBody: email.body,
+                // Leadership analytics metadata (to be enhanced)
+                hasActionItem: false,
+                hasDecision: false,
+                hasBlocker: false,
+                sentiment: null,
+                topics: []
             };
 
             this.save();

@@ -309,6 +309,41 @@ export default function Dashboard() {
                     </div>
                     <p className="ai-briefing-text">{briefing.greeting}</p>
 
+                    {briefing.linkedDocuments && (
+                        <div className="linked-documents">
+                            <h3 style={{
+                                fontSize: '0.9rem',
+                                fontWeight: '700',
+                                textTransform: 'uppercase',
+                                letterSpacing: '0.05em',
+                                color: 'var(--accent-blue)',
+                                marginBottom: '12px',
+                                marginTop: '20px',
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '8px'
+                            }}>
+                                <span style={{
+                                    fontSize: '1.1rem'
+                                }}>📄</span>
+                                Linked Documents
+                            </h3>
+                            <div style={{
+                                whiteSpace: 'pre-wrap',
+                                fontSize: '0.9rem',
+                                lineHeight: '1.7',
+                                color: 'var(--text-primary)',
+                                background: 'rgba(59, 130, 246, 0.05)',
+                                padding: '16px',
+                                borderRadius: '8px',
+                                border: '1px solid rgba(59, 130, 246, 0.15)',
+                                fontFamily: 'inherit'
+                            }}>
+                                {briefing.linkedDocuments}
+                            </div>
+                        </div>
+                    )}
+
                     {briefing.topPriorities && briefing.topPriorities.length > 0 && (
                         <div className="priorities-list">
                             <h3 style={{

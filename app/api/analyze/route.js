@@ -1,4 +1,4 @@
-import { mockEmails, mockMeetings, mockSlackMessages } from '@/services/mock-data';
+import { mockEmails, mockMeetings, mockSlackMessages, mockBriefing } from '@/services/mock-data';
 import { generateDailyBriefing } from '@/services/ai';
 import { NextResponse } from 'next/server';
 import { fetchOutlookEmails } from '@/services/outlook-local';
@@ -14,9 +14,22 @@ export async function GET(req) {
         console.log(`[API/Analyze] source=${source}, useMock=${useMock}`);
 
         if (useMock) {
-            const briefing = await generateDailyBriefing(mockEmails, mockMeetings, mockSlackMessages);
-            briefing.source = 'mock';
-            return NextResponse.json(briefing);
+            try {
+                // Try generating fresh briefing from mock data (test AI)
+                console.log('[API/Analyze] Generating fresh briefing from mock data...');
+                const briefing = await generateDailyBriefing(mockEmails, mockMeetings, mockSlackMessages);
+
+                // If AI returned a fallback error message, use our static high-quality mock instead
+                if (briefing.greeting.includes('Unable to generate AI summary')) {
+                    throw new Error('AI Generation failed');
+                }
+
+                briefing.source = 'mock-generated';
+                return NextResponse.json(briefing);
+            } catch (e) {
+                console.warn('[API/Analyze] Mock generation failed, using static fallback:', e.message);
+                return NextResponse.json({ ...mockBriefing, source: 'mock-static' });
+            }
         }
 
         let realEmails = [];

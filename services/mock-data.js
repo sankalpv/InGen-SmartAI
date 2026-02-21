@@ -227,7 +227,7 @@ export const mockSlackMessages = [
     },
 ];
 
-export const mockAnalysis = {
+export const mockBriefing = {
     summary: {
         totalEmails: 6,
         needResponse: 3,
@@ -236,35 +236,36 @@ export const mockAnalysis = {
         slackActionItems: 4,
         generatedAt: new Date().toISOString(),
     },
-    greeting: `Good morning! You have a busy day ahead with 3 meetings. There are 2 urgent emails that need your attention — Sarah Chen needs budget numbers by EOD, and David Kim's architecture doc needs your final review before his board presentation. Marcus Rodriguez from the partner firm is eager to move forward with the AI integration partnership.`,
+    greeting: `Good morning. You have a high-leverage day ahead with 3 strategic meetings and 2 urgent decisions pending. Your primary focus should be finalizing the Q1 Budget for Sarah Chen's board presentation and reviewing the Architecture Doc v4 to unblock the engineering team. The partnership with Marcus Rodriguez is also gaining momentum and requires your steer.`,
     topPriorities: [
         {
-            type: 'email',
-            title: 'Review Q1 Budget deck for Sarah Chen',
-            urgency: 'urgent',
-            deadline: 'End of day today',
-            reason: 'Sarah presents at 9 AM tomorrow and needs your engineering allocation numbers',
-        },
-        {
-            type: 'email',
-            title: 'Review Architecture Doc v4 for David Kim',
-            urgency: 'urgent',
-            deadline: 'Before 2 PM today',
-            reason: 'David presents to the architecture board at 2 PM today',
-        },
-        {
-            type: 'email',
-            title: 'Reply to Marcus Rodriguez on partnership',
+            type: 'general',
+            title: 'Approve Q1 Budget Allocations',
             urgency: 'high',
-            deadline: 'Today',
-            reason: 'Partnership momentum — schedule the technical deep-dive',
+            deadline: 'today',
+            reason: 'Sarah Chen presents to the board at 9 AM tomorrow; needs $245k contractor approval.'
         },
         {
-            type: 'slack',
-            title: 'Respond to Priya about headcount numbers',
+            type: 'general',
+            title: 'Final Review: Microservices Architecture v4',
             urgency: 'high',
-            deadline: 'ASAP',
-            reason: 'Priya is asking on behalf of Sarah for the budget meeting',
+            deadline: 'today',
+            reason: 'Critical for unblocking the platform team; David presents at 2 PM.'
         },
+        {
+            type: 'general',
+            title: 'Authorize AI Partnership Pilot',
+            urgency: 'medium',
+            deadline: 'this week',
+            reason: 'Marcus Rodriguez requesting technical deep-dive to finalize contract.'
+        },
+        {
+            type: 'general',
+            title: 'Resolve Headcount Discrepancy',
+            urgency: 'medium',
+            deadline: 'today',
+            reason: 'Priya needs confirmation on the 3 new hires for HR processing.'
+        }
     ]
 };
+

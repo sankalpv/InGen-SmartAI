@@ -1,10 +1,20 @@
 import { NextResponse } from 'next/server';
 import { fetchOutlookEmails } from '../../../services/outlook-local';
+import { mockEmails } from '../../../services/mock-data';
 
 export const runtime = 'nodejs';
 
 export async function GET() {
     try {
+        const useMock = process.env.USE_MOCK_DATA === 'true';
+
+        console.log(`[API/Outlook] useMock=${useMock}`);
+
+        if (useMock) {
+            console.log('[API/Outlook] Returning mock emails');
+            return NextResponse.json({ emails: mockEmails, source: 'mock' });
+        }
+
         console.log('[API] Fetching Outlook emails (via JXA Service)...');
         const emails = await fetchOutlookEmails(20);
 

@@ -133,7 +133,8 @@ export default function EmailCard({ email }) {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     emailBody: email.body || email.snippet,
-                    question: question
+                    question: question,
+                    email: email  // Pass full email object for Quip URL detection
                 })
             });
             const data = await res.json();

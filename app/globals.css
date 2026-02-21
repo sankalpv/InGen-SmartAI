@@ -306,6 +306,7 @@ body {
     border: 1px solid rgba(255, 255, 255, 0.05);
     margin-bottom: 32px;
     backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
 }
 
 .section-tab {
@@ -327,10 +328,191 @@ body {
 }
 
 .section-tab.active {
-    background: rgba(255, 255, 255, 0.15);
+    background: linear-gradient(135deg, rgba(139, 92, 246, 0.9) 0%, rgba(59, 130, 246, 0.9) 100%);
     color: #fff;
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+    box-shadow: 0 4px 15px rgba(139, 92, 246, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.1);
     border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+/* ============ LEADERSHIP APPLE GLASS TABS ============ */
+.leadership-tabs-container {
+    background: rgba(255, 255, 255, 0.03);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 16px;
+    padding: 8px;
+    display: inline-flex;
+    gap: 4px;
+    box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
+    margin-bottom: 32px;
+}
+
+.leadership-tab {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 12px 20px;
+    border-radius: 12px;
+    font-weight: 600;
+    font-size: 0.875rem;
+    color: rgba(255, 255, 255, 0.7);
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+    white-space: nowrap;
+}
+
+.leadership-tab:hover {
+    color: #fff;
+    background: rgba(255, 255, 255, 0.1);
+}
+
+.leadership-tab.active {
+    background: linear-gradient(135deg, rgba(139, 92, 246, 0.9) 0%, rgba(59, 130, 246, 0.9) 100%);
+    color: #fff;
+    box-shadow: 0 4px 15px rgba(139, 92, 246, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.1);
+}
+
+.leadership-tab-icon {
+    font-size: 1.125rem;
+}
+
+/* ============ LEADERSHIP DATE SELECTOR ============ */
+.date-selector-container {
+    background: rgba(255, 255, 255, 0.03);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 12px;
+    padding: 6px;
+    display: inline-flex;
+    gap: 4px;
+}
+
+.date-selector-btn {
+    padding: 10px 24px;
+    border-radius: 8px;
+    font-weight: 600;
+    font-size: 0.875rem;
+    color: rgba(255, 255, 255, 0.7);
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.date-selector-btn:hover {
+    background: rgba(255, 255, 255, 0.1);
+}
+
+.date-selector-btn.active {
+    background: linear-gradient(135deg, rgba(139, 92, 246, 0.9) 0%, rgba(59, 130, 246, 0.9) 100%);
+    color: #fff;
+    box-shadow: 0 4px 15px rgba(139, 92, 246, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.1);
+}
+
+/* ============ LEADERSHIP STAT CARDS ============ */
+.leadership-stat-card {
+    background: rgba(255, 255, 255, 0.05);
+    backdrop-filter: blur(30px);
+    -webkit-backdrop-filter: blur(30px);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 16px;
+    padding: 24px;
+    transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.2);
+}
+
+.leadership-stat-card:hover {
+    background: rgba(255, 255, 255, 0.08);
+    border-color: rgba(255, 255, 255, 0.15);
+    transform: translateY(-4px) scale(1.02);
+    box-shadow: 0 8px 30px rgba(0, 0, 0, 0.3), 0 0 20px rgba(139, 92, 246, 0.2);
+}
+
+.leadership-stat-icon {
+    font-size: 2rem;
+}
+
+.leadership-stat-title {
+    color: rgba(255, 255, 255, 0.7);
+    font-size: 0.875rem;
+    font-weight: 600;
+    margin-bottom: 12px;
+}
+
+.leadership-stat-value {
+    color: #fff;
+    font-size: 2.5rem;
+    font-weight: 800;
+    letter-spacing: -0.5px;
+    line-height: 1;
+    background: linear-gradient(135deg, #fff 0%, #a5b4fc 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+}
+
+.leadership-stat-subtitle {
+    color: rgba(255, 255, 255, 0.5);
+    font-size: 0.875rem;
+    margin-top: 8px;
+}
+
+/* ============ LEADERSHIP CONTENT PANELS ============ */
+.leadership-panel {
+    background: rgba(255, 255, 255, 0.04);
+    backdrop-filter: blur(40px);
+    -webkit-backdrop-filter: blur(40px);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 20px;
+    padding: 32px;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.25);
+}
+
+.leadership-panel-title {
+    font-size: 1.5rem;
+    font-weight: 700;
+    color: #fff;
+    margin-bottom: 24px;
+    letter-spacing: -0.5px;
+}
+
+.leadership-breakdown-item {
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 12px;
+    padding: 20px;
+    transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.leadership-breakdown-item:hover {
+    background: rgba(255, 255, 255, 0.1);
+    border-color: rgba(255, 255, 255, 0.15);
+    transform: translateY(-2px);
+    box-shadow: 0 4px 15px rgba(139, 92, 246, 0.2);
+}
+
+.leadership-breakdown-label {
+    color: rgba(255, 255, 255, 0.7);
+    font-size: 0.875rem;
+    font-weight: 600;
+    margin-bottom: 8px;
+}
+
+.leadership-breakdown-value {
+    color: #fff;
+    font-size: 2rem;
+    font-weight: 800;
+    line-height: 1;
+    margin-bottom: 4px;
+}
+
+.leadership-breakdown-detail {
+    font-size: 0.875rem;
+    font-weight: 600;
 }
 
 /* ============ CONTENT CARDS ============ */

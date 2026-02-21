@@ -9,10 +9,11 @@ on run argv
                 return ""
             end if
             
-            -- Date range: Today + 3 days (Reduced for speed)
+            -- Date range: Last 7 days + Next 3 days (for analytics)
             set today to (current date)
             set time of today to 0
-            set tomorrow to today + (3 * days)
+            set startDate to today - (7 * days)
+            set endDate to today + (3 * days)
             
             set outputList to {}
             set targetCal to missing value
@@ -44,7 +45,7 @@ on run argv
 
             if targetCal is not missing value then
                 try
-                    set theEvents to (every calendar event of targetCal whose start time > today and start time < tomorrow)
+                    set theEvents to (every calendar event of targetCal whose start time > startDate and start time < endDate)
                     
                     repeat with evt in theEvents
                         -- Extract props
@@ -59,6 +60,18 @@ on run argv
                             if evtLoc is missing value then set evtLoc to ""
                         end try
                         
+                        -- Get busy status
+                        set busyStatus to "busy"
+                        try
+                            set busyStatus to (free busy status of evt) as string
+                        end try
+                        
+                        -- Get attendee count
+                        set attendeeCount to 0
+                        try
+                            set attendeeCount to count of (attendees of evt)
+                        end try
+                        
                         -- Clean text logic
                         set evtSubject to my cleanText(evtSubject)
                         set evtLoc to my cleanText(evtLoc)
@@ -67,8 +80,8 @@ on run argv
                         set startIso to my dateToISO(evtStart)
                         set endIso to my dateToISO(evtEnd)
                         
-                        -- Build Line: ID|||Subject|||Start|||End|||Location|||Body(Empty)
-                        set lineItem to evtId & "|||" & evtSubject & "|||" & startIso & "|||" & endIso & "|||" & evtLoc & "|||" & ""
+                        -- Build Line: ID|||Subject|||Start|||End|||Location|||Body|||BusyStatus|||AttendeeCount
+                        set lineItem to evtId & "|||" & evtSubject & "|||" & startIso & "|||" & endIso & "|||" & evtLoc & "|||" & "" & "|||" & busyStatus & "|||" & attendeeCount
                         copy lineItem to end of outputList
                     end repeat
                 on error errMsg

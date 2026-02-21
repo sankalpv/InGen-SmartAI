@@ -24,13 +24,20 @@ export async function fetchOutlookEmails(count = 20) {
         // Simple retry logic (1 retry)
         try {
             // JXA requires -l JavaScript
-            const result = await execAsync(`osascript -l JavaScript "${scriptPath}" ${count}`, { timeout: 15000 });
+            // Increased maxBuffer to 10MB to handle full email bodies
+            const result = await execAsync(`osascript -l JavaScript "${scriptPath}" ${count}`, {
+                timeout: 45000,
+                maxBuffer: 1024 * 1024 * 10
+            });
             stdout = result.stdout;
             stderr = result.stderr;
         } catch (e) {
-            console.warn('First Outlook fetch attempt failed, retrying...', e.message);
+            console.warn('First Outlook fetch attempt failed, retrying (60s timeout)...', e.message);
             // Retry once with slightly longer timeout? or just retry.
-            const result = await execAsync(`osascript -l JavaScript "${scriptPath}" ${count}`, { timeout: 20000 });
+            const result = await execAsync(`osascript -l JavaScript "${scriptPath}" ${count}`, {
+                timeout: 60000,
+                maxBuffer: 1024 * 1024 * 10
+            });
             stdout = result.stdout;
             stderr = result.stderr;
         }
@@ -62,17 +69,32 @@ export async function fetchOutlookEmails(count = 20) {
             : emails;
 
         // Normalize to match Gmail format for the UI
-        return filteredEmails.map(e => ({
-            id: e.id,
-            source: 'outlook',
-            from: parseSender(e.from),
-            subject: e.subject || '(No Subject)',
-            snippet: e.snippet,
-            body: e.body || e.snippet, // Use body if available
-            date: parseDate(e.date),
-            isUnread: false, // Script doesn't fetch read status yet
-            labels: []
-        }));
+        return filteredEmails.map(e => {
+            const normalized = {
+                id: e.id,
+                source: 'outlook',
+                subject: e.subject || '(No Subject)',
+                snippet: e.snippet,
+                body: e.body || e.snippet,
+                date: parseDate(e.date),
+                isUnread: false,
+                labels: [],
+                isSent: e.isSent || false,
+                folder: e.folder
+            };
+
+            // For sent emails, use 'to' instead of 'from'
+            if (e.isSent && e.to) {
+                normalized.to = parseSender(e.to);
+                normalized.from = { name: 'Me', email: 'me' }; // Placeholder for sent emails
+            } else if (e.from) {
+                normalized.from = parseSender(e.from);
+            } else {
+                normalized.from = { name: 'Unknown', email: '' };
+            }
+
+            return normalized;
+        });
 
     } catch (error) {
         console.error('Failed to fetch Outlook emails:', error);
@@ -87,6 +109,12 @@ let calendarCache = {
     timestamp: 0
 };
 const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+
+// Export function to clear cache (useful for testing/debugging)
+export function clearCalendarCache() {
+    calendarCache = { data: [], timestamp: 0 };
+    console.log('[Outlook] Calendar cache cleared');
+}
 
 export async function fetchOutlookCalendar(calendarId) {
     if (isWin) {
@@ -126,13 +154,16 @@ export async function fetchOutlookCalendar(calendarId) {
 
         logger.debug('Outlook Calendar Raw Output:', stdout);
 
-        // Parse Pipe-Delimited Output (ID|||Subject|||Start|||End|||Location|||Body)
+        // Parse Pipe-Delimited Output (ID|||Subject|||Start|||End|||Location|||Body|||BusyStatus|||AttendeeCount)
         const lines = stdout.trim().split('\n');
         const mappedEvents = lines
             .filter(line => line.trim().length > 0 && !line.startsWith('Error:'))
             .map(line => {
                 const parts = line.split('|||');
                 if (parts.length < 6) return null;
+
+                const busyStatus = parts[6] || 'busy';
+                const attendeeCount = parseInt(parts[7]) || 0;
 
                 return {
                     id: parts[0],
@@ -141,7 +172,8 @@ export async function fetchOutlookCalendar(calendarId) {
                     endTime: parts[3] || new Date().toISOString(),
                     location: parts[4] || '',
                     description: parts[5] || '',
-                    attendees: [], // Script doesn't fetch attendees yet to keep it fast
+                    busyStatus: busyStatus.toLowerCase(),
+                    attendees: Array(attendeeCount).fill({}), // Create array of length attendeeCount
                     source: 'outlook'
                 };
             })
