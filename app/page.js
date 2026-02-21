@@ -200,16 +200,15 @@ export default function Dashboard() {
         setIsBriefingLoading(true); // Show skeleton immediately
 
         try {
-            // Fetch more emails to support date range filtering (default was 20, now 100)
-            const emailUrl = currentSource === 'outlook' ? '/api/outlook-local?count=100' : '/api/emails';
+            // PHASE 1: Fast initial load (20 emails + calendar) - target <3s
+            const emailUrl = currentSource === 'outlook' ? '/api/outlook-local?count=20' : '/api/emails';
 
-            // Fire all requests in parallel — none block each other
             const [emailRes, calendarRes] = await Promise.allSettled([
                 fetch(emailUrl),
                 fetch('/api/calendar'),
             ]);
 
-            // Handle emails
+            // Handle emails (initial batch)
             if (emailRes.status === 'fulfilled') {
                 if (emailRes.value.status === 401) {
                     setEmailSource('outlook');
@@ -229,8 +228,15 @@ export default function Dashboard() {
                 } catch (e) { }
             }
 
-            // Reveal the dashboard as soon as emails + meetings are ready
+            // Reveal the dashboard immediately with initial data
             setIsLoading(false);
+
+            // PHASE 2: Background lazy loading (non-blocking)
+            // Fetch more emails for date range filtering
+            fetch(currentSource === 'outlook' ? '/api/outlook-local?count=100' : '/api/emails')
+                .then(r => r.json())
+                .then(data => { if (!data.error && data.emails) setEmails(data.emails); })
+                .catch(() => { });
 
             // Slack — fire and forget
             fetch('/api/slack')
