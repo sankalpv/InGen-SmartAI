@@ -36,20 +36,40 @@ export async function GET(request) {
                 return mDate >= dayStart && mDate < dayEnd;
             });
 
-            // Filter to busy/tentative only (exclude OOO, free, cancelled, all-day)
+            // Smart filtering for relevant meetings only
             const activeMeetings = dayMeetings.filter(m => {
                 const status = (m.busyStatus || 'busy').toLowerCase();
                 const mtitle = (m.title || '').toLowerCase();
-                const is1x1 = mtitle.includes('1:1') || mtitle.includes('1-on-1') || 
-                              (mtitle.includes('/') && mtitle.includes('sankalp')) ||
-                              (mtitle.match(/\w+\s*-\s*sankalp/i));
-                // Also filter out cancelled meetings and very long all-day OOO blocks
-                const isCancelled = mtitle.includes('canceled:') || mtitle.includes('cancelled:');
+                const attendeeCount = (m.attendees || []).length;
                 const duration = Math.round((new Date(m.endTime) - new Date(m.startTime)) / (1000 * 60));
-                const isAllDay = duration >= 1440; // 24+ hours = all-day event
                 
-                if (isCancelled || isAllDay) return false;
-                return status === 'busy' || status === 'tentative' || is1x1;
+                // Always include 1:1s with user
+                const is1x1WithUser = mtitle.includes('1:1') || mtitle.includes('1-on-1') || 
+                              mtitle.includes('1x1') ||
+                              (mtitle.includes('/') && mtitle.includes('sankalp')) ||
+                              (mtitle.includes(':') && mtitle.includes('sankalp')) ||
+                              (mtitle.match(/\w+\s*-\s*sankalp/i) || mtitle.match(/sankalp\s*-\s*\w+/i));
+                
+                // Filter out: cancelled, all-day, free status
+                const isCancelled = mtitle.includes('canceled:') || mtitle.includes('cancelled:');
+                const isAllDay = duration >= 1440; // 24+ hours
+                const isOOO = mtitle.includes('ooo') || mtitle.includes('ooto') || mtitle.includes('out of office') || mtitle.includes('pto');
+                const isReminder = mtitle.includes('reminder') && duration <= 30;
+                
+                if (isCancelled || isAllDay || isOOO || isReminder) return false;
+                if (status === 'free' && !is1x1WithUser) return false;
+                if (status === 'out of office') return false;
+                
+                // For recurring expansions (R-prefixed IDs), be more selective
+                const isRecurringExpansion = (m.id || '').startsWith('R');
+                if (isRecurringExpansion) {
+                    // Only include if: user's meeting (small), or marked busy
+                    if (status !== 'busy') return false;
+                    // Skip very large meetings (likely org-wide, user probably doesn't attend all)
+                    if (attendeeCount > 50 && !is1x1WithUser) return false;
+                }
+                
+                return status === 'busy' || status === 'tentative' || is1x1WithUser;
             });
 
             // Sort by start time

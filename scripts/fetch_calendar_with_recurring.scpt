@@ -71,10 +71,10 @@ on run argv
                 end try
 
                 -- PHASE 2: Get recurring events whose master start is BEFORE our range
-                -- Only include busy/tentative events from last 2 years to avoid noise
+                -- Only include BUSY events from last 1 year to reduce noise
                 try
-                    set twoYearsAgo to today - (730 * days)
-                    set recurringEvts to (every calendar event of targetCal whose is recurring is true and start time < startDate and start time > twoYearsAgo)
+                    set oneYearAgo to today - (365 * days)
+                    set recurringEvts to (every calendar event of targetCal whose is recurring is true and start time < startDate and start time > oneYearAgo and free busy status is busy)
                     
                     repeat with evt in recurringEvts
                         try
