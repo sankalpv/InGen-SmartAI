@@ -78,6 +78,14 @@ export default function WeekAheadPage() {
                     </h1>
                     <p style={{ color: 'var(--text-secondary)', fontSize: '16px' }}>
                         {data.dateRange.start} — {data.dateRange.end}
+                        <span style={{ 
+                            marginLeft: '12px', 
+                            fontSize: '12px', 
+                            color: 'var(--text-tertiary)',
+                            cursor: 'help'
+                        }} title="Data sourced from Outlook via AppleScript. Some recurring meeting instances may not appear due to Outlook API limitations. Non-recurring and most recurring meetings are captured accurately.">
+                            ℹ️ Data from Outlook Calendar
+                        </span>
                     </p>
                 </div>
 
