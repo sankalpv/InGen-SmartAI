@@ -6,7 +6,7 @@ async function showMeetings() {
     console.log('Fetching calendar data from the last 7 days...\n');
     
     try {
-        const meetings = await fetchOutlookCalendar();
+        const meetings = await fetchOutlookCalendar(null, 7); // Explicitly fetch 7 days
         
         // Filter to last 7 days
         const now = new Date();

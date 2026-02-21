@@ -24,7 +24,7 @@ export async function findFreeSlots(constraints, session) {
     let events = [];
     try {
         // Only fetch Outlook as requested
-        const outlookEvents = await fetchOutlookCalendar();
+        const outlookEvents = await fetchOutlookCalendar(null, 14); // 14 days for scheduling
         events = [...outlookEvents];
     } catch (e) {
         console.error('Error fetching events for slots:', e);

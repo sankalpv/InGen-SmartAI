@@ -24,9 +24,9 @@ async function runProactiveAnalysis() {
         
         const startCount = (await insightStore.getStats()).total || 0;
         
-        // Fetch recent data
+        // Fetch recent data (30 days for proactive analysis)
         const emails = await fetchOutlookEmails();
-        const meetings = await fetchOutlookCalendar();
+        const meetings = await fetchOutlookCalendar(null, 30);
         
         // Get upcoming meetings (next 24 hours)
         const now = new Date();

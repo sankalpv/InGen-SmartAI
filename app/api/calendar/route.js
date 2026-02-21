@@ -29,8 +29,9 @@ export async function GET(req) {
             console.warn('[API/Calendar] Failed to read settings.json:', e.message);
         }
 
+        // Dashboard shows today's meetings, so fetch last 7 days + next 3 days (default in AppleScript)
         console.log(`[API/Calendar] Fetching Outlook local events (ID ${calendarId})...`);
-        const events = await fetchOutlookCalendar(calendarId);
+        const events = await fetchOutlookCalendar(calendarId, 7); // Dashboard uses 7-day window
         console.log(`[API/Calendar] Found ${events.length} events`);
 
         // Return raw events immediately — meeting briefs are generated lazily per-card
