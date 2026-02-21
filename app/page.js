@@ -586,8 +586,8 @@ export default function Dashboard() {
                             <div className="empty-state-text">No meetings today</div>
                         </div>
                     ) : (
-                        meetings.map((meeting) => (
-                            <MeetingCard key={meeting.id} meeting={meeting} />
+                        meetings.map((meeting, idx) => (
+                            <MeetingCard key={`${meeting.id}_${meeting.startTime || idx}`} meeting={meeting} />
                         ))
                     )}
                 </div>
