@@ -96,15 +96,26 @@ print_step 3 "Checking Node.js..."
 if ! command -v node &>/dev/null; then
     print_warn "Node.js not found. Installing via Homebrew..."
     brew install node
-    print_ok "Node.js $(node -v) installed"
-else
-    NODE_VERSION=$(node -v | sed 's/v//' | cut -d. -f1)
-    if [[ "$NODE_VERSION" -lt 20 ]]; then
-        print_warn "Node.js $(node -v) is too old (need 20+). Upgrading..."
-        brew upgrade node || brew install node
-    fi
-    print_ok "Node.js $(node -v)"
 fi
+
+# Verify Node.js version (must be >= 20)
+NODE_VERSION=$(node -v 2>/dev/null | sed 's/v//' | cut -d. -f1)
+if [[ -z "$NODE_VERSION" ]] || [[ "$NODE_VERSION" -lt 20 ]]; then
+    print_warn "Node.js ${NODE_VERSION:-not found} is too old (need 20+). Upgrading..."
+    brew upgrade node 2>/dev/null || brew install node 2>/dev/null
+    
+    # Re-check after upgrade
+    NODE_VERSION=$(node -v 2>/dev/null | sed 's/v//' | cut -d. -f1)
+    if [[ -z "$NODE_VERSION" ]] || [[ "$NODE_VERSION" -lt 20 ]]; then
+        print_fail "Node.js upgrade failed. Current: $(node -v 2>/dev/null || echo 'not found')"
+        print_info "Please install Node.js 20+ manually:"
+        print_info "  brew install node"
+        print_info "  OR: Visit https://nodejs.org and download v20+"
+        print_info "If using nvm: nvm install 20 && nvm use 20"
+        exit 1
+    fi
+fi
+print_ok "Node.js $(node -v)"
 
 # ─── Step 4: Check/Install Ollama ───
 print_step 4 "Checking Ollama (local AI engine)..."

@@ -128,6 +128,10 @@ function getStatus() {
 }
 
 // ─── Full Sync (called by background agent) ───
+// Uses a child process to avoid ESM/CJS incompatibility
+// (outlook-local.js uses ESM imports, background-agent.js uses CJS)
+
+const { exec } = require('child_process');
 
 let isSyncing = false;
 
@@ -142,57 +146,33 @@ async function fullSync() {
     const startTime = Date.now();
 
     try {
-        // Dynamic import to avoid circular deps
-        const outlookLocal = require('./outlook-local');
+        const syncScript = path.join(process.cwd(), 'scripts', 'sync-local-data.mjs');
+        
+        return new Promise((resolve) => {
+            exec(
+                `node "${syncScript}"`,
+                { cwd: process.cwd(), timeout: 300000, maxBuffer: 10 * 1024 * 1024 },
+                (error, stdout, stderr) => {
+                    const elapsed = Math.round((Date.now() - startTime) / 1000);
+                    
+                    if (error) {
+                        logger.error('Sync script failed:', error.message);
+                        if (stderr) logger.error('Sync stderr:', stderr.substring(0, 500));
+                        resolve({ success: false, error: error.message, elapsed });
+                        return;
+                    }
 
-        // Fetch emails (100)
-        let emailCount = 0;
-        try {
-            const emails = await outlookLocal.fetchOutlookEmails(100);
-            if (emails && emails.length > 0) {
-                saveEmails(emails);
-                emailCount = emails.length;
-            }
-        } catch (e) {
-            logger.error('Email sync failed:', e.message);
-        }
-
-        // Fetch calendar (dashboard view: 7 days back, 3 forward)
-        let calendarCount = 0;
-        try {
-            const calendarId = null; // Uses default from settings
-            const events = await outlookLocal.fetchOutlookCalendar(calendarId, 7, 3);
-            if (events && events.length > 0) {
-                saveCalendar(events);
-                calendarCount = events.length;
-            }
-        } catch (e) {
-            logger.error('Calendar sync failed:', e.message);
-        }
-
-        // Fetch week-ahead calendar (0 back, 8 forward)
-        let weekCount = 0;
-        try {
-            const calendarId = null;
-            const weekEvents = await outlookLocal.fetchOutlookCalendar(calendarId, 0, 8);
-            if (weekEvents && weekEvents.length > 0) {
-                saveCalendarWeek(weekEvents);
-                weekCount = weekEvents.length;
-            }
-        } catch (e) {
-            logger.error('Week calendar sync failed:', e.message);
-        }
-
-        const elapsed = Math.round((Date.now() - startTime) / 1000);
-        logger.info(`Full sync complete in ${elapsed}s: ${emailCount} emails, ${calendarCount} calendar events, ${weekCount} week events`);
-
-        return {
-            success: true,
-            emails: emailCount,
-            calendar: calendarCount,
-            calendarWeek: weekCount,
-            elapsed
-        };
+                    try {
+                        const result = JSON.parse(stdout.trim().split('\n').pop());
+                        logger.info(`Full sync complete in ${elapsed}s: ${result.emails} emails, ${result.calendar} cal, ${result.calendarWeek} week`);
+                        resolve({ success: true, ...result, elapsed });
+                    } catch (e) {
+                        logger.warn(`Sync completed but output parse failed. stdout: ${stdout.substring(0, 200)}`);
+                        resolve({ success: true, elapsed });
+                    }
+                }
+            );
+        });
 
     } catch (error) {
         logger.error('Full sync failed:', error.message);
