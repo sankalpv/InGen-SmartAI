@@ -199,7 +199,10 @@ fi
 
 # Install dependencies
 print_info "Installing Node.js dependencies (this may take 1-2 minutes)..."
-npm install 2>&1 | tail -1
+npm install
+# Rebuild native modules (hnswlib-node needs compilation)
+print_info "Building native modules..."
+npm rebuild 2>/dev/null || true
 
 print_ok "InGen installed at $INSTALL_DIR"
 

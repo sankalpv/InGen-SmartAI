@@ -140,7 +140,7 @@ async function runAll() {
     }
 
     // 5. Required env vars
-    const envChecks = checkEnvVars(['NEXTAUTH_SECRET', 'AUTH_SECRET']);
+    const envChecks = checkEnvVars([]); // AUTH_SECRET/NEXTAUTH_SECRET removed — not needed for local-only mode
     for (const ec of envChecks) {
         results.push({
             name: `Env var: ${ec.name}`,
