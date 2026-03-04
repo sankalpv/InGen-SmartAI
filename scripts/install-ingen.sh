@@ -220,9 +220,6 @@ EMBEDDING_DIMENSIONS=4096
 OLLAMA_BASE_URL=http://127.0.0.1:11434
 OLLAMA_MODEL=$LLM_MODEL
 
-AUTH_SECRET=$AUTH_SECRET
-NEXTAUTH_SECRET=$AUTH_SECRET
-
 LOG_LEVEL=INFO
 MCP_ENABLED=true
 EOF
@@ -231,28 +228,128 @@ else
     print_ok ".env.local already exists (preserved)"
 fi
 
-# Update phonetool alias if we can detect it
+# Create data directory
+mkdir -p "$INSTALL_DIR/data"
+
+echo ""
+echo -e "  ${BOLD}📅 Calendar Selection${NC}"
+
+# Try to detect available Outlook calendars
+CALENDAR_JSON=""
+if command -v node &>/dev/null; then
+    CALENDAR_JSON=$(cd "$INSTALL_DIR" && node -e "
+const {getCalendarList} = require('./services/outlook-local');
+getCalendarList().then(cals => {
+    if (cals && cals.length > 0) {
+        console.log(JSON.stringify(cals));
+    } else {
+        console.log('[]');
+    }
+}).catch(() => console.log('[]'));
+" 2>/dev/null || echo "[]")
+fi
+
+if [[ -n "$CALENDAR_JSON" ]] && [[ "$CALENDAR_JSON" != "[]" ]] && command -v python3 &>/dev/null; then
+    # Parse and display calendars
+    CALENDAR_COUNT=$(echo "$CALENDAR_JSON" | python3 -c "import sys,json; print(len(json.load(sys.stdin)))" 2>/dev/null || echo "0")
+    
+    if [[ "$CALENDAR_COUNT" -gt "0" ]]; then
+        echo ""
+        echo -e "  Available Outlook calendars:"
+        echo "$CALENDAR_JSON" | python3 -c "
+import sys, json
+cals = json.load(sys.stdin)
+for i, cal in enumerate(cals):
+    default = ' ← default' if cal.get('isDefault') else ''
+    print(f\"    {i+1}. {cal.get('name', 'Unknown')} (ID: {cal.get('id', '?')}){default}\")
+" 2>/dev/null
+        echo ""
+        read -p "  Select calendar number [1]: " CAL_CHOICE
+        CAL_CHOICE=${CAL_CHOICE:-1}
+        
+        SELECTED_CAL_ID=$(echo "$CALENDAR_JSON" | python3 -c "
+import sys, json
+cals = json.load(sys.stdin)
+idx = int('$CAL_CHOICE') - 1
+if 0 <= idx < len(cals):
+    print(cals[idx].get('id', ''))
+else:
+    print(cals[0].get('id', ''))
+" 2>/dev/null)
+        
+        if [[ -n "$SELECTED_CAL_ID" ]]; then
+            python3 -c "
+import json
+with open('$INSTALL_DIR/config/settings.json', 'r') as f:
+    s = json.load(f)
+s['outlookCalendarId'] = '$SELECTED_CAL_ID'
+with open('$INSTALL_DIR/config/settings.json', 'w') as f:
+    json.dump(s, f, indent=2)
+" 2>/dev/null
+            print_ok "Calendar ID set to: $SELECTED_CAL_ID"
+        fi
+    else
+        print_warn "Could not detect calendars (Outlook may not be running)"
+        print_info "You can set it later in Settings or config/settings.json"
+    fi
+else
+    print_warn "Could not detect calendars (Outlook may not be running)"
+    print_info "You can set it later: open ~/InGen/config/settings.json and set outlookCalendarId"
+fi
+
+# Phonetool alias
+echo ""
+echo -e "  ${BOLD}👤 Phonetool Alias${NC}"
 CURRENT_USER=$(whoami)
-if [[ -n "$CURRENT_USER" ]]; then
-    # Update settings.json with detected alias
+echo ""
+read -p "  Enter your Amazon alias [$CURRENT_USER]: " USER_ALIAS
+USER_ALIAS=${USER_ALIAS:-$CURRENT_USER}
+
+if [[ -n "$USER_ALIAS" ]] && command -v python3 &>/dev/null; then
+    python3 -c "
+import json
+try:
+    with open('$INSTALL_DIR/config/settings.json', 'r') as f:
+        s = json.load(f)
+    s['phonetoolAlias'] = '$USER_ALIAS'
+    with open('$INSTALL_DIR/config/settings.json', 'w') as f:
+        json.dump(s, f, indent=2)
+except: pass
+" 2>/dev/null
+fi
+print_ok "Phonetool alias: $USER_ALIAS"
+
+# Quip API Token
+echo ""
+echo -e "  ${BOLD}📄 Quip Document Integration (optional)${NC}"
+echo -e "  InGen can read Quip docs linked in your emails."
+echo -e "  Get your token at: ${CYAN}https://quip-amazon.com/dev/token${NC}"
+echo ""
+read -p "  Enter Quip API token (or press Enter to skip): " QUIP_TOKEN
+
+if [[ -n "$QUIP_TOKEN" ]]; then
+    mkdir -p "$HOME/.amazon-internal-mcp-server"
+    echo "QUIP_API_TOKEN=$QUIP_TOKEN" > "$HOME/.amazon-internal-mcp-server/.env"
+    print_ok "Quip token saved"
+else
+    print_info "Skipped — you can add it later in Settings"
+    # Disable Quip in settings since no token
     if command -v python3 &>/dev/null; then
         python3 -c "
 import json
 try:
     with open('$INSTALL_DIR/config/settings.json', 'r') as f:
         s = json.load(f)
-    s['phonetoolAlias'] = '$CURRENT_USER'
+    s.setdefault('quip', {})['enabled'] = False
     with open('$INSTALL_DIR/config/settings.json', 'w') as f:
         json.dump(s, f, indent=2)
 except: pass
 " 2>/dev/null
     fi
-    print_ok "Set Phonetool alias: $CURRENT_USER"
 fi
 
-# Create data directory
-mkdir -p "$INSTALL_DIR/data"
-print_ok "Created data directory"
+echo ""
+print_ok "Configuration complete"
 
 # ─── Step 8: Create Desktop Shortcut ───
 print_step 8 "Creating Desktop shortcut..."
