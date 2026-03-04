@@ -38,6 +38,8 @@ async function generateCompletion(systemPrompt, userPrompt, jsonMode = true, tem
                 prompt: userPrompt,
                 stream: false,
                 format: jsonMode ? 'json' : undefined,
+                think: false, // Disable qwen3 thinking/reasoning mode for faster generation
+                keep_alive: '2m', // Unload model after 2 min idle (battery optimization)
                 options: { temperature: temperature } // Ollama uses 'options' for params
             };
 
@@ -288,9 +290,9 @@ CRITICAL INSTRUCTIONS FOR QUIP DOCUMENTS:
     }
 
     try {
-        // Increased timeout to 120s for complex briefings with Quip documents
+        // Increased timeout to 300s for complex briefings with Quip documents (qwen3 can be slow)
         const timeoutPromise = new Promise((_, reject) =>
-            setTimeout(() => reject(new Error('AI_TIMEOUT: Briefing generation exceeded 120s. Try reducing email count or disabling Quip.')), 120000)
+            setTimeout(() => reject(new Error('AI_TIMEOUT: Briefing generation exceeded 300s. Try reducing email count or disabling Quip.')), 300000)
         );
 
         // Turn OFF jsonMode, Low Temperature (0.2) for stability

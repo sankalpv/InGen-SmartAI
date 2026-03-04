@@ -32,6 +32,8 @@ class OllamaClient {
         model: this.llmModel,
         prompt: prompt,
         stream: stream,
+        think: false, // Disable qwen3 thinking/reasoning mode for faster generation
+        keep_alive: '2m', // Unload model after 2 min idle (battery optimization)
         options: {
           temperature: temperature,
           num_predict: maxTokens,

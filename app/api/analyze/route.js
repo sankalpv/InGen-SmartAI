@@ -1,49 +1,87 @@
-import { mockEmails, mockMeetings, mockSlackMessages, mockBriefing } from '@/services/mock-data';
 import { generateDailyBriefing } from '@/services/ai';
 import { NextResponse } from 'next/server';
 import { fetchOutlookEmails } from '@/services/outlook-local';
+import fs from 'fs';
+import path from 'path';
 
 export const runtime = 'nodejs';
 
+const BRIEFING_CACHE_FILE = path.join(process.cwd(), 'data', 'last-briefing.json');
+const BRIEFING_CACHE_TTL = 30 * 60 * 1000; // 30 minutes
+
+// Ensure data directory exists
+function ensureDataDir() {
+    const dataDir = path.join(process.cwd(), 'data');
+    if (!fs.existsSync(dataDir)) {
+        fs.mkdirSync(dataDir, { recursive: true });
+    }
+}
+
+// Read cached briefing
+function getCachedBriefing() {
+    try {
+        if (fs.existsSync(BRIEFING_CACHE_FILE)) {
+            const cached = JSON.parse(fs.readFileSync(BRIEFING_CACHE_FILE, 'utf8'));
+            const age = Date.now() - new Date(cached.cachedAt).getTime();
+            if (age < BRIEFING_CACHE_TTL) {
+                return { ...cached.briefing, source: 'cached', cacheAge: Math.round(age / 1000) };
+            }
+        }
+    } catch (e) {
+        console.warn('[API/Analyze] Cache read failed:', e.message);
+    }
+    return null;
+}
+
+// Write briefing to cache
+function cacheBriefing(briefing) {
+    try {
+        ensureDataDir();
+        fs.writeFileSync(BRIEFING_CACHE_FILE, JSON.stringify({
+            cachedAt: new Date().toISOString(),
+            briefing
+        }, null, 2));
+    } catch (e) {
+        console.warn('[API/Analyze] Cache write failed:', e.message);
+    }
+}
+
 export async function GET(req) {
     try {
-        const useMock = process.env.USE_MOCK_DATA === 'true';
         const { searchParams } = new URL(req.url);
         const source = searchParams.get('source') || 'outlook';
+        const forceRefresh = searchParams.get('refresh') === 'true';
+        const streamMode = searchParams.get('stream') === 'true';
 
-        console.log(`[API/Analyze] source=${source}, useMock=${useMock}`);
+        console.log(`[API/Analyze] source=${source}, forceRefresh=${forceRefresh}, stream=${streamMode}`);
 
-        if (useMock) {
-            try {
-                // Try generating fresh briefing from mock data (test AI)
-                console.log('[API/Analyze] Generating fresh briefing from mock data...');
-                const briefing = await generateDailyBriefing(mockEmails, mockMeetings, mockSlackMessages);
+        // Phase 3: Streaming mode — stream the briefing as it generates
+        if (streamMode) {
+            return streamBriefing(source);
+        }
 
-                // If AI returned a fallback error message, use our static high-quality mock instead
-                if (briefing.greeting.includes('Unable to generate AI summary')) {
-                    throw new Error('AI Generation failed');
+        // Phase 2: Serve cached briefing for instant page loads
+        if (!forceRefresh) {
+            const cached = getCachedBriefing();
+            if (cached) {
+                console.log(`[API/Analyze] Serving cached briefing (${cached.cacheAge}s old)`);
+                
+                // Trigger background refresh if cache is older than 15 min
+                if (cached.cacheAge > 15 * 60) {
+                    refreshBriefingInBackground(source);
                 }
-
-                briefing.source = 'mock-generated';
-                return NextResponse.json(briefing);
-            } catch (e) {
-                console.warn('[API/Analyze] Mock generation failed, using static fallback:', e.message);
-                return NextResponse.json({ ...mockBriefing, source: 'mock-static' });
+                
+                return NextResponse.json(cached);
             }
         }
 
-        let realEmails = [];
-        try {
-            console.log('[API/Analyze] Fetching Outlook emails...');
-            realEmails = await fetchOutlookEmails(20);
-            console.log(`[API/Analyze] Got ${realEmails.length} emails`);
-        } catch (e) {
-            console.warn('[API/Analyze] Email fetch failed, proceeding with empty list:', e.message);
-        }
-
-        const briefing = await generateDailyBriefing(realEmails, [], []);
-        briefing.source = 'live';
-        return NextResponse.json(briefing);
+        // No cache available — tell frontend to use streaming mode
+        // Return quickly with an error flag so the frontend switches to SSE streaming
+        console.log('[API/Analyze] No cached briefing available, signaling frontend to stream');
+        return NextResponse.json({
+            error: 'no_cache',
+            message: 'No cached briefing. Use stream=true for ChatGPT-style generation.'
+        });
 
     } catch (error) {
         console.error('[API/Analyze] Failed:', error);
@@ -52,6 +90,83 @@ export async function GET(req) {
             { status: 500 }
         );
     }
+}
+
+// Background refresh — non-blocking
+function refreshBriefingInBackground(source) {
+    console.log('[API/Analyze] Starting background briefing refresh...');
+    (async () => {
+        try {
+            const emails = await fetchOutlookEmails(20);
+            const briefing = await generateDailyBriefing(emails, [], []);
+            briefing.source = 'live';
+            cacheBriefing(briefing);
+            console.log('[API/Analyze] Background briefing refresh complete');
+        } catch (e) {
+            console.error('[API/Analyze] Background refresh failed:', e.message);
+        }
+    })();
+}
+
+// Phase 3: Streaming briefing via SSE
+async function streamBriefing(source) {
+    const encoder = new TextEncoder();
+    
+    const stream = new ReadableStream({
+        async start(controller) {
+            try {
+                // Send initial event
+                controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'start', message: 'Generating briefing...' })}\n\n`));
+
+                // Fetch emails
+                let realEmails = [];
+                try {
+                    realEmails = await fetchOutlookEmails(20);
+                    controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'progress', message: `Fetched ${realEmails.length} emails` })}\n\n`));
+                } catch (e) {
+                    controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'progress', message: 'Email fetch failed, continuing...' })}\n\n`));
+                }
+
+                // Stream the Ollama generation
+                const { streamDailyBriefing } = await import('@/services/ai-stream');
+                
+                const fullText = await streamDailyBriefing(realEmails, [], [], (chunk) => {
+                    controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'chunk', text: chunk })}\n\n`));
+                });
+
+                // Cache the completed briefing for instant future loads
+                try {
+                    const { default: parseModule } = await import('@/services/ai');
+                    // Simple cache: store the raw text as a briefing-like structure
+                    const briefingToCache = {
+                        greeting: fullText,
+                        linkedDocuments: null,
+                        topPriorities: [],
+                        summary: { totalEmails: realEmails.length, generatedAt: new Date().toISOString() },
+                        source: 'streamed'
+                    };
+                    cacheBriefing(briefingToCache);
+                    console.log('[API/Analyze] Cached streamed briefing for future instant loads');
+                } catch (cacheErr) {
+                    console.warn('[API/Analyze] Failed to cache streamed briefing:', cacheErr.message);
+                }
+
+                controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'done' })}\n\n`));
+                controller.close();
+            } catch (error) {
+                controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'error', message: error.message })}\n\n`));
+                controller.close();
+            }
+        }
+    });
+
+    return new Response(stream, {
+        headers: {
+            'Content-Type': 'text/event-stream',
+            'Cache-Control': 'no-cache',
+            'Connection': 'keep-alive',
+        },
+    });
 }
 
 export async function POST(req) {

@@ -4,6 +4,7 @@ import { fetchOutlookEmails } from '../../../services/outlook-local.js';
 import { createRequire } from 'module';
 const require = createRequire(import.meta.url);
 const ollamaClient = require('../../../services/ollama-client.js');
+const localStore = require('../../../services/local-store.js');
 const logger = require('../../../services/logger.js').child('WeekAhead');
 
 export async function GET(request) {
@@ -12,8 +13,24 @@ export async function GET(request) {
         const skipAI = searchParams.get('skipAI') === 'true';
         const aiOnly = searchParams.get('aiOnly') === 'true';
 
-        // Fetch next 7 days of calendar (today forward only, no lookback)
-        const meetings = await fetchOutlookCalendar(null, 0, 8);
+        // LOCAL STORE FIRST — instant response from cached week calendar
+        let meetings = [];
+        const cached = localStore.getCalendarWeek();
+        if (cached.exists && cached.data) {
+            meetings = cached.data;
+            logger.info(`Serving ${meetings.length} week events from local store (${cached.ageMinutes}m old)`);
+            
+            if (cached.isStale) {
+                localStore.fullSync().catch(e => logger.error('Background sync failed:', e.message));
+            }
+        } else {
+            // Fallback: fetch from Outlook directly
+            logger.info('No local week data, fetching from Outlook...');
+            meetings = await fetchOutlookCalendar(null, 0, 8);
+            if (meetings && meetings.length > 0) {
+                localStore.saveCalendarWeek(meetings);
+            }
+        }
 
         const now = new Date();
         const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());

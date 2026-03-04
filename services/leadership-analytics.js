@@ -4,8 +4,6 @@
  * action items, blockers, decisions, and leadership style analysis
  */
 
-import { createRequire } from 'module';
-const require = createRequire(import.meta.url);
 const logger = require('./logger').child('Leadership');
 const ollamaClient = require('./ollama-client');
 
@@ -88,7 +86,7 @@ async function isOneOnOneBySemantic(meetingTitle) {
 /**
  * TIME AUDIT: Analyze how time is spent
  */
-export async function analyzeTimeAudit(emails, meetings, dateRange = 7) {
+async function analyzeTimeAudit(emails, meetings, dateRange = 7) {
     const now = new Date();
     const startDate = new Date(now - dateRange * 24 * 60 * 60 * 1000);
 
@@ -239,7 +237,7 @@ export async function analyzeTimeAudit(emails, meetings, dateRange = 7) {
 /**
  * RELATIONSHIP HEALTH: Track communication patterns with key people
  */
-export function analyzeRelationshipHealth(emails, meetings, topN = 10) {
+function analyzeRelationshipHealth(emails, meetings, topN = 10) {
     const relationshipMap = new Map();
     
     logger.info(`[Relationships] Analyzing ${emails.length} emails and ${meetings.length} meetings`);
@@ -412,7 +410,7 @@ export function analyzeRelationshipHealth(emails, meetings, topN = 10) {
  * ACTION ITEMS: Extract and intelligently categorize action items
  * Groups by timeline, owner, and project for executive-level clarity
  */
-export async function extractActionItems(emails, meetings) {
+async function extractActionItems(emails, meetings) {
     const actionItems = [];
     const actionKeywords = [
         'todo', 'to-do', 'action item', 'follow up', 'will do',
@@ -599,7 +597,7 @@ export async function extractActionItems(emails, meetings) {
 /**
  * BLOCKER DETECTION: Identify blockers mentioned in communications
  */
-export function detectBlockers(emails, meetings) {
+function detectBlockers(emails, meetings) {
     const blockers = [];
     const blockerKeywords = [
         'blocked', 'blocker', 'stuck', 'waiting for', 'waiting on',
@@ -666,7 +664,7 @@ export function detectBlockers(emails, meetings) {
 /**
  * DECISION TRACKING: Track decisions made in communications
  */
-export function trackDecisions(emails, meetings) {
+function trackDecisions(emails, meetings) {
     const decisions = [];
     const decisionKeywords = [
         'decided', 'decision', 'agreed', 'approve', 'approved',
@@ -797,3 +795,12 @@ function determineUrgency(email) {
     
     return 'low';
 }
+
+// CommonJS exports (compatible with both Next.js API routes and standalone Node.js)
+module.exports = {
+    analyzeTimeAudit,
+    analyzeRelationshipHealth,
+    extractActionItems,
+    detectBlockers,
+    trackDecisions
+};

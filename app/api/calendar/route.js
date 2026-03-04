@@ -1,6 +1,10 @@
 import { mockMeetings } from '@/services/mock-data';
 import { fetchOutlookCalendar } from '@/services/outlook-local';
 import { NextResponse } from 'next/server';
+import { createRequire } from 'module';
+
+const require = createRequire(import.meta.url);
+const localStore = require('../../../services/local-store');
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -15,7 +19,21 @@ export async function GET(req) {
             return NextResponse.json({ meetings: mockMeetings, source: 'mock' });
         }
 
-        // Read calendar ID from settings
+        // LOCAL STORE FIRST — instant response from cached data
+        const cached = localStore.getCalendar();
+        if (cached.exists && cached.data) {
+            console.log(`[API/Calendar] Serving ${cached.data.length} events from local store (${cached.ageMinutes}m old)`);
+            
+            // If stale, trigger background refresh (non-blocking)
+            if (cached.isStale) {
+                console.log('[API/Calendar] Local store is stale, triggering background sync');
+                localStore.fullSync().catch(e => console.error('Background sync failed:', e.message));
+            }
+            
+            return NextResponse.json({ meetings: cached.data, source: 'local', ageMinutes: cached.ageMinutes });
+        }
+
+        // FALLBACK — no local data, fetch from Outlook directly
         let calendarId = process.env.NEXT_PUBLIC_OUTLOOK_CALENDAR_ID || '432';
         try {
             const fs = require('fs');
@@ -29,13 +47,14 @@ export async function GET(req) {
             console.warn('[API/Calendar] Failed to read settings.json:', e.message);
         }
 
-        // Dashboard shows today's meetings, so fetch last 7 days + next 3 days (default in AppleScript)
-        console.log(`[API/Calendar] Fetching Outlook local events (ID ${calendarId})...`);
-        const events = await fetchOutlookCalendar(calendarId, 7); // Dashboard uses 7-day window
+        console.log(`[API/Calendar] No local data, fetching from Outlook (ID ${calendarId})...`);
+        const events = await fetchOutlookCalendar(calendarId, 7);
         console.log(`[API/Calendar] Found ${events.length} events`);
 
-        // Return raw events immediately — meeting briefs are generated lazily per-card
-        return NextResponse.json({ meetings: events, source: 'outlook' });
+        // Save to local store for next time
+        localStore.saveCalendar(events);
+
+        return NextResponse.json({ meetings: events, source: 'live' });
 
     } catch (error) {
         console.error('[API/Calendar] Error:', error);

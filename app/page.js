@@ -20,6 +20,7 @@ import WeeklyRetroModal from '@/components/WeeklyRetroModal'; // Added
 import InsightNotifications from '@/components/InsightNotifications'; // Added
 
 import AIChat from '@/components/AIChat'; // Added
+import StreamingBriefing from '@/components/StreamingBriefing'; // Phase 3: ChatGPT-style streaming
 
 // Email Priority Lanes Component - Visual swim lanes by urgency
 function EmailPriorityLanes({ emails }) {
@@ -192,6 +193,7 @@ export default function Dashboard() {
     const [showInsightFeed, setShowInsightFeed] = useState(false); // Added
     const [selectedInsight, setSelectedInsight] = useState(null); // Added
     const [emailSource, setEmailSource] = useState('outlook');
+    const [isStreamingBriefing, setIsStreamingBriefing] = useState(false);
 
     const fetchData = useCallback(async (sourceOverride) => {
         const currentSource = sourceOverride || emailSource;
@@ -244,16 +246,27 @@ export default function Dashboard() {
                 .then(data => { if (!data.error) setSlackMessages(data.messages || []); })
                 .catch(() => { });
 
-            // Briefing — skeleton is already showing, replace when ready
+            // Briefing — try cached first (instant), then use streaming for fresh generation
             try {
                 const res = await fetch(`/api/analyze?source=${currentSource}`);
                 const data = await res.json();
-                if (!data.error) setBriefing(data);
-                else console.warn('Analysis error:', data.error);
+                if (!data.error) {
+                    setBriefing(data);
+                    setIsBriefingLoading(false);
+                    
+                    if (data.source === 'cached') {
+                        console.log(`[Dashboard] Serving cached briefing (${data.cacheAge}s old)`);
+                    }
+                } else {
+                    // No cache available — use streaming mode (ChatGPT-style)
+                    console.log('[Dashboard] No cached briefing, switching to streaming mode');
+                    setIsBriefingLoading(false);
+                    setIsStreamingBriefing(true);
+                }
             } catch (e) {
-                console.error('Analysis fetch failed', e);
-            } finally {
+                console.error('Analysis fetch failed, switching to streaming mode', e);
                 setIsBriefingLoading(false);
+                setIsStreamingBriefing(true);
             }
 
         } catch (error) {
@@ -414,8 +427,18 @@ export default function Dashboard() {
 
             <WeeklyRetroModal isOpen={showRetro} onClose={() => setShowRetro(false)} />
 
-            {/* AI Briefing Skeleton — shown while generating */}
-            {isBriefingLoading && !briefing && (
+            {/* AI Briefing — Streaming mode (ChatGPT-style word-by-word) */}
+            {isStreamingBriefing && !briefing && (
+                <StreamingBriefing 
+                    onComplete={(parsed) => {
+                        setBriefing(parsed);
+                        setIsStreamingBriefing(false);
+                    }}
+                />
+            )}
+
+            {/* AI Briefing Skeleton — shown briefly while checking cache */}
+            {isBriefingLoading && !briefing && !isStreamingBriefing && (
                 <div className="ai-briefing animate-in" style={{ position: 'relative', overflow: 'hidden' }}>
                     <div className="ai-briefing-header">
                         <div className="ai-badge">
@@ -431,10 +454,9 @@ export default function Dashboard() {
                                 background: 'var(--accent-purple)',
                                 animation: 'pulse 1.2s ease-in-out infinite',
                             }} />
-                            Generating with AI…
+                            Checking cache…
                         </span>
                     </div>
-                    {/* Skeleton lines */}
                     {[100, 85, 92, 60].map((w, i) => (
                         <div key={i} style={{
                             height: '14px',
@@ -447,23 +469,6 @@ export default function Dashboard() {
                             backgroundImage: 'linear-gradient(90deg, transparent 0%, rgba(255,255,255,0.06) 50%, transparent 100%)',
                         }} />
                     ))}
-                    <div style={{
-                        marginTop: '16px',
-                        display: 'flex',
-                        gap: '8px',
-                    }}>
-                        {[40, 55, 35].map((w, i) => (
-                            <div key={i} style={{
-                                height: '28px',
-                                width: `${w}%`,
-                                borderRadius: '8px',
-                                background: 'var(--glass-border, rgba(255,255,255,0.05))',
-                                animation: `shimmer 1.6s ease-in-out ${0.3 + i * 0.1}s infinite`,
-                                backgroundSize: '200% 100%',
-                                backgroundImage: 'linear-gradient(90deg, transparent 0%, rgba(255,255,255,0.06) 50%, transparent 100%)',
-                            }} />
-                        ))}
-                    </div>
                 </div>
             )}
 

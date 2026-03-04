@@ -1,0 +1,195 @@
+/**
+ * AI Streaming Service — ChatGPT-style token-by-token generation
+ * Uses Ollama's stream:true to send tokens as they're generated
+ */
+
+import { createRequire } from 'module';
+const require = createRequire(import.meta.url);
+const logger = require('./logger').child('AI-Stream');
+const promptLoader = require('./prompt-loader');
+const quipFetcher = require('./quip-fetcher');
+
+const OLLAMA_MODEL = process.env.LLM_MODEL || process.env.OLLAMA_MODEL || 'qwen3:latest';
+const OLLAMA_BASE_URL = process.env.OLLAMA_BASE_URL || 'http://127.0.0.1:11434';
+
+/**
+ * Stream a completion from Ollama — calls onChunk for each token
+ */
+export async function streamCompletion(systemPrompt, userPrompt, onChunk, options = {}) {
+    const { temperature = 0.3, jsonMode = false } = options;
+
+    const body = {
+        model: OLLAMA_MODEL.trim(),
+        system: systemPrompt,
+        prompt: userPrompt,
+        stream: true,
+        format: jsonMode ? 'json' : undefined,
+        think: false,
+        keep_alive: '2m',
+        options: { temperature }
+    };
+
+    const response = await fetch(`${OLLAMA_BASE_URL}/api/generate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+    });
+
+    if (!response.ok) {
+        const text = await response.text();
+        throw new Error(`Ollama streaming error: ${response.status} - ${text}`);
+    }
+
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let fullText = '';
+
+    while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        const chunk = decoder.decode(value, { stream: true });
+        // Ollama streams NDJSON — one JSON object per line
+        const lines = chunk.split('\n').filter(l => l.trim());
+
+        for (const line of lines) {
+            try {
+                const parsed = JSON.parse(line);
+                if (parsed.response) {
+                    fullText += parsed.response;
+                    onChunk(parsed.response);
+                }
+                if (parsed.done) {
+                    return fullText;
+                }
+            } catch (e) {
+                // Skip malformed lines
+            }
+        }
+    }
+
+    return fullText;
+}
+
+/**
+ * Stream a daily briefing — calls onChunk as tokens arrive
+ */
+export async function streamDailyBriefing(emails, meetings, slackMessages, onChunk) {
+    const system = promptLoader.get('system') || "You are the AI engine for 'SmartAI', a productivity dashboard. Be helpful, concise, and proactive.";
+
+    const limitedEmails = emails.slice(0, 5).map(e => ({
+        from: e.from,
+        subject: e.subject,
+        snippet: (e.snippet || '').substring(0, 2000)
+    }));
+
+    // Quip context
+    const quipSettings = quipFetcher.getQuipSettings();
+    let quipContext = '';
+
+    if (quipSettings.enabled) {
+        try {
+            const quipUrls = quipFetcher.extractQuipUrlsFromEmails(emails);
+            if (quipUrls.length > 0) {
+                const quipDocs = await quipFetcher.fetchMultipleQuipDocs(quipUrls);
+                if (quipDocs.length > 0) {
+                    quipContext = quipFetcher.formatQuipContextForAI(quipDocs);
+                }
+            }
+        } catch (e) {
+            logger.error('Quip fetch failed during streaming:', e.message);
+        }
+    }
+
+    let prompt = `You are my executive productivity assistant.
+
+INPUT:
+Emails: ${JSON.stringify(limitedEmails)}
+Meetings: ${JSON.stringify(meetings.map(m => ({ title: m.title, time: m.start?.dateTime || m.date || 'All Day' })))}
+
+TASK: Analyze the emails and meetings to produce a comprehensive Daily Briefing.
+
+OUTPUT FORMAT:
+## EXECUTIVE SUMMARY
+(3-5 sentences summarizing the day)
+
+## TOP PRIORITIES
+- [URGENCY: HIGH] Title | Reason
+- [URGENCY: MEDIUM] Title | Reason`;
+
+    if (quipContext) {
+        prompt += `\n\n## LINKED DOCUMENTS\n${quipContext}`;
+    }
+
+    logger.info('Starting streaming daily briefing...');
+    const fullText = await streamCompletion(system, prompt, onChunk, { temperature: 0.2 });
+    logger.info('Streaming briefing complete');
+    return fullText;
+}
+
+/**
+ * Stream a chat response — calls onChunk as tokens arrive
+ */
+export async function streamChatResponse(query, contextDocs, history, onChunk) {
+    const system = `${promptLoader.get('system') || "You are the AI engine for 'SmartAI', a productivity dashboard."}\nYou are a helpful assistant with access to the user's email and calendar data. Answer questions based on the provided context. Cite your sources.`;
+
+    const contextStr = contextDocs.map((doc, i) => `
+[Source ${i + 1}]
+Type: ${doc.source || 'Email'}
+From: ${doc.sender || doc.from?.name || 'Unknown'}
+Date: ${doc.received || doc.date || 'Unknown'}
+Subject: ${doc.subject || 'No Subject'}
+Content: ${doc.snippet || doc.body || ''}
+`).join('\n---\n');
+
+    const historyStr = history.slice(-5).map(msg => `${msg.role === 'user' ? 'User' : 'AI'}: ${msg.content}`).join('\n');
+
+    const prompt = `
+CONTEXT (Data retrieved from user's local database):
+${contextStr || 'No relevant data found.'}
+
+CONVERSATION HISTORY:
+${historyStr}
+
+CURRENT QUESTION:
+${query}
+
+INSTRUCTIONS:
+1. Answer the question using ONLY the provided context.
+2. If the answer is not in the context, say "I couldn't find that information in your emails or calendar."
+3. Cite sources by referring to "[Source X]" or the sender/date.
+4. Be concise and conversational.
+`;
+
+    return await streamCompletion(system, prompt, onChunk, { temperature: 0.5 });
+}
+
+/**
+ * Stream a draft reply — calls onChunk as tokens arrive
+ */
+export async function streamDraftReply(email, contextStr, quipContext, userIntent, onChunk) {
+    const system = `${promptLoader.get('system') || "You are the AI engine for 'SmartAI'."}\n${promptLoader.get('draftReply.systemSuffix') || 'You are an expert email drafter.'}`;
+
+    let prompt = `
+I need a draft reply for this email:
+
+INCOMING EMAIL:
+From: ${email.from?.name || email.from}
+Subject: ${email.subject}
+Body:
+${email.body || email.snippet}
+
+USER INTENT: ${userIntent || 'Reply positively and professionally.'}
+
+CONTEXT (My past similar emails - MIMIC THIS STYLE):
+${contextStr}
+
+DRAFT:
+Write a draft reply. Do not include subject line. Just the body.`;
+
+    if (quipContext) {
+        prompt += `\n\nThe incoming email references these documents:\n${quipContext}\n\nAcknowledge and reference the documents in your reply.`;
+    }
+
+    return await streamCompletion(system, prompt, onChunk, { temperature: 0.4 });
+}

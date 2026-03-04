@@ -4,11 +4,12 @@ const path = require('path');
 const { exec } = require('child_process');
 const vectorStore = require('./vector-store'); // Added import
 const proactiveAgent = require('./proactive-agent'); // Added import
+const localStore = require('./local-store'); // Local data cache
 const logger = require('./logger').child('Agent');
 
 // Configuration
-const SYNC_INTERVAL_CRON = '*/15 * * * *'; // Every 15 minutes
-const INSIGHT_INTERVAL_CRON = '*/30 * * * *'; // Every 30 minutes
+const SYNC_INTERVAL_CRON = '0 * * * *'; // Every 60 minutes (was 15 - battery optimization)
+const INSIGHT_INTERVAL_CRON = '0 9,13 * * 1-5'; // 9 AM + 1 PM weekdays only (was every 30 min - battery optimization)
 const STATE_FILE = path.join(process.cwd(), 'sync_state.json');
 const SCRIPT_PATH = path.join(process.cwd(), 'scripts', 'fetch_outlook_incremental.js');
 
@@ -91,13 +92,13 @@ async function runSync() {
                         for (const email of newEmails) {
                             await vectorStore.ingestEmail(email);
                         }
-
-                        // Update State
-                        state.lastSyncTimestamp = new Date().toISOString();
-                        fs.writeFileSync(STATE_FILE, JSON.stringify(state, null, 2));
                     } else {
                         logger.info('No new emails.');
                     }
+
+                    // Always update sync timestamp so the UI shows "Synced X min ago" correctly
+                    state.lastSyncTimestamp = new Date().toISOString();
+                    fs.writeFileSync(STATE_FILE, JSON.stringify(state, null, 2));
 
                 } catch (e) {
                     logger.error('Failed to parse Outlook response or ingest:', e.message);
@@ -152,6 +153,19 @@ cron.schedule(INSIGHT_INTERVAL_CRON, () => {
     generateInsights();
 });
 
-// Run once immediately on start for testing
-runSync();
-generateInsights();
+// Run full local data sync on start (populates data/emails.json, data/calendar.json)
+logger.info('Running initial local data sync...');
+localStore.fullSync().then(result => {
+    if (result.success) {
+        logger.info(`Initial sync complete: ${result.emails} emails, ${result.calendar} cal events in ${result.elapsed}s`);
+    }
+    // Also run incremental email sync for vector store
+    runSync();
+});
+// Don't run generateInsights() on startup — wait for scheduled time to save CPU/battery
+logger.info('Insight generation deferred to scheduled time (9 AM, 1 PM weekdays)');
+
+// Schedule local store sync alongside the email cron
+cron.schedule(SYNC_INTERVAL_CRON, () => {
+    localStore.fullSync().catch(e => logger.error('Scheduled local sync failed:', e.message));
+});

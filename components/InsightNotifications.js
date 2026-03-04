@@ -8,8 +8,13 @@ export default function InsightNotifications({ onInsightClick }) {
     const [lastChecked, setLastChecked] = useState(Date.now());
 
     useEffect(() => {
-        // Poll for new insights every 30 seconds
-        const pollInterval = setInterval(async () => {
+        let pollInterval = null;
+        let isTabVisible = true;
+
+        const pollInsights = async () => {
+            // Skip polling when tab is not visible (battery optimization)
+            if (!isTabVisible) return;
+            
             try {
                 const res = await fetch('/api/insights?status=unread&priority=urgent,high');
                 const data = await res.json();
@@ -32,9 +37,25 @@ export default function InsightNotifications({ onInsightClick }) {
             } catch (error) {
                 console.error('Failed to poll insights:', error);
             }
-        }, 30000); // 30 seconds
+        };
 
-        return () => clearInterval(pollInterval);
+        // Tab visibility detection — pause polling when hidden (battery optimization)
+        const handleVisibilityChange = () => {
+            isTabVisible = !document.hidden;
+            if (isTabVisible) {
+                // Poll immediately when tab becomes visible again
+                pollInsights();
+            }
+        };
+        document.addEventListener('visibilitychange', handleVisibilityChange);
+
+        // Poll every 5 minutes instead of 30 seconds (battery optimization: -90% polling)
+        pollInterval = setInterval(pollInsights, 300000); // 5 minutes
+
+        return () => {
+            clearInterval(pollInterval);
+            document.removeEventListener('visibilitychange', handleVisibilityChange);
+        };
     }, [lastChecked]);
 
     const addToast = (insight) => {

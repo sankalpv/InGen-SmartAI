@@ -33,28 +33,88 @@ export default function AIChat() {
         setInput('');
         setIsLoading(true);
 
+        // Add placeholder assistant message for streaming
+        const assistantIdx = messages.length + 1; // +1 for the user message we just added
+        setMessages(prev => [...prev, { role: 'assistant', content: '', sources: [], streaming: true }]);
+
         try {
             const response = await fetch('/api/chat', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     message: userMessage.content,
-                    history: messages.map(m => ({ role: m.role, content: m.content }))
+                    history: messages.map(m => ({ role: m.role, content: m.content })),
+                    stream: true
                 }),
             });
 
             if (!response.ok) throw new Error('Network response was not ok');
 
-            const data = await response.json();
+            // Read SSE stream
+            const reader = response.body.getReader();
+            const decoder = new TextDecoder();
+            let fullText = '';
+            let sources = [];
 
-            setMessages(prev => [...prev, {
-                role: 'assistant',
-                content: data.response,
-                sources: data.sources
-            }]);
+            while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+
+                const chunk = decoder.decode(value, { stream: true });
+                const lines = chunk.split('\n').filter(l => l.startsWith('data: '));
+
+                for (const line of lines) {
+                    try {
+                        const data = JSON.parse(line.slice(6));
+
+                        if (data.type === 'sources') {
+                            sources = data.sources || [];
+                        } else if (data.type === 'chunk') {
+                            fullText += data.text;
+                            // Update the streaming message in place
+                            setMessages(prev => {
+                                const updated = [...prev];
+                                const lastIdx = updated.length - 1;
+                                if (updated[lastIdx]?.streaming) {
+                                    updated[lastIdx] = { ...updated[lastIdx], content: fullText, sources };
+                                }
+                                return updated;
+                            });
+                        } else if (data.type === 'done') {
+                            // Mark streaming as complete
+                            setMessages(prev => {
+                                const updated = [...prev];
+                                const lastIdx = updated.length - 1;
+                                if (updated[lastIdx]?.streaming) {
+                                    updated[lastIdx] = { ...updated[lastIdx], content: fullText, sources, streaming: false };
+                                }
+                                return updated;
+                            });
+                        } else if (data.type === 'error') {
+                            setMessages(prev => {
+                                const updated = [...prev];
+                                const lastIdx = updated.length - 1;
+                                updated[lastIdx] = { role: 'assistant', content: `Error: ${data.message}`, streaming: false };
+                                return updated;
+                            });
+                        }
+                    } catch (parseErr) {
+                        // Skip malformed SSE lines
+                    }
+                }
+            }
         } catch (error) {
             console.error('Chat error:', error);
-            setMessages(prev => [...prev, { role: 'assistant', content: "Sorry, I encountered an error. Please try again." }]);
+            setMessages(prev => {
+                const updated = [...prev];
+                const lastIdx = updated.length - 1;
+                if (updated[lastIdx]?.streaming) {
+                    updated[lastIdx] = { role: 'assistant', content: "Sorry, I encountered an error. Please try again.", streaming: false };
+                } else {
+                    updated.push({ role: 'assistant', content: "Sorry, I encountered an error. Please try again." });
+                }
+                return updated;
+            });
         } finally {
             setIsLoading(false);
         }
@@ -115,7 +175,10 @@ export default function AIChat() {
                                 : 'bg-gray-800/80 border border-gray-700/50 text-gray-100 rounded-bl-none backdrop-blur-sm'
                                 }`}
                         >
-                            <p className="whitespace-pre-wrap leading-relaxed">{msg.content}</p>
+                            <p className="whitespace-pre-wrap leading-relaxed">
+                                {msg.content}
+                                {msg.streaming && <span className="inline-block w-2 h-4 bg-blue-400 animate-pulse ml-0.5 rounded-sm" />}
+                            </p>
 
                             {/* Sources */}
                             {msg.sources && msg.sources.length > 0 && (
@@ -138,7 +201,7 @@ export default function AIChat() {
                     </div>
                 ))}
 
-                {isLoading && (
+                {isLoading && !messages[messages.length - 1]?.streaming && (
                     <div className="flex justify-start">
                         <div className="bg-gray-800/80 rounded-2xl rounded-bl-none p-4 border border-gray-700/50">
                             <div className="flex space-x-2">

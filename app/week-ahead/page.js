@@ -45,62 +45,56 @@ export default function WeekAheadPage() {
         }
     }
 
-    if (loading) {
-        return (
-            <div>
-                <Header />
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '60vh' }}>
-                    <div className="loading-spinner" />
-                </div>
-            </div>
-        );
-    }
-
-    if (!data) {
-        return (
-            <div>
-                <Header />
-                <div style={{ padding: '40px', textAlign: 'center', color: 'var(--text-secondary)' }}>
-                    Failed to load week ahead data
-                </div>
-            </div>
-        );
-    }
+    // Generate placeholder days for skeleton
+    const skeletonDays = Array.from({ length: 7 }, (_, i) => {
+        const d = new Date();
+        d.setDate(d.getDate() + i);
+        return {
+            dayName: d.toLocaleDateString('en-US', { weekday: 'long' }),
+            dateFormatted: d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
+            isToday: i === 0,
+            isWeekend: d.getDay() === 0 || d.getDay() === 6
+        };
+    });
 
     return (
         <div>
             <Header />
             <div style={{ padding: '24px', maxWidth: '1200px', margin: '0 auto' }}>
-                {/* Header */}
+                {/* Header — always visible */}
                 <div style={{ marginBottom: '24px' }}>
                     <h1 style={{ fontSize: '32px', fontWeight: '600', color: 'var(--text-primary)', marginBottom: '8px' }}>
                         📅 Week Ahead
                     </h1>
                     <p style={{ color: 'var(--text-secondary)', fontSize: '16px' }}>
-                        {data.dateRange.start} — {data.dateRange.end}
-                        <span style={{ 
-                            marginLeft: '12px', 
-                            fontSize: '12px', 
-                            color: 'var(--text-tertiary)',
-                            cursor: 'help'
-                        }} title="Data sourced from Outlook via AppleScript. Some recurring meeting instances may not appear due to Outlook API limitations. Non-recurring and most recurring meetings are captured accurately.">
-                            ℹ️ Data from Outlook Calendar
-                        </span>
+                        {data ? `${data.dateRange.start} — ${data.dateRange.end}` : 'Loading calendar...'}
+                        {loading && (
+                            <span style={{ marginLeft: '12px', fontSize: '12px', color: '#a78bfa', display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+                                <span style={{ display: 'inline-block', width: '8px', height: '8px', borderRadius: '50%', background: '#a78bfa', animation: 'pulse 1.2s ease-in-out infinite' }} />
+                                Fetching from Outlook...
+                            </span>
+                        )}
+                        {!loading && data && (
+                            <span style={{ marginLeft: '12px', fontSize: '12px', color: 'var(--text-tertiary)', cursor: 'help' }}
+                                title="Data sourced from Outlook via AppleScript.">
+                                ℹ️ Data from Outlook Calendar
+                            </span>
+                        )}
                     </p>
                 </div>
 
-                {/* Weekly Summary Cards */}
+                {/* Weekly Summary Cards — show skeleton or real data */}
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '12px', marginBottom: '24px' }}>
-                    <SummaryCard icon="📊" label="Total Meetings" value={data.summary.totalMeetings} subtitle={`${data.summary.avgMeetingsPerDay}/day avg`} />
-                    <SummaryCard icon="⏱️" label="Meeting Hours" value={`${data.summary.totalMeetingHours}h`} subtitle={`${data.summary.meetingPercentage}% of work time`} color={parseInt(data.summary.meetingPercentage) > 60 ? '#ef4444' : '#3b82f6'} />
-                    <SummaryCard icon="🎯" label="Deep Work" value={`${data.summary.totalDeepWorkHours}h`} subtitle="available for focus" color="#22c55e" />
-                    <SummaryCard icon="👤" label="1:1 Meetings" value={data.summary.total1x1s} subtitle="with team members" color="#8b5cf6" />
-                    <SummaryCard icon="🔥" label="Heaviest Day" value={data.summary.heaviestDay?.name || '-'} subtitle={`${data.summary.heaviestDay?.hours || 0}h meetings`} color="#ef4444" />
-                    <SummaryCard icon="🌿" label="Lightest Day" value={data.summary.lightestDay?.name || '-'} subtitle={`${data.summary.lightestDay?.hours || 0}h meetings`} color="#22c55e" />
+                    <SummaryCard icon="📊" label="Total Meetings" value={data ? data.summary.totalMeetings : '—'} subtitle={data ? `${data.summary.avgMeetingsPerDay}/day avg` : 'Loading...'} loading={loading} />
+                    <SummaryCard icon="⏱️" label="Meeting Hours" value={data ? `${data.summary.totalMeetingHours}h` : '—'} subtitle={data ? `${data.summary.meetingPercentage}% of work time` : 'Loading...'} color={data && parseInt(data.summary.meetingPercentage) > 60 ? '#ef4444' : '#3b82f6'} loading={loading} />
+                    <SummaryCard icon="🎯" label="Deep Work" value={data ? `${data.summary.totalDeepWorkHours}h` : '—'} subtitle={data ? 'available for focus' : 'Loading...'} color="#22c55e" loading={loading} />
+                    <SummaryCard icon="👤" label="1:1 Meetings" value={data ? data.summary.total1x1s : '—'} subtitle={data ? 'with team members' : 'Loading...'} color="#8b5cf6" loading={loading} />
+                    <SummaryCard icon="🔥" label="Heaviest Day" value={data ? (data.summary.heaviestDay?.name || '-') : '—'} subtitle={data ? `${data.summary.heaviestDay?.hours || 0}h meetings` : 'Loading...'} color="#ef4444" loading={loading} />
+                    <SummaryCard icon="🌿" label="Lightest Day" value={data ? (data.summary.lightestDay?.name || '-') : '—'} subtitle={data ? `${data.summary.lightestDay?.hours || 0}h meetings` : 'Loading...'} color="#22c55e" loading={loading} />
                 </div>
 
                 {/* AI Weekly Coaching Brief */}
-                {data.aiAnalysis && (
+                {data?.aiAnalysis && (
                     <div style={{
                         background: 'rgba(139, 92, 246, 0.08)',
                         border: '1px solid rgba(139, 92, 246, 0.25)',
@@ -191,7 +185,7 @@ export default function WeekAheadPage() {
                 )}
 
                 {/* AI Loading State - Shows skeleton while AI generates */}
-                {!data.aiAnalysis && (
+                {data && !data.aiAnalysis && (
                     <div style={{
                         background: 'rgba(139, 92, 246, 0.05)',
                         border: '1px solid rgba(139, 92, 246, 0.15)',
@@ -245,23 +239,63 @@ export default function WeekAheadPage() {
                     </div>
                 )}
 
-                {/* Day-by-Day Breakdown */}
+                {/* Day-by-Day Breakdown — show skeleton days while loading, real days when ready */}
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                    {data.days.map((day, index) => (
-                        <DayCard 
-                            key={day.date} 
-                            day={day} 
-                            isExpanded={expandedDay === index}
-                            onToggle={() => setExpandedDay(expandedDay === index ? -1 : index)}
-                        />
-                    ))}
+                    {data ? (
+                        data.days.map((day, index) => (
+                            <DayCard 
+                                key={day.date} 
+                                day={day} 
+                                isExpanded={expandedDay === index}
+                                onToggle={() => setExpandedDay(expandedDay === index ? -1 : index)}
+                            />
+                        ))
+                    ) : (
+                        skeletonDays.map((day, index) => (
+                            <SkeletonDayCard key={index} day={day} />
+                        ))
+                    )}
                 </div>
             </div>
         </div>
     );
 }
 
-function SummaryCard({ icon, label, value, subtitle, color = '#3b82f6' }) {
+function SkeletonDayCard({ day }) {
+    return (
+        <div style={{
+            background: day.isToday ? 'rgba(139, 92, 246, 0.08)' : 'rgba(255, 255, 255, 0.03)',
+            border: `1px solid ${day.isToday ? 'rgba(139, 92, 246, 0.25)' : 'rgba(255, 255, 255, 0.08)'}`,
+            borderRadius: '12px',
+            padding: '14px 16px',
+            opacity: day.isWeekend ? 0.5 : 1
+        }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                <div style={{ width: '10px', height: '10px', borderRadius: '50%', background: 'rgba(255,255,255,0.1)', animation: 'pulse 1.5s ease-in-out infinite' }} />
+                <div style={{ minWidth: '120px' }}>
+                    <div style={{ fontSize: '15px', fontWeight: '600', color: 'var(--text-primary)' }}>
+                        {day.isToday ? '📌 Today' : day.dayName}
+                    </div>
+                    <div style={{ fontSize: '12px', color: 'var(--text-tertiary)' }}>{day.dateFormatted}</div>
+                </div>
+                <div style={{ flex: 1, display: 'flex', gap: '12px' }}>
+                    {[120, 90, 80].map((w, i) => (
+                        <div key={i} style={{
+                            height: '14px', width: `${w}px`, borderRadius: '6px',
+                            background: 'rgba(255,255,255,0.06)',
+                            animation: `shimmer 1.6s ease-in-out ${i * 0.15}s infinite`,
+                            backgroundSize: '200% 100%',
+                            backgroundImage: 'linear-gradient(90deg, transparent 0%, rgba(255,255,255,0.04) 50%, transparent 100%)',
+                        }} />
+                    ))}
+                </div>
+                {day.isWeekend && <span style={{ fontSize: '12px', color: 'var(--text-tertiary)' }}>Weekend</span>}
+            </div>
+        </div>
+    );
+}
+
+function SummaryCard({ icon, label, value, subtitle, color = '#3b82f6', loading = false }) {
     return (
         <div style={{
             background: 'rgba(255, 255, 255, 0.03)',
@@ -273,7 +307,17 @@ function SummaryCard({ icon, label, value, subtitle, color = '#3b82f6' }) {
                 <span style={{ fontSize: '18px' }}>{icon}</span>
                 <span style={{ fontSize: '12px', color: 'var(--text-tertiary)', fontWeight: '500' }}>{label}</span>
             </div>
-            <div style={{ fontSize: '24px', fontWeight: '600', color: color }}>{value}</div>
+            {loading ? (
+                <div style={{
+                    height: '28px', width: '60px', borderRadius: '6px',
+                    background: 'rgba(255,255,255,0.06)',
+                    animation: 'shimmer 1.6s ease-in-out infinite',
+                    backgroundSize: '200% 100%',
+                    backgroundImage: 'linear-gradient(90deg, transparent 0%, rgba(255,255,255,0.06) 50%, transparent 100%)',
+                }} />
+            ) : (
+                <div style={{ fontSize: '24px', fontWeight: '600', color: color }}>{value}</div>
+            )}
             {subtitle && <div style={{ fontSize: '12px', color: 'var(--text-tertiary)', marginTop: '4px' }}>{subtitle}</div>}
         </div>
     );
