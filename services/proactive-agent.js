@@ -8,8 +8,17 @@ const logger = require('./logger').child('ProactiveAgent');
 const aiInsights = require('./ai-insights');
 const insightStore = require('./insight-store');
 const { analyzeTimeAudit, analyzeRelationshipHealth } = require('./leadership-analytics');
-const { fetchOutlookEmails } = require('./outlook-local');
-const { fetchOutlookCalendar } = require('./outlook-local');
+const localStore = require('./local-store');
+
+// Read from local JSON cache instead of ESM outlook-local (avoids ESM/CJS conflict in background agent)
+function fetchOutlookEmails() {
+    const cached = localStore.getEmails();
+    return Promise.resolve(cached.data || []);
+}
+function fetchOutlookCalendar() {
+    const cached = localStore.getCalendar();
+    return Promise.resolve(cached.data || []);
+}
 
 /**
  * Main proactive analysis run

@@ -52,7 +52,7 @@ print_info() {
     echo -e "  ${CYAN}ℹ️  $1${NC}"
 }
 
-TOTAL_STEPS=8
+TOTAL_STEPS=10
 
 print_header
 
@@ -73,8 +73,38 @@ else
     print_ok "Intel Mac detected"
 fi
 
-# ─── Step 2: Check/Install Homebrew ───
-print_step 2 "Checking Homebrew..."
+# ─── Step 2: Check Build Tools ───
+print_step 2 "Checking build tools..."
+
+# Xcode Command Line Tools (needed for native C++ modules)
+if ! xcode-select -p &>/dev/null; then
+    print_warn "Xcode Command Line Tools not found. Installing..."
+    print_info "A system dialog may appear — click 'Install' and wait."
+    xcode-select --install 2>/dev/null
+    # Wait for installation
+    until xcode-select -p &>/dev/null; do
+        sleep 5
+    done
+    print_ok "Xcode Command Line Tools installed"
+else
+    print_ok "Xcode Command Line Tools found"
+fi
+
+# Python setuptools (needed by node-gyp for native modules, removed in Python 3.12+)
+if python3 -c "import distutils" &>/dev/null 2>&1; then
+    print_ok "Python build tools available"
+else
+    print_warn "Python distutils missing (Python 3.12+). Installing setuptools..."
+    pip3 install setuptools 2>/dev/null || python3 -m pip install setuptools 2>/dev/null || true
+    if python3 -c "import setuptools" &>/dev/null 2>&1; then
+        print_ok "Python setuptools installed"
+    else
+        print_warn "setuptools install may have failed — npm install might need manual fix"
+    fi
+fi
+
+# ─── Step 3: Check/Install Homebrew ───
+print_step 3 "Checking Homebrew..."
 
 if ! command -v brew &>/dev/null; then
     print_warn "Homebrew not found. Installing..."
@@ -90,8 +120,8 @@ else
     print_ok "Homebrew found"
 fi
 
-# ─── Step 3: Check/Install Node.js ───
-print_step 3 "Checking Node.js..."
+# ─── Step 4: Check/Install Node.js ───
+print_step 4 "Checking Node.js..."
 
 if ! command -v node &>/dev/null; then
     print_warn "Node.js not found. Installing via Homebrew..."
@@ -117,8 +147,8 @@ if [[ -z "$NODE_VERSION" ]] || [[ "$NODE_VERSION" -lt 20 ]]; then
 fi
 print_ok "Node.js $(node -v)"
 
-# ─── Step 4: Check/Install Ollama ───
-print_step 4 "Checking Ollama (local AI engine)..."
+# ─── Step 5: Check/Install Ollama ───
+print_step 5 "Checking Ollama (local AI engine)..."
 
 if ! command -v ollama &>/dev/null; then
     print_warn "Ollama not found. Installing..."
@@ -140,8 +170,8 @@ else
     fi
 fi
 
-# ─── Step 5: Pull AI Models ───
-print_step 5 "Downloading AI models (this may take 5-10 minutes on first install)..."
+# ─── Step 6: Pull AI Models ───
+print_step 6 "Downloading AI models (this may take 5-10 minutes on first install)..."
 
 # Check if models already exist
 if ollama list 2>/dev/null | grep -q "$LLM_MODEL"; then
@@ -160,8 +190,8 @@ else
     print_ok "$EMBEDDING_MODEL downloaded"
 fi
 
-# ─── Step 6: Install InGen ───
-print_step 6 "Installing InGen..."
+# ─── Step 7: Install InGen ───
+print_step 7 "Installing InGen..."
 
 # Detect if we're running from inside the source directory (zip distribution)
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -217,8 +247,8 @@ npm rebuild 2>/dev/null || true
 
 print_ok "InGen installed at $INSTALL_DIR"
 
-# ─── Step 7: Configure ───
-print_step 7 "Configuring InGen..."
+# ─── Step 8: Configure ───
+print_step 8 "Configuring InGen..."
 
 # Create .env.local if it doesn't exist
 if [[ ! -f "$INSTALL_DIR/.env.local" ]]; then
@@ -362,8 +392,41 @@ fi
 echo ""
 print_ok "Configuration complete"
 
-# ─── Step 8: Create Desktop Shortcut ───
-print_step 8 "Creating Desktop shortcut..."
+# ─── Step 9: Verify Installation ───
+print_step 9 "Verifying installation..."
+
+# Verify node_modules exists
+if [[ ! -d "$INSTALL_DIR/node_modules" ]]; then
+    print_fail "node_modules missing — npm install failed"
+    print_info "Try running manually: cd ~/InGen && npm install"
+    exit 1
+fi
+print_ok "node_modules installed"
+
+# Verify hnswlib-node native module
+if node -e "require('hnswlib-node')" 2>/dev/null; then
+    print_ok "hnswlib-node native module built"
+else
+    print_warn "hnswlib-node not built — trying npm rebuild..."
+    npm rebuild hnswlib-node 2>&1 | tail -3
+    if node -e "require('hnswlib-node')" 2>/dev/null; then
+        print_ok "hnswlib-node rebuilt successfully"
+    else
+        print_warn "hnswlib-node build failed — vector search may not work"
+        print_info "The app will still run but RAG features may be limited"
+    fi
+fi
+
+# Verify sqlite3
+if node -e "require('sqlite3')" 2>/dev/null; then
+    print_ok "sqlite3 native module built"
+else
+    print_warn "sqlite3 not built — trying npm rebuild..."
+    npm rebuild sqlite3 2>&1 | tail -3
+fi
+
+# ─── Step 10: Create Desktop Shortcut ───
+print_step 10 "Creating Desktop shortcut..."
 
 cat > "$DESKTOP_SHORTCUT" << 'LAUNCHER'
 #!/bin/bash
