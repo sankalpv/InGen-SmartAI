@@ -95,11 +95,17 @@ if python3 -c "import distutils" &>/dev/null 2>&1; then
     print_ok "Python build tools available"
 else
     print_warn "Python distutils missing (Python 3.12+). Installing setuptools..."
-    pip3 install setuptools 2>/dev/null || python3 -m pip install setuptools 2>/dev/null || true
+    # Try multiple methods — Homebrew Python 3.12+ marks as "externally managed"
+    pip3 install setuptools --break-system-packages 2>/dev/null \
+        || python3 -m pip install setuptools --break-system-packages 2>/dev/null \
+        || brew install python-setuptools 2>/dev/null \
+        || pip3 install setuptools 2>/dev/null \
+        || true
     if python3 -c "import setuptools" &>/dev/null 2>&1; then
         print_ok "Python setuptools installed"
     else
-        print_warn "setuptools install may have failed — npm install might need manual fix"
+        print_fail "setuptools install failed. Run manually: pip3 install setuptools --break-system-packages"
+        exit 1
     fi
 fi
 
