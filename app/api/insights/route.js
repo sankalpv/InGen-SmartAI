@@ -11,12 +11,18 @@ export async function GET(request) {
         const status = searchParams.get('status') || 'unread';
 
         let insights;
-        if (status === 'unread') {
-            insights = await insightStore.getUnreadInsights();
-        } else if (status === 'dismissed') {
-            insights = await insightStore.getDismissedInsights();
-        } else {
-            insights = await insightStore.getAllInsights();
+        try {
+            if (status === 'unread') {
+                insights = await insightStore.getUnreadInsights();
+            } else if (status === 'dismissed') {
+                insights = await insightStore.getDismissedInsights();
+            } else {
+                insights = await insightStore.getAllInsights();
+            }
+        } catch (dbError) {
+            // On fresh install, the insights table may not exist yet — return empty
+            console.warn('[API/Insights] Database not ready (fresh install?):', dbError.message);
+            insights = [];
         }
 
         // Load confidence threshold from settings

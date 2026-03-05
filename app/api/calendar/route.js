@@ -51,8 +51,10 @@ export async function GET(req) {
         const events = await fetchOutlookCalendar(calendarId, 7);
         console.log(`[API/Calendar] Found ${events.length} events`);
 
-        // Save to local store for next time
-        localStore.saveCalendar(events);
+        // Only cache if we got actual events (don't cache empty/failed results)
+        if (events && events.length > 0) {
+            localStore.saveCalendar(events);
+        }
 
         return NextResponse.json({ meetings: events, source: 'live' });
 
