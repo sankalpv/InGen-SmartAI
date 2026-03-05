@@ -315,16 +315,28 @@ for i, cal in enumerate(cals):
     print(f\"    {i+1}. {cal.get('name', 'Unknown')} (ID: {cal.get('id', '?')}){default}\")
 " 2>/dev/null
         echo ""
-        read -p "  Select calendar number [1]: " CAL_CHOICE
+        read -p "  Enter the number (1-${CALENDAR_COUNT}) or calendar ID [1]: " CAL_CHOICE
         CAL_CHOICE=${CAL_CHOICE:-1}
         
         SELECTED_CAL_ID=$(echo "$CALENDAR_JSON" | python3 -c "
 import sys, json
 cals = json.load(sys.stdin)
-idx = int('$CAL_CHOICE') - 1
-if 0 <= idx < len(cals):
-    print(cals[idx].get('id', ''))
-else:
+choice = '$CAL_CHOICE'
+
+# First check if input matches a calendar ID directly
+for cal in cals:
+    if str(cal.get('id', '')) == choice:
+        print(choice)
+        sys.exit(0)
+
+# Otherwise treat as list number (1-based)
+try:
+    idx = int(choice) - 1
+    if 0 <= idx < len(cals):
+        print(cals[idx].get('id', ''))
+    else:
+        print(cals[0].get('id', ''))
+except:
     print(cals[0].get('id', ''))
 " 2>/dev/null)
         
