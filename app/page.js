@@ -368,7 +368,7 @@ export default function Dashboard() {
         }
         
         fetchRandomXkcd();
-        const interval = setInterval(fetchRandomXkcd, 5000);
+        const interval = setInterval(fetchRandomXkcd, 15000);
         
         return () => { cancelled = true; clearInterval(interval); };
     }, [isLoading]);
