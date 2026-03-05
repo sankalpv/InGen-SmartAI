@@ -2,16 +2,51 @@ import { NextResponse } from 'next/server';
 import { fetchOutlookCalendar } from '../../../services/outlook-local.js';
 import { fetchOutlookEmails } from '../../../services/outlook-local.js';
 import { createRequire } from 'module';
+import fs from 'fs';
+import path from 'path';
 const require = createRequire(import.meta.url);
 const ollamaClient = require('../../../services/ollama-client.js');
 const localStore = require('../../../services/local-store.js');
 const logger = require('../../../services/logger.js').child('WeekAhead');
+
+const WEEK_AHEAD_CACHE = path.join(process.cwd(), 'data', 'week-ahead-computed.json');
+const CACHE_TTL = 30 * 60 * 1000; // 30 minutes
+
+function getCachedWeekAhead() {
+    try {
+        if (fs.existsSync(WEEK_AHEAD_CACHE)) {
+            const cached = JSON.parse(fs.readFileSync(WEEK_AHEAD_CACHE, 'utf8'));
+            const age = Date.now() - new Date(cached.cachedAt).getTime();
+            if (age < CACHE_TTL) {
+                return { data: cached.data, ageSeconds: Math.round(age / 1000) };
+            }
+        }
+    } catch (e) { }
+    return null;
+}
+
+function cacheWeekAhead(data) {
+    try {
+        const dataDir = path.join(process.cwd(), 'data');
+        if (!fs.existsSync(dataDir)) fs.mkdirSync(dataDir, { recursive: true });
+        fs.writeFileSync(WEEK_AHEAD_CACHE, JSON.stringify({ cachedAt: new Date().toISOString(), data }, null, 2));
+    } catch (e) { }
+}
 
 export async function GET(request) {
     try {
         const { searchParams } = new URL(request.url);
         const skipAI = searchParams.get('skipAI') === 'true';
         const aiOnly = searchParams.get('aiOnly') === 'true';
+
+        // Serve from cache if available (instant response)
+        if (skipAI) {
+            const cached = getCachedWeekAhead();
+            if (cached) {
+                logger.info(`Serving week-ahead from cache (${cached.ageSeconds}s old)`);
+                return NextResponse.json({ ...cached.data, aiAnalysis: null, source: 'cached' });
+            }
+        }
 
         // LOCAL STORE FIRST — instant response from cached week calendar
         let meetings = [];
@@ -189,8 +224,7 @@ export async function GET(request) {
         // AI Analysis - Generate weekly coaching brief (skip if requested for fast load)
         let aiAnalysis = null;
         if (skipAI) {
-            // Fast path: Return calendar data immediately, no AI
-            return NextResponse.json({
+            const result = {
                 success: true,
                 days,
                 aiAnalysis: null,
@@ -208,7 +242,10 @@ export async function GET(request) {
                     start: days[0]?.dateFormatted,
                     end: days[days.length - 1]?.dateFormatted
                 }
-            });
+            };
+            // Cache computed week-ahead data for instant future loads
+            if (days.length > 0) cacheWeekAhead(result);
+            return NextResponse.json(result);
         }
 
         try {
