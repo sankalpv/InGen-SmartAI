@@ -58,11 +58,14 @@ try {
         result.emails = allEmails.length;
         console.error(`[Sync] First batch: ${firstBatch.length} emails cached`);
         
-        // Fetch additional batches in background (progressive growth)
+        // Fetch additional batches using offset (JXA script supports it)
         for (let offset = BATCH_SIZE; offset < TARGET_EMAILS; offset += BATCH_SIZE) {
             try {
-                // The JXA script now supports offset parameter
-                const batch = await fetchOutlookEmails(BATCH_SIZE);
+                const { execSync } = await import('child_process');
+                const scriptPath = path.join(__dirname, '..', 'scripts', 'fetch_outlook_ui_optimized.js');
+                const raw = execSync(`osascript -l JavaScript "${scriptPath}" ${BATCH_SIZE} ${offset}`, { timeout: 60000, maxBuffer: 10 * 1024 * 1024 }).toString();
+                let batch;
+                try { batch = JSON.parse(raw); } catch { batch = []; }
                 if (isValidEmailData(batch)) {
                     // Deduplicate by ID
                     const existingIds = new Set(allEmails.map(e => e.id));
