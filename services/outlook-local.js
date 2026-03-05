@@ -210,6 +210,25 @@ export async function fetchOutlookCalendar(calendarId, lookbackDays = 30, forwar
         return deduped;
     } catch (error) {
         logger.error('Failed to fetch Outlook calendar:', error.message);
+        // Retry once after 5 seconds (Outlook AppleScript can be flaky)
+        try {
+            logger.info('Retrying calendar fetch in 5 seconds...');
+            await new Promise(r => setTimeout(r, 5000));
+            const calId = calendarId || '432';
+            const retryCmd = `osascript "${path.resolve(process.cwd(), 'scripts/fetch_calendar_with_recurring.scpt')}" "${calId}" "${lookbackDays}" "${forwardDays}"`;
+            const retryResult = await execAsync(retryCmd, { timeout: 120000, maxBuffer: 10 * 1024 * 1024 });
+            const retryEvents = retryResult.stdout.trim().split('\n').filter(l => l.trim() && !l.startsWith('Error:')).map(line => {
+                const parts = line.split('|||');
+                if (parts.length < 6) return null;
+                return { id: parts[0], title: parts[1] || 'Untitled', startTime: parts[2], endTime: parts[3], location: parts[4] || '', description: parts[5] || '', busyStatus: (parts[6] || 'busy').toLowerCase(), attendees: Array(parseInt(parts[7]) || 0).fill({}), source: 'outlook' };
+            }).filter(Boolean);
+            if (retryEvents && retryEvents.length > 0) {
+                logger.info(`Calendar retry successful: ${retryEvents.length} events`);
+                return retryEvents;
+            }
+        } catch (retryErr) {
+            logger.error('Calendar retry also failed:', retryErr.message);
+        }
         return [];
     }
 }
