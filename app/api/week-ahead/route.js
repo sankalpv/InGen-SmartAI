@@ -243,8 +243,8 @@ export async function GET(request) {
                     end: days[days.length - 1]?.dateFormatted
                 }
             };
-            // Cache computed week-ahead data for instant future loads
-            if (days.length > 0) cacheWeekAhead(result);
+            // Cache computed week-ahead data for instant future loads (only if we have actual meetings)
+            if (totalMeetings > 0) cacheWeekAhead(result);
             return NextResponse.json(result);
         }
 

@@ -134,19 +134,39 @@ async function streamBriefing(source) {
                     controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'chunk', text: chunk })}\n\n`));
                 });
 
-                // Cache the completed briefing for instant future loads
+                // Cache the completed briefing — parse sections for proper formatting
                 try {
-                    const { default: parseModule } = await import('@/services/ai');
-                    // Simple cache: store the raw text as a briefing-like structure
+                    let greeting = fullText;
+                    let linkedDocuments = null;
+                    let topPriorities = [];
+
+                    const summaryMatch = fullText.match(/##\s*EXECUTIVE SUMMARY([\s\S]*?)(?=##|$)/i);
+                    const linkedDocsMatch = fullText.match(/##\s*LINKED DOCUMENTS([\s\S]*?)(?=##|$)/i);
+                    const prioritiesMatch = fullText.match(/##\s*TOP PRIORITIES([\s\S]*?)(?=##|$)/i);
+
+                    if (summaryMatch || prioritiesMatch) {
+                        greeting = summaryMatch ? summaryMatch[1].trim() : "Here is your executive summary.";
+                        if (linkedDocsMatch) linkedDocuments = linkedDocsMatch[1].trim();
+                        if (prioritiesMatch) {
+                            const lines = prioritiesMatch[1].split('\n').filter(l => l.trim().length > 0);
+                            topPriorities = lines.map(line => {
+                                const cleanLine = line.trim().replace(/^[-*•]\s*/, '');
+                                const m = cleanLine.match(/^(?:\[URGENCY:\s*(HIGH|MEDIUM|LOW)\])?\s*([^|]+)(?:\|\s*(.+))?$/i);
+                                if (m) return { type: 'general', urgency: (m[1] || 'medium').toLowerCase(), title: m[2].trim(), reason: m[3] ? m[3].trim() : 'AI Highlight', deadline: 'today' };
+                                return { type: 'general', urgency: 'medium', title: cleanLine, reason: 'AI Suggested', deadline: 'today' };
+                            }).slice(0, 5);
+                        }
+                    }
+
                     const briefingToCache = {
-                        greeting: fullText,
-                        linkedDocuments: null,
-                        topPriorities: [],
+                        greeting,
+                        linkedDocuments,
+                        topPriorities,
                         summary: { totalEmails: realEmails.length, generatedAt: new Date().toISOString() },
                         source: 'streamed'
                     };
                     cacheBriefing(briefingToCache);
-                    console.log('[API/Analyze] Cached streamed briefing for future instant loads');
+                    console.log('[API/Analyze] Cached streamed briefing with parsed sections');
                 } catch (cacheErr) {
                     console.warn('[API/Analyze] Failed to cache streamed briefing:', cacheErr.message);
                 }
