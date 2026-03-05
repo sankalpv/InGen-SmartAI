@@ -348,13 +348,79 @@ export default function Dashboard() {
         { id: 'slack', label: 'Slack Digest', icon: MessageSquare, count: slackMessages.length },
     ];
 
+    // XKCD comic state for loading screen
+    const [xkcdComic, setXkcdComic] = useState(null);
+
+    useEffect(() => {
+        if (!isLoading) return;
+        
+        let cancelled = false;
+        
+        async function fetchRandomXkcd() {
+            try {
+                const num = Math.floor(Math.random() * 2900) + 1;
+                const res = await fetch('/api/xkcd');
+                if (res.ok && !cancelled) {
+                    const data = await res.json();
+                    setXkcdComic(data);
+                }
+            } catch (e) { /* network error — skip */ }
+        }
+        
+        fetchRandomXkcd();
+        const interval = setInterval(fetchRandomXkcd, 5000);
+        
+        return () => { cancelled = true; clearInterval(interval); };
+    }, [isLoading]);
+
     if (isLoading) {
         return (
-            <div className="loading-container">
+            <div className="loading-container" style={{ maxWidth: '600px', margin: '0 auto', padding: '40px 20px', textAlign: 'center' }}>
                 <div className="loading-spinner" />
-                <div className="loading-text">
+                <div className="loading-text" style={{ marginBottom: '24px' }}>
                     Preparing your daily briefing<span className="dots"></span>
                 </div>
+                
+                {/* XKCD Comic — rotates every 5 seconds */}
+                {xkcdComic && (
+                    <div style={{
+                        background: 'rgba(255, 255, 255, 0.03)',
+                        border: '1px solid rgba(255, 255, 255, 0.08)',
+                        borderRadius: '12px',
+                        padding: '16px',
+                        marginTop: '20px',
+                        animation: 'fadeIn 0.5s ease'
+                    }}>
+                        <div style={{ fontSize: '11px', color: 'var(--text-tertiary)', marginBottom: '8px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                            While you wait... xkcd #{xkcdComic.num}
+                        </div>
+                        <div style={{ fontSize: '15px', fontWeight: '600', color: 'var(--text-primary)', marginBottom: '12px' }}>
+                            {xkcdComic.title}
+                        </div>
+                        <img 
+                            src={xkcdComic.img} 
+                            alt={xkcdComic.alt}
+                            style={{ 
+                                maxWidth: '100%', 
+                                maxHeight: '300px', 
+                                borderRadius: '8px',
+                                margin: '0 auto',
+                                display: 'block'
+                            }} 
+                        />
+                        {xkcdComic.alt && (
+                            <div style={{ 
+                                fontSize: '12px', 
+                                color: 'var(--text-secondary)', 
+                                marginTop: '10px',
+                                fontStyle: 'italic',
+                                lineHeight: '1.5'
+                            }}>
+                                {xkcdComic.alt}
+                            </div>
+                        )}
+                    </div>
+                )}
             </div>
         );
     }

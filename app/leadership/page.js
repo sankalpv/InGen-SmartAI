@@ -63,8 +63,15 @@ export default function LeadershipDashboard() {
                     </div>
 
                     {loading ? (
-                        <div className="flex items-center justify-center h-64">
+                        <div className="flex flex-col items-center justify-center h-64 gap-4">
                             <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-purple-500"></div>
+                            <div style={{ color: 'var(--text-secondary)', fontSize: '14px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                <span style={{ display: 'inline-block', width: '8px', height: '8px', borderRadius: '50%', background: '#a78bfa', animation: 'pulse 1.2s ease-in-out infinite' }} />
+                                Analyzing {dateRange} days of emails & meetings...
+                            </div>
+                            <div style={{ color: 'var(--text-tertiary)', fontSize: '12px' }}>
+                                This may take a few seconds on first load
+                            </div>
                         </div>
                     ) : (
                         <>
