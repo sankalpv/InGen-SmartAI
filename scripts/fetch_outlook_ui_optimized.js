@@ -1,5 +1,6 @@
 function run(argv) {
     const limit = parseInt(argv[0]) || 20;
+    const offset = parseInt(argv[1]) || 0; // Support offset for batched fetching
     const app = Application("Microsoft Outlook");
 
     // Account resolution
@@ -20,8 +21,9 @@ function run(argv) {
         const inbox = account.inbox();
         const inboxMsgs = inbox.messages;
         const inboxLimit = Math.floor(limit / 2); // Split between inbox and sent
+        const inboxOffset = Math.floor(offset / 2);
 
-        for (let i = 0; i < inboxLimit; i++) {
+        for (let i = inboxOffset; i < inboxOffset + inboxLimit; i++) {
             try {
                 const msg = inboxMsgs[i];
                 if (!msg.exists()) break;
@@ -63,8 +65,9 @@ function run(argv) {
         const sentItems = account.sentItems();
         const sentMsgs = sentItems.messages;
         const sentLimit = limit - messages.length; // Use remaining quota
+        const sentOffset = Math.floor(offset / 2);
 
-        for (let i = 0; i < sentLimit; i++) {
+        for (let i = sentOffset; i < sentOffset + sentLimit; i++) {
             try {
                 const msg = sentMsgs[i];
                 if (!msg.exists()) break;

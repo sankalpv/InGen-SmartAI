@@ -35,16 +35,19 @@ export async function GET(request) {
             return NextResponse.json({ emails, source: 'local', ageMinutes: cached.ageMinutes });
         }
 
-        // FALLBACK — no local data, fetch from Outlook directly
-        console.log(`[API/Outlook] No local data, fetching ${count} emails from Outlook...`);
-        const emails = await fetchOutlookEmails(count);
+        // FALLBACK — no local data, fetch from Outlook directly (use small batch to avoid timeout)
+        console.log(`[API/Outlook] No local data, fetching ${Math.min(count, 20)} emails from Outlook...`);
+        const emails = await fetchOutlookEmails(Math.min(count, 20)); // Cap at 20 for live fetch to avoid timeout
 
         if (emails.length > 0 && emails[0].id === 'error') {
+            // Never cache error responses
             return NextResponse.json({ error: emails[0].subject }, { status: 500 });
         }
 
-        // Save to local store for next time
-        localStore.saveEmails(emails);
+        // Only cache valid email data
+        if (emails.length > 0) {
+            localStore.saveEmails(emails);
+        }
 
         return NextResponse.json({ emails, source: 'live' });
     } catch (error) {
