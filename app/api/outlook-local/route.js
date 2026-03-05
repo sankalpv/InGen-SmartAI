@@ -20,9 +20,9 @@ export async function GET(request) {
             return NextResponse.json({ emails: mockEmails, source: 'mock' });
         }
 
-        // LOCAL STORE FIRST — instant response from cached data
+        // LOCAL STORE FIRST — instant response from cached data (only if we have real emails)
         const cached = localStore.getEmails();
-        if (cached.exists && cached.data) {
+        if (cached.exists && cached.data && cached.data.length > 0 && cached.data[0]?.id !== 'error') {
             const emails = cached.data.slice(0, count);
             console.log(`[API/Outlook] Serving ${emails.length} emails from local store (${cached.ageMinutes}m old)`);
             

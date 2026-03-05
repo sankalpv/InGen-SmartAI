@@ -19,9 +19,9 @@ export async function GET(req) {
             return NextResponse.json({ meetings: mockMeetings, source: 'mock' });
         }
 
-        // LOCAL STORE FIRST — instant response from cached data
+        // LOCAL STORE FIRST — instant response from cached data (only if we have actual events)
         const cached = localStore.getCalendar();
-        if (cached.exists && cached.data) {
+        if (cached.exists && cached.data && cached.data.length > 0) {
             console.log(`[API/Calendar] Serving ${cached.data.length} events from local store (${cached.ageMinutes}m old)`);
             
             // If stale, trigger background refresh (non-blocking)
