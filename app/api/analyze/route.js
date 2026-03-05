@@ -3,6 +3,9 @@ import { NextResponse } from 'next/server';
 import { fetchOutlookEmails } from '@/services/outlook-local';
 import fs from 'fs';
 import path from 'path';
+import { createRequire } from 'module';
+const require = createRequire(import.meta.url);
+const localStore = require('../../../services/local-store');
 
 export const runtime = 'nodejs';
 
@@ -118,13 +121,20 @@ async function streamBriefing(source) {
                 // Send initial event
                 controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'start', message: 'Generating briefing...' })}\n\n`));
 
-                // Fetch emails
+                // Read emails from local store (single source of truth)
                 let realEmails = [];
-                try {
-                    realEmails = await fetchOutlookEmails(20);
-                    controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'progress', message: `Fetched ${realEmails.length} emails` })}\n\n`));
-                } catch (e) {
-                    controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'progress', message: 'Email fetch failed, continuing...' })}\n\n`));
+                const emailCache = localStore.getEmails ? localStore.getEmails() : { data: null };
+                if (emailCache.data && emailCache.data.length > 0 && emailCache.data[0]?.id !== 'error') {
+                    realEmails = emailCache.data;
+                    controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'progress', message: `Using ${realEmails.length} cached emails` })}\n\n`));
+                } else {
+                    // Fallback to live fetch if no cache
+                    try {
+                        realEmails = await fetchOutlookEmails(20);
+                        controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'progress', message: `Fetched ${realEmails.length} emails` })}\n\n`));
+                    } catch (e) {
+                        controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'progress', message: 'Email fetch failed, continuing...' })}\n\n`));
+                    }
                 }
 
                 // Stream the Ollama generation

@@ -1,8 +1,8 @@
 import { NextResponse } from 'next/server';
 import { analyzeTimeAudit, analyzeRelationshipHealth, extractActionItems, detectBlockers, trackDecisions } from '../../../services/leadership-analytics.js';
-import { fetchOutlookEmails, fetchOutlookCalendar } from '../../../services/outlook-local.js';
 import { createRequire } from 'module';
 const require = createRequire(import.meta.url);
+const localStore = require('../../../services/local-store.js');
 const phonetool = require('../../../services/phonetool.js');
 
 export async function GET(request) {
@@ -11,9 +11,16 @@ export async function GET(request) {
         const analysisType = searchParams.get('type') || 'all';
         const dateRange = parseInt(searchParams.get('range') || '7');
 
-        // Fetch data with proper date range
-        const allEmails = await fetchOutlookEmails(100); // Get more emails for better analysis
-        const meetings = await fetchOutlookCalendar(null, dateRange); // Pass date range to calendar fetch
+        // Read from local store — single source of truth (no direct Outlook calls)
+        const emailCache = localStore.getEmails();
+        const calendarCache = localStore.getCalendar();
+        const allEmails = (emailCache.exists && emailCache.data) ? emailCache.data : [];
+        const meetings = (calendarCache.exists && calendarCache.data) ? calendarCache.data : [];
+
+        // Trigger background sync if stale
+        if (emailCache.isStale || calendarCache.isStale) {
+            localStore.fullSync().catch(e => console.error('Background sync failed:', e.message));
+        }
 
         // Filter emails to the selected date range
         const startDate = new Date(Date.now() - dateRange * 24 * 60 * 60 * 1000);

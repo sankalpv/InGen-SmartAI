@@ -94,26 +94,17 @@ try {
     console.error('Email sync failed:', e.message);
 }
 
-// Fetch calendar (dashboard: 7 days back, 3 forward)
+// Single wide calendar fetch (30 days back, 14 days forward) — single source of truth
+// All pages filter from this one dataset
 try {
-    const events = await fetchOutlookCalendar(null, 7, 3);
+    const events = await fetchOutlookCalendar(null, 30, 14);
     if (events && events.length > 0) {
         writeStore(path.join(DATA_DIR, 'calendar.json'), events);
         result.calendar = events.length;
+        console.error(`[Sync] Calendar: ${events.length} events (30 days back, 14 forward)`);
     }
 } catch (e) {
     console.error('Calendar sync failed:', e.message);
-}
-
-// Fetch week-ahead calendar (0 back, 8 forward)
-try {
-    const weekEvents = await fetchOutlookCalendar(null, 0, 8);
-    if (weekEvents && weekEvents.length > 0) {
-        writeStore(path.join(DATA_DIR, 'calendar-week.json'), weekEvents);
-        result.calendarWeek = weekEvents.length;
-    }
-} catch (e) {
-    console.error('Week calendar sync failed:', e.message);
 }
 
 // Output result as JSON for parent process

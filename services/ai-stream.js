@@ -4,10 +4,26 @@
  */
 
 import { createRequire } from 'module';
+import fs from 'fs';
+import path from 'path';
 const require = createRequire(import.meta.url);
 const logger = require('./logger').child('AI-Stream');
 const promptLoader = require('./prompt-loader');
 const quipFetcher = require('./quip-fetcher');
+
+// Helper: read emails from local store (single source of truth)
+function getLocalEmails() {
+    try {
+        const emailsFile = path.join(process.cwd(), 'data', 'emails.json');
+        if (fs.existsSync(emailsFile)) {
+            const cached = JSON.parse(fs.readFileSync(emailsFile, 'utf8'));
+            if (cached.data && Array.isArray(cached.data) && cached.data.length > 0 && cached.data[0]?.id !== 'error') {
+                return cached.data;
+            }
+        }
+    } catch (e) { }
+    return null;
+}
 
 const OLLAMA_MODEL = process.env.LLM_MODEL || process.env.OLLAMA_MODEL || 'qwen3:latest';
 const OLLAMA_BASE_URL = process.env.OLLAMA_BASE_URL || 'http://127.0.0.1:11434';

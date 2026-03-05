@@ -48,22 +48,22 @@ export async function GET(request) {
             }
         }
 
-        // LOCAL STORE FIRST — instant response from cached week calendar
+        // Read from single calendar.json — filter to week ahead (0 back, 8 forward)
         let meetings = [];
-        const cached = localStore.getCalendarWeek();
-        if (cached.exists && cached.data) {
+        const cached = localStore.getCalendar();
+        if (cached.exists && cached.data && cached.data.length > 0) {
             meetings = cached.data;
-            logger.info(`Serving ${meetings.length} week events from local store (${cached.ageMinutes}m old)`);
+            logger.info(`Using ${meetings.length} events from local calendar store (${cached.ageMinutes}m old)`);
             
             if (cached.isStale) {
                 localStore.fullSync().catch(e => logger.error('Background sync failed:', e.message));
             }
         } else {
             // Fallback: fetch from Outlook directly
-            logger.info('No local week data, fetching from Outlook...');
+            logger.info('No local calendar data, fetching from Outlook...');
             meetings = await fetchOutlookCalendar(null, 0, 8);
             if (meetings && meetings.length > 0) {
-                localStore.saveCalendarWeek(meetings);
+                localStore.saveCalendar(meetings);
             }
         }
 
