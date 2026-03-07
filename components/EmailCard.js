@@ -11,17 +11,27 @@ const avatarColors = [
 ];
 
 function getAvatarColor(name) {
-    const hash = name.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0);
+    const safeName = name || 'Unknown';
+    const hash = safeName.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0);
     return avatarColors[hash % avatarColors.length];
 }
 
 function getInitials(name) {
-    return name
+    const safeName = name || 'U';
+    return safeName
         .split(' ')
         .map(w => w[0])
+        .filter(Boolean)
         .join('')
         .toUpperCase()
-        .slice(0, 2);
+        .slice(0, 2) || 'U';
+}
+
+// Safely extract sender display name from email.from (handles both object and string formats)
+function getSenderName(from) {
+    if (!from) return 'Unknown';
+    if (typeof from === 'string') return from;
+    return from.name || from.address || from.email || 'Unknown';
 }
 
 function timeAgo(dateStr) {
@@ -156,13 +166,13 @@ export default function EmailCard({ email }) {
             <div className="email-card-header">
                 <div
                     className="email-avatar"
-                    style={{ background: getAvatarColor(email.from.name) }}
+                    style={{ background: getAvatarColor(getSenderName(email.from)) }}
                 >
-                    {getInitials(email.from.name)}
+                    {getInitials(getSenderName(email.from))}
                 </div>
 
                 <div className="email-info">
-                    <div className="email-from">{email.from.name}</div>
+                    <div className="email-from">{getSenderName(email.from)}</div>
                     <div className="email-subject">{email.subject}</div>
                 </div>
 
@@ -239,8 +249,10 @@ export default function EmailCard({ email }) {
 
                     <div style={{
                         whiteSpace: 'pre-wrap',
-                        wordBreak: 'break-word',
+                        wordBreak: 'break-all',
+                        overflowWrap: 'anywhere',
                         overflowY: 'auto',
+                        overflowX: 'hidden',
                         maxHeight: '400px',
                         fontSize: '0.9rem',
                         lineHeight: '1.65',

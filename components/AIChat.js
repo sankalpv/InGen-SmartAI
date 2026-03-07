@@ -1,16 +1,129 @@
 'use client';
 
-import { useState, useRef, useEffect } from 'react';
-import { MessageSquare, X, Send, Bot, Sparkles, Trash2 } from 'lucide-react';
+import { useState, useRef, useEffect, useCallback } from 'react';
+import { MessageSquare, X, Send, Bot, Sparkles, Trash2, Maximize2, Minimize2, Clock } from 'lucide-react';
+
+// Simple markdown-like formatting for AI responses
+function FormattedMessage({ content }) {
+    if (!content) return null;
+
+    const lines = content.split('\n');
+    const elements = [];
+    let inList = false;
+    let listItems = [];
+
+    const flushList = () => {
+        if (listItems.length > 0) {
+            elements.push(
+                <ul key={`list-${elements.length}`} style={{ margin: '8px 0', paddingLeft: '20px', listStyleType: 'disc' }}>
+                    {listItems.map((item, i) => (
+                        <li key={i} style={{ marginBottom: '4px', lineHeight: '1.6' }}>{formatInline(item)}</li>
+                    ))}
+                </ul>
+            );
+            listItems = [];
+            inList = false;
+        }
+    };
+
+    const formatInline = (text) => {
+        // Bold: **text**
+        const parts = text.split(/(\*\*[^*]+\*\*)/g);
+        return parts.map((part, i) => {
+            if (part.startsWith('**') && part.endsWith('**')) {
+                return <strong key={i} style={{ color: '#e2e8f0', fontWeight: 600 }}>{part.slice(2, -2)}</strong>;
+            }
+            // Inline code: `code`
+            const codeParts = part.split(/(`[^`]+`)/g);
+            return codeParts.map((cp, j) => {
+                if (cp.startsWith('`') && cp.endsWith('`')) {
+                    return (
+                        <code key={`${i}-${j}`} style={{
+                            background: 'rgba(139, 92, 246, 0.15)',
+                            padding: '1px 5px',
+                            borderRadius: '4px',
+                            fontSize: '0.85em',
+                            color: '#c4b5fd'
+                        }}>
+                            {cp.slice(1, -1)}
+                        </code>
+                    );
+                }
+                return cp;
+            });
+        });
+    };
+
+    lines.forEach((line, idx) => {
+        const trimmed = line.trim();
+
+        // Bullet list items
+        if (trimmed.startsWith('- ') || trimmed.startsWith('• ') || trimmed.match(/^\d+\.\s/)) {
+            inList = true;
+            const text = trimmed.replace(/^[-•]\s+/, '').replace(/^\d+\.\s+/, '');
+            listItems.push(text);
+            return;
+        }
+
+        flushList();
+
+        // Empty line
+        if (trimmed === '') {
+            elements.push(<div key={`br-${idx}`} style={{ height: '8px' }} />);
+            return;
+        }
+
+        // Heading-like (starts with ### or ## or #)
+        if (trimmed.startsWith('### ')) {
+            elements.push(
+                <div key={idx} style={{ fontWeight: 600, fontSize: '0.95em', color: '#c4b5fd', marginTop: '12px', marginBottom: '4px' }}>
+                    {formatInline(trimmed.slice(4))}
+                </div>
+            );
+            return;
+        }
+        if (trimmed.startsWith('## ')) {
+            elements.push(
+                <div key={idx} style={{ fontWeight: 700, fontSize: '1em', color: '#a78bfa', marginTop: '14px', marginBottom: '4px' }}>
+                    {formatInline(trimmed.slice(3))}
+                </div>
+            );
+            return;
+        }
+
+        // Regular paragraph
+        elements.push(
+            <p key={idx} style={{ margin: '4px 0', lineHeight: '1.65' }}>{formatInline(trimmed)}</p>
+        );
+    });
+
+    flushList();
+
+    return <div>{elements}</div>;
+}
+
+// Suggested prompts for empty chat state
+const SUGGESTED_PROMPTS = [
+    { emoji: '📧', text: 'Summarize my emails from today' },
+    { emoji: '📅', text: "What's my busiest day this week?" },
+    { emoji: '👥', text: 'Who should I follow up with?' },
+    { emoji: '🎯', text: 'What meetings need prep?' },
+];
+
+function formatTime(date) {
+    return new Date(date).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+}
 
 export default function AIChat() {
     const [isOpen, setIsOpen] = useState(false);
+    const [isExpanded, setIsExpanded] = useState(false);
     const [messages, setMessages] = useState([
-        { role: 'assistant', content: 'Hi! I\'m your Dive Deep Assistant. Ask me anything about your emails, meetings, or schedule.' }
+        { role: 'assistant', content: "Hi! I'm your **Dive Deep Assistant**. Ask me anything about your emails, meetings, or schedule.\n\nTry one of the suggestions below, or type your own question.", time: new Date() }
     ]);
     const [input, setInput] = useState('');
     const [isLoading, setIsLoading] = useState(false);
     const messagesEndRef = useRef(null);
+    const inputRef = useRef(null);
 
     const scrollToBottom = () => {
         messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -20,29 +133,44 @@ export default function AIChat() {
         scrollToBottom();
     }, [messages, isOpen]);
 
+    useEffect(() => {
+        if (isOpen && inputRef.current) {
+            inputRef.current.focus();
+        }
+    }, [isOpen]);
+
+    // Keyboard shortcut: Escape to close
+    useEffect(() => {
+        const handleKeyDown = (e) => {
+            if (e.key === 'Escape' && isOpen) {
+                setIsOpen(false);
+            }
+        };
+        window.addEventListener('keydown', handleKeyDown);
+        return () => window.removeEventListener('keydown', handleKeyDown);
+    }, [isOpen]);
+
     const handleClear = () => {
-        setMessages([{ role: 'assistant', content: 'Chat cleared. deep dive ready.' }]);
-    }
+        setMessages([{ role: 'assistant', content: "Chat cleared. Ready to **dive deep** again!\n\nTry one of the suggestions below.", time: new Date() }]);
+    };
 
-    const handleSubmit = async (e) => {
-        e.preventDefault();
-        if (!input.trim() || isLoading) return;
+    const sendMessage = useCallback(async (messageText) => {
+        if (!messageText.trim() || isLoading) return;
 
-        const userMessage = { role: 'user', content: input };
+        const userMessage = { role: 'user', content: messageText, time: new Date() };
         setMessages(prev => [...prev, userMessage]);
         setInput('');
         setIsLoading(true);
 
         // Add placeholder assistant message for streaming
-        const assistantIdx = messages.length + 1; // +1 for the user message we just added
-        setMessages(prev => [...prev, { role: 'assistant', content: '', sources: [], streaming: true }]);
+        setMessages(prev => [...prev, { role: 'assistant', content: '', sources: [], streaming: true, time: new Date() }]);
 
         try {
             const response = await fetch('/api/chat', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                    message: userMessage.content,
+                    message: messageText,
                     history: messages.map(m => ({ role: m.role, content: m.content })),
                     stream: true
                 }),
@@ -50,7 +178,6 @@ export default function AIChat() {
 
             if (!response.ok) throw new Error('Network response was not ok');
 
-            // Read SSE stream
             const reader = response.body.getReader();
             const decoder = new TextDecoder();
             let fullText = '';
@@ -71,7 +198,6 @@ export default function AIChat() {
                             sources = data.sources || [];
                         } else if (data.type === 'chunk') {
                             fullText += data.text;
-                            // Update the streaming message in place
                             setMessages(prev => {
                                 const updated = [...prev];
                                 const lastIdx = updated.length - 1;
@@ -81,7 +207,6 @@ export default function AIChat() {
                                 return updated;
                             });
                         } else if (data.type === 'done') {
-                            // Mark streaming as complete
                             setMessages(prev => {
                                 const updated = [...prev];
                                 const lastIdx = updated.length - 1;
@@ -94,7 +219,7 @@ export default function AIChat() {
                             setMessages(prev => {
                                 const updated = [...prev];
                                 const lastIdx = updated.length - 1;
-                                updated[lastIdx] = { role: 'assistant', content: `Error: ${data.message}`, streaming: false };
+                                updated[lastIdx] = { role: 'assistant', content: `Error: ${data.message}`, streaming: false, time: new Date() };
                                 return updated;
                             });
                         }
@@ -109,130 +234,427 @@ export default function AIChat() {
                 const updated = [...prev];
                 const lastIdx = updated.length - 1;
                 if (updated[lastIdx]?.streaming) {
-                    updated[lastIdx] = { role: 'assistant', content: "Sorry, I encountered an error. Please try again.", streaming: false };
+                    updated[lastIdx] = { role: 'assistant', content: "Sorry, I encountered an error. Please try again.", streaming: false, time: new Date() };
                 } else {
-                    updated.push({ role: 'assistant', content: "Sorry, I encountered an error. Please try again." });
+                    updated.push({ role: 'assistant', content: "Sorry, I encountered an error. Please try again.", time: new Date() });
                 }
                 return updated;
             });
         } finally {
             setIsLoading(false);
         }
+    }, [isLoading, messages]);
+
+    const handleSubmit = (e) => {
+        e.preventDefault();
+        sendMessage(input);
     };
+
+    const handleSuggestionClick = (text) => {
+        sendMessage(text);
+    };
+
+    const showSuggestions = messages.length <= 1 && !isLoading;
+
+    // Size classes
+    const panelWidth = isExpanded ? 'w-[640px]' : 'w-[420px]';
+    const panelHeight = isExpanded ? 'h-[720px]' : 'h-[600px]';
 
     if (!isOpen) {
         return (
             <button
                 onClick={() => setIsOpen(true)}
-                className="fixed bottom-6 right-6 p-4 bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 text-white rounded-full shadow-lg transition-all transform hover:scale-105 z-50 flex items-center gap-2 group"
+                style={{
+                    position: 'fixed',
+                    bottom: '24px',
+                    right: '24px',
+                    padding: '14px 22px',
+                    background: 'linear-gradient(135deg, #3b82f6, #8b5cf6)',
+                    color: 'white',
+                    borderRadius: '16px',
+                    border: 'none',
+                    boxShadow: '0 8px 32px rgba(139, 92, 246, 0.4), 0 2px 8px rgba(0,0,0,0.3)',
+                    cursor: 'pointer',
+                    zIndex: 50,
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '10px',
+                    fontSize: '15px',
+                    fontWeight: 600,
+                    letterSpacing: '0.01em',
+                    transition: 'all 0.2s ease',
+                    fontFamily: 'inherit'
+                }}
+                onMouseEnter={(e) => { e.target.style.transform = 'scale(1.05)'; e.target.style.boxShadow = '0 12px 40px rgba(139, 92, 246, 0.5), 0 4px 12px rgba(0,0,0,0.4)'; }}
+                onMouseLeave={(e) => { e.target.style.transform = 'scale(1)'; e.target.style.boxShadow = '0 8px 32px rgba(139, 92, 246, 0.4), 0 2px 8px rgba(0,0,0,0.3)'; }}
             >
-                <Sparkles size={24} className="group-hover:animate-spin-slow" />
-                <span className="font-semibold">Dive Deep</span>
+                <Sparkles size={20} />
+                Dive Deep
             </button>
         );
     }
 
     return (
-        <div className="fixed bottom-6 right-6 w-96 h-[600px] bg-gray-900/90 backdrop-blur-xl border border-gray-700/50 rounded-2xl shadow-2xl flex flex-col z-50 overflow-hidden font-sans ring-1 ring-white/10">
+        <div style={{
+            position: 'fixed',
+            bottom: '24px',
+            right: '24px',
+            width: isExpanded ? '640px' : '420px',
+            height: isExpanded ? '720px' : '600px',
+            background: 'rgba(15, 15, 20, 0.92)',
+            backdropFilter: 'blur(24px)',
+            WebkitBackdropFilter: 'blur(24px)',
+            border: '1px solid rgba(255, 255, 255, 0.08)',
+            borderRadius: '20px',
+            boxShadow: '0 24px 80px rgba(0, 0, 0, 0.6), 0 0 0 1px rgba(255,255,255,0.05)',
+            display: 'flex',
+            flexDirection: 'column',
+            zIndex: 50,
+            overflow: 'hidden',
+            fontFamily: 'inherit',
+            transition: 'width 0.3s ease, height 0.3s ease',
+        }}>
             {/* Header */}
-            <div className="flex items-center justify-between p-4 bg-gradient-to-r from-gray-800/80 to-gray-900/80 border-b border-gray-700/50 backdrop-blur-md">
-                <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center shadow-lg">
-                        <Bot size={20} className="text-white" />
+            <div style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                padding: '16px 20px',
+                background: 'linear-gradient(180deg, rgba(139, 92, 246, 0.08) 0%, transparent 100%)',
+                borderBottom: '1px solid rgba(255, 255, 255, 0.06)',
+            }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                    <div style={{
+                        width: '40px',
+                        height: '40px',
+                        borderRadius: '12px',
+                        background: 'linear-gradient(135deg, #3b82f6, #8b5cf6)',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        boxShadow: '0 4px 12px rgba(139, 92, 246, 0.3)',
+                    }}>
+                        <Bot size={20} color="white" />
                     </div>
                     <div>
-                        <h3 className="font-semibold text-white tracking-wide">Dive Deep Assistant</h3>
-                        <p className="text-xs text-blue-300 flex items-center gap-1">
-                            <span className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse"></span>
-                            Online & synced
+                        <h3 style={{ fontWeight: 600, color: 'white', fontSize: '15px', margin: 0, letterSpacing: '0.01em' }}>
+                            Dive Deep
+                        </h3>
+                        <p style={{ fontSize: '12px', color: '#818cf8', margin: 0, display: 'flex', alignItems: 'center', gap: '5px' }}>
+                            <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: '#34d399', display: 'inline-block' }} />
+                            RAG-powered · your data
                         </p>
                     </div>
                 </div>
-                <div className="flex items-center gap-1">
+                <div style={{ display: 'flex', alignItems: 'center', gap: '2px' }}>
+                    <button
+                        onClick={() => setIsExpanded(!isExpanded)}
+                        title={isExpanded ? 'Minimize' : 'Expand'}
+                        style={{
+                            padding: '8px',
+                            background: 'transparent',
+                            border: 'none',
+                            borderRadius: '8px',
+                            cursor: 'pointer',
+                            color: 'rgba(255,255,255,0.4)',
+                            transition: 'all 0.15s',
+                            display: 'flex',
+                            alignItems: 'center',
+                        }}
+                        onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(255,255,255,0.08)'; e.currentTarget.style.color = 'rgba(255,255,255,0.8)'; }}
+                        onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'rgba(255,255,255,0.4)'; }}
+                    >
+                        {isExpanded ? <Minimize2 size={16} /> : <Maximize2 size={16} />}
+                    </button>
                     <button
                         onClick={handleClear}
                         title="Clear History"
-                        className="p-2 hover:bg-white/10 rounded-full transition-colors text-gray-400 hover:text-red-400"
+                        style={{
+                            padding: '8px',
+                            background: 'transparent',
+                            border: 'none',
+                            borderRadius: '8px',
+                            cursor: 'pointer',
+                            color: 'rgba(255,255,255,0.4)',
+                            transition: 'all 0.15s',
+                            display: 'flex',
+                            alignItems: 'center',
+                        }}
+                        onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(239,68,68,0.1)'; e.currentTarget.style.color = '#f87171'; }}
+                        onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'rgba(255,255,255,0.4)'; }}
                     >
-                        <Trash2 size={18} />
+                        <Trash2 size={16} />
                     </button>
                     <button
                         onClick={() => setIsOpen(false)}
-                        className="p-2 hover:bg-white/10 rounded-full transition-colors text-gray-400 hover:text-white"
+                        title="Close (Esc)"
+                        style={{
+                            padding: '8px',
+                            background: 'transparent',
+                            border: 'none',
+                            borderRadius: '8px',
+                            cursor: 'pointer',
+                            color: 'rgba(255,255,255,0.4)',
+                            transition: 'all 0.15s',
+                            display: 'flex',
+                            alignItems: 'center',
+                        }}
+                        onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(255,255,255,0.08)'; e.currentTarget.style.color = 'rgba(255,255,255,0.8)'; }}
+                        onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'rgba(255,255,255,0.4)'; }}
                     >
-                        <X size={20} />
+                        <X size={18} />
                     </button>
                 </div>
             </div>
 
             {/* Messages */}
-            <div className="flex-1 overflow-y-auto p-4 space-y-4 scrollbar-thin scrollbar-thumb-gray-700 scrollbar-track-transparent">
+            <div style={{
+                flex: 1,
+                overflowY: 'auto',
+                padding: '16px 20px',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '16px',
+            }}>
                 {messages.map((msg, idx) => (
-                    <div key={idx} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-                        <div
-                            className={`max-w-[85%] rounded-2xl p-3.5 text-sm shadow-sm ${msg.role === 'user'
-                                ? 'bg-gradient-to-br from-blue-600 to-blue-700 text-white rounded-br-none'
-                                : 'bg-gray-800/80 border border-gray-700/50 text-gray-100 rounded-bl-none backdrop-blur-sm'
-                                }`}
-                        >
-                            <p className="whitespace-pre-wrap leading-relaxed">
-                                {msg.content}
-                                {msg.streaming && <span className="inline-block w-2 h-4 bg-blue-400 animate-pulse ml-0.5 rounded-sm" />}
-                            </p>
+                    <div key={idx} style={{
+                        display: 'flex',
+                        flexDirection: 'column',
+                        alignItems: msg.role === 'user' ? 'flex-end' : 'flex-start',
+                    }}>
+                        <div style={{
+                            maxWidth: '88%',
+                            borderRadius: msg.role === 'user' ? '16px 16px 4px 16px' : '16px 16px 16px 4px',
+                            padding: '12px 16px',
+                            fontSize: '14px',
+                            lineHeight: '1.6',
+                            ...(msg.role === 'user'
+                                ? {
+                                    background: 'linear-gradient(135deg, #3b82f6, #6366f1)',
+                                    color: 'white',
+                                    boxShadow: '0 2px 8px rgba(99, 102, 241, 0.3)',
+                                }
+                                : {
+                                    background: 'rgba(255, 255, 255, 0.04)',
+                                    border: '1px solid rgba(255, 255, 255, 0.06)',
+                                    color: '#e2e8f0',
+                                }),
+                        }}>
+                            {msg.role === 'user' ? (
+                                <p style={{ margin: 0, whiteSpace: 'pre-wrap' }}>{msg.content}</p>
+                            ) : (
+                                <>
+                                    <FormattedMessage content={msg.content} />
+                                    {msg.streaming && (
+                                        <span style={{
+                                            display: 'inline-flex',
+                                            alignItems: 'center',
+                                            gap: '4px',
+                                            marginLeft: '4px',
+                                        }}>
+                                            <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: '#818cf8', animation: 'pulse 1s ease-in-out infinite' }} />
+                                            <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: '#a78bfa', animation: 'pulse 1s ease-in-out 0.2s infinite' }} />
+                                            <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: '#c4b5fd', animation: 'pulse 1s ease-in-out 0.4s infinite' }} />
+                                        </span>
+                                    )}
+                                </>
+                            )}
 
                             {/* Sources */}
-                            {msg.sources && msg.sources.length > 0 && (
-                                <div className="mt-3 pt-2 border-t border-white/10">
-                                    <p className="text-[10px] font-bold text-blue-300 uppercase tracking-wider mb-1.5 flex items-center gap-1">
-                                        <Sparkles size={10} /> Sources
+                            {msg.sources && msg.sources.length > 0 && !msg.streaming && (
+                                <div style={{
+                                    marginTop: '12px',
+                                    paddingTop: '10px',
+                                    borderTop: '1px solid rgba(255, 255, 255, 0.06)',
+                                }}>
+                                    <p style={{
+                                        fontSize: '10px',
+                                        fontWeight: 700,
+                                        color: '#818cf8',
+                                        textTransform: 'uppercase',
+                                        letterSpacing: '0.08em',
+                                        marginBottom: '8px',
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        gap: '4px',
+                                    }}>
+                                        <Sparkles size={10} /> Sources ({msg.sources.length})
                                     </p>
-                                    <div className="space-y-1.5">
-                                        {msg.sources.slice(0, 3).map((source, i) => (
-                                            <div key={i} className="text-xs text-gray-300 truncate bg-black/20 p-1.5 rounded hover:bg-black/30 transition-colors border border-white/5 flex items-center gap-2">
-                                                <div className="w-1 h-full bg-blue-500 rounded-full"></div>
-                                                <span className="font-medium text-blue-400">{source.from ? source.from.split(' ')[0] : 'Unknown'}:</span>
-                                                <span className="opacity-90">{source.subject}</span>
+                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                                        {msg.sources.slice(0, 4).map((source, i) => (
+                                            <div key={i} style={{
+                                                fontSize: '12px',
+                                                color: '#94a3b8',
+                                                padding: '6px 10px',
+                                                borderRadius: '8px',
+                                                background: 'rgba(0, 0, 0, 0.2)',
+                                                border: '1px solid rgba(255, 255, 255, 0.04)',
+                                                display: 'flex',
+                                                alignItems: 'center',
+                                                gap: '8px',
+                                                overflow: 'hidden',
+                                            }}>
+                                                <span style={{ width: '3px', height: '16px', borderRadius: '2px', background: '#6366f1', flexShrink: 0 }} />
+                                                <span style={{ fontWeight: 500, color: '#818cf8', flexShrink: 0 }}>
+                                                    {source.from ? source.from.split(' ')[0] : 'Unknown'}
+                                                </span>
+                                                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                                    {source.subject}
+                                                </span>
                                             </div>
                                         ))}
                                     </div>
                                 </div>
                             )}
                         </div>
+                        {/* Timestamp */}
+                        {msg.time && (
+                            <span style={{
+                                fontSize: '10px',
+                                color: 'rgba(255, 255, 255, 0.2)',
+                                marginTop: '4px',
+                                padding: '0 4px',
+                            }}>
+                                {formatTime(msg.time)}
+                            </span>
+                        )}
                     </div>
                 ))}
 
+                {/* Loading indicator when not streaming yet */}
                 {isLoading && !messages[messages.length - 1]?.streaming && (
-                    <div className="flex justify-start">
-                        <div className="bg-gray-800/80 rounded-2xl rounded-bl-none p-4 border border-gray-700/50">
-                            <div className="flex space-x-2">
-                                <div className="w-2 h-2 bg-blue-400 rounded-full animate-bounce" style={{ animationDelay: '0ms' }}></div>
-                                <div className="w-2 h-2 bg-purple-400 rounded-full animate-bounce" style={{ animationDelay: '150ms' }}></div>
-                                <div className="w-2 h-2 bg-pink-400 rounded-full animate-bounce" style={{ animationDelay: '300ms' }}></div>
+                    <div style={{ display: 'flex', justifyContent: 'flex-start' }}>
+                        <div style={{
+                            background: 'rgba(255, 255, 255, 0.04)',
+                            borderRadius: '16px 16px 16px 4px',
+                            padding: '14px 18px',
+                            border: '1px solid rgba(255, 255, 255, 0.06)',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '8px',
+                        }}>
+                            <span style={{ fontSize: '12px', color: '#818cf8', fontWeight: 500 }}>Thinking</span>
+                            <div style={{ display: 'flex', gap: '4px' }}>
+                                <span style={{ width: '5px', height: '5px', borderRadius: '50%', background: '#818cf8', animation: 'bounce 1s ease-in-out infinite' }} />
+                                <span style={{ width: '5px', height: '5px', borderRadius: '50%', background: '#a78bfa', animation: 'bounce 1s ease-in-out 0.15s infinite' }} />
+                                <span style={{ width: '5px', height: '5px', borderRadius: '50%', background: '#c4b5fd', animation: 'bounce 1s ease-in-out 0.3s infinite' }} />
                             </div>
                         </div>
                     </div>
                 )}
+
                 <div ref={messagesEndRef} />
             </div>
 
+            {/* Suggested Prompts */}
+            {showSuggestions && (
+                <div style={{
+                    padding: '0 20px 12px',
+                    display: 'grid',
+                    gridTemplateColumns: '1fr 1fr',
+                    gap: '8px',
+                }}>
+                    {SUGGESTED_PROMPTS.map((prompt, idx) => (
+                        <button
+                            key={idx}
+                            onClick={() => handleSuggestionClick(prompt.text)}
+                            disabled={isLoading}
+                            style={{
+                                padding: '10px 12px',
+                                borderRadius: '12px',
+                                border: '1px solid rgba(255, 255, 255, 0.06)',
+                                background: 'rgba(255, 255, 255, 0.03)',
+                                color: '#94a3b8',
+                                fontSize: '12px',
+                                cursor: 'pointer',
+                                textAlign: 'left',
+                                transition: 'all 0.15s',
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '8px',
+                                lineHeight: '1.4',
+                                fontFamily: 'inherit',
+                            }}
+                            onMouseEnter={(e) => {
+                                e.currentTarget.style.background = 'rgba(139, 92, 246, 0.08)';
+                                e.currentTarget.style.borderColor = 'rgba(139, 92, 246, 0.2)';
+                                e.currentTarget.style.color = '#c4b5fd';
+                            }}
+                            onMouseLeave={(e) => {
+                                e.currentTarget.style.background = 'rgba(255, 255, 255, 0.03)';
+                                e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.06)';
+                                e.currentTarget.style.color = '#94a3b8';
+                            }}
+                        >
+                            <span style={{ fontSize: '16px', flexShrink: 0 }}>{prompt.emoji}</span>
+                            {prompt.text}
+                        </button>
+                    ))}
+                </div>
+            )}
+
             {/* Input */}
-            <form onSubmit={handleSubmit} className="p-4 bg-gray-900/95 border-t border-gray-800 backdrop-blur-xl">
-                <div className="relative group">
+            <form onSubmit={handleSubmit} style={{
+                padding: '16px 20px',
+                borderTop: '1px solid rgba(255, 255, 255, 0.06)',
+                background: 'rgba(0, 0, 0, 0.2)',
+            }}>
+                <div style={{ position: 'relative' }}>
                     <input
+                        ref={inputRef}
                         type="text"
                         value={input}
                         onChange={(e) => setInput(e.target.value)}
-                        placeholder="Dive deep into your data..."
-                        className="w-full bg-gray-800/50 text-white rounded-xl pl-4 pr-12 py-3.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/50 border border-gray-700/50 placeholder-gray-500 transition-all group-hover:bg-gray-800"
+                        placeholder="Ask about your emails, meetings, schedule..."
+                        style={{
+                            width: '100%',
+                            background: 'rgba(255, 255, 255, 0.05)',
+                            color: 'white',
+                            borderRadius: '14px',
+                            padding: '14px 52px 14px 18px',
+                            fontSize: '14px',
+                            border: '1px solid rgba(255, 255, 255, 0.08)',
+                            outline: 'none',
+                            transition: 'all 0.2s',
+                            fontFamily: 'inherit',
+                            boxSizing: 'border-box',
+                        }}
+                        onFocus={(e) => { e.target.style.borderColor = 'rgba(139, 92, 246, 0.4)'; e.target.style.boxShadow = '0 0 0 3px rgba(139, 92, 246, 0.1)'; }}
+                        onBlur={(e) => { e.target.style.borderColor = 'rgba(255, 255, 255, 0.08)'; e.target.style.boxShadow = 'none'; }}
                         disabled={isLoading}
                     />
                     <button
                         type="submit"
                         disabled={!input.trim() || isLoading}
-                        className="absolute right-2 top-1/2 -translate-y-1/2 p-2 bg-gradient-to-r from-blue-600 to-purple-600 text-white rounded-lg hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-md hover:shadow-blue-500/20"
+                        style={{
+                            position: 'absolute',
+                            right: '6px',
+                            top: '50%',
+                            transform: 'translateY(-50%)',
+                            padding: '10px',
+                            background: input.trim() ? 'linear-gradient(135deg, #3b82f6, #8b5cf6)' : 'rgba(255,255,255,0.05)',
+                            color: 'white',
+                            borderRadius: '10px',
+                            border: 'none',
+                            cursor: input.trim() && !isLoading ? 'pointer' : 'not-allowed',
+                            transition: 'all 0.2s',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            opacity: input.trim() ? 1 : 0.3,
+                        }}
                     >
                         <Send size={16} />
                     </button>
+                </div>
+                <div style={{
+                    display: 'flex',
+                    justifyContent: 'center',
+                    marginTop: '8px',
+                }}>
+                    <span style={{ fontSize: '10px', color: 'rgba(255,255,255,0.15)' }}>
+                        Powered by local AI · RAG search across your emails & calendar
+                    </span>
                 </div>
             </form>
         </div>

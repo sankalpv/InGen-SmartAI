@@ -1,5 +1,4 @@
 
-import OpenAI from 'openai';
 import { createRequire } from 'module';
 const require = createRequire(import.meta.url);
 const logger = require('./logger').child('AI');
@@ -7,75 +6,47 @@ const promptLoader = require('./prompt-loader');
 const quipFetcher = require('./quip-fetcher');
 // import vectorStore from './vector-store.js'; // Lazy loaded instead
 
-const USE_GEMINI = false; // Use Ollama with qwen3:latest instead
-
-// Configuration - Use Ollama with qwen3:latest
-const AI_PROVIDER = process.env.AI_PROVIDER || 'ollama'; // 'openai' | 'ollama'
+// Configuration — Ollama only (local AI, no cloud APIs)
 const OLLAMA_MODEL = process.env.LLM_MODEL || process.env.OLLAMA_MODEL || 'qwen3:latest';
 const OLLAMA_BASE_URL = process.env.OLLAMA_BASE_URL || 'http://127.0.0.1:11434';
-
-const openai = new OpenAI({
-    apiKey: USE_GEMINI ? process.env.GEMINI_API_KEY : process.env.OPENAI_API_KEY,
-    baseURL: USE_GEMINI ? 'https://generativelanguage.googleapis.com/v1beta/openai/' : undefined,
-});
-
-const AI_MODEL = USE_GEMINI ? 'gemini-2.0-flash' : 'gpt-4o';
 
 // SYSTEM_PROMPT is now loaded from config/prompts.json via prompt-loader (hot-reloadable)
 function getSystemPrompt() {
     return promptLoader.get('system') || "You are the AI engine for 'SmartAI', a productivity dashboard. Be helpful, concise, and proactive.";
 }
 
-// Helper: Generate Completion (Switchable Provider)
+// Helper: Generate Completion via Ollama (local AI only)
 async function generateCompletion(systemPrompt, userPrompt, jsonMode = true, temperature = 0.7) {
-    if (AI_PROVIDER === 'ollama') {
-        try {
-            logger.info(`Using Ollama model: '${OLLAMA_MODEL}' at ${OLLAMA_BASE_URL}`);
+    try {
+        logger.info(`Using Ollama model: '${OLLAMA_MODEL}' at ${OLLAMA_BASE_URL}`);
 
-            const body = {
-                model: OLLAMA_MODEL.trim(), // Ensure no whitespace
-                system: systemPrompt,
-                prompt: userPrompt,
-                stream: false,
-                format: jsonMode ? 'json' : undefined,
-                think: false, // Disable qwen3 thinking/reasoning mode for faster generation
-                keep_alive: '2m', // Unload model after 2 min idle (battery optimization)
-                options: { temperature: temperature } // Ollama uses 'options' for params
-            };
+        const body = {
+            model: OLLAMA_MODEL.trim(),
+            system: systemPrompt,
+            prompt: userPrompt,
+            stream: false,
+            format: jsonMode ? 'json' : undefined,
+            think: false,
+            keep_alive: '2m',
+            options: { temperature: temperature }
+        };
 
-            // console.log('[AI] Ollama Request:', JSON.stringify(body));
-
-            const response = await fetch(`${OLLAMA_BASE_URL}/api/generate`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(body),
-            });
-
-            if (!response.ok) {
-                const text = await response.text();
-                throw new Error(`Ollama API error: ${response.status} - ${text}`);
-            }
-
-            const data = await response.json();
-            return data.response;
-        } catch (error) {
-            logger.error('Ollama generation failed:', error.message);
-            throw error;
-        }
-    } else {
-        // Default to OpenAI/Gemini
-        if (!openai) throw new Error('OpenAI/Gemini not configured');
-
-        const response = await openai.chat.completions.create({
-            model: AI_MODEL,
-            messages: [
-                { role: 'system', content: systemPrompt },
-                { role: 'user', content: userPrompt }
-            ],
-            response_format: jsonMode ? { type: 'json_object' } : undefined,
-            temperature: 0.3,
+        const response = await fetch(`${OLLAMA_BASE_URL}/api/generate`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body),
         });
-        return response.choices[0].message.content;
+
+        if (!response.ok) {
+            const text = await response.text();
+            throw new Error(`Ollama API error: ${response.status} - ${text}`);
+        }
+
+        const data = await response.json();
+        return data.response;
+    } catch (error) {
+        logger.error('Ollama generation failed:', error.message);
+        throw error;
     }
 }
 
@@ -221,8 +192,27 @@ export async function summarizeSlack(messages) {
 export async function generateDailyBriefing(emails, meetings, slackMessages) {
     const system = getSystemPrompt();
 
+    // ─── Filter to Today Only (safety filter for daily briefing) ───
+    const now = new Date();
+    const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const endOfDay = new Date(startOfDay.getTime() + 24 * 60 * 60 * 1000);
+
+    const todayEmails = emails.filter(e => {
+        const d = new Date(e.received);
+        return !isNaN(d.getTime()) && d >= startOfDay && d < endOfDay;
+    });
+
+    const todayMeetings = meetings.filter(m => {
+        const dateValue = m.start?.dateTime || m.startTime || m.date;
+        if (!dateValue) return false;
+        const d = new Date(dateValue);
+        return !isNaN(d.getTime()) && d >= startOfDay && d < endOfDay;
+    });
+
+    logger.info(`Daily briefing: ${todayEmails.length} today's emails (from ${emails.length} total), ${todayMeetings.length} today's meetings (from ${meetings.length} total)`);
+
     // Optimize context for local LLM (Modern models have 8k+ context)
-    const limitedEmails = emails.slice(0, 5).map(e => ({ from: e.from, subject: e.subject, snippet: (e.snippet || '').substring(0, 2000) }));
+    const limitedEmails = todayEmails.slice(0, 5).map(e => ({ from: e.from, subject: e.subject, snippet: (e.snippet || '').substring(0, 2000) }));
     const limitedSlack = slackMessages.slice(0, 5).map(m => ({ user: m.user, text: (m.text || '').substring(0, 200) }));
 
     // NEW: Quip Document Context for Daily Briefing
@@ -253,12 +243,12 @@ export async function generateDailyBriefing(emails, meetings, slackMessages) {
     let prompt = templateFromConfig
         ? templateFromConfig
             .replace('{{EMAILS}}', JSON.stringify(limitedEmails))
-            .replace('{{MEETINGS}}', JSON.stringify(meetings.map(m => ({ title: m.title, time: m.start?.dateTime || m.date || 'All Day' }))))
+            .replace('{{MEETINGS}}', JSON.stringify(todayMeetings.map(m => ({ title: m.title, time: m.start?.dateTime || m.date || 'All Day' }))))
         : `You are my executive productivity assistant.
 
 INPUT:
 Emails: ${JSON.stringify(limitedEmails)}
-Meetings: ${JSON.stringify(meetings.map(m => ({ title: m.title, time: m.start?.dateTime || m.date || 'All Day' })))}
+Meetings: ${JSON.stringify(todayMeetings.map(m => ({ title: m.title, time: m.start?.dateTime || m.date || 'All Day' })))}
 
 TASK: Analyze the emails and meetings to produce a comprehensive Daily Briefing.
 
@@ -384,10 +374,10 @@ CRITICAL INSTRUCTIONS FOR QUIP DOCUMENTS:
         // Construct robust result
         const result = {
             summary: {
-                totalEmails: emails.length,
+                totalEmails: todayEmails.length,
                 needResponse: 0,
                 urgentCount: 0,
-                meetingsToday: meetings.length,
+                meetingsToday: todayMeetings.length,
                 slackActionItems: slackMessages.length,
                 generatedAt: new Date().toISOString()
             },
@@ -402,14 +392,14 @@ CRITICAL INSTRUCTIONS FOR QUIP DOCUMENTS:
         console.error('AI daily briefing failed:', error);
         return {
             summary: {
-                totalEmails: emails.length,
+                totalEmails: todayEmails.length,
                 needResponse: 0,
                 urgentCount: 0,
-                meetingsToday: meetings.length,
+                meetingsToday: todayMeetings.length,
                 slackActionItems: slackMessages.length,
                 generatedAt: new Date().toISOString()
             },
-            greeting: `Unable to generate AI summary (${AI_PROVIDER} error).`,
+            greeting: `Unable to generate AI summary (Ollama error).`,
             topPriorities: []
         };
     }

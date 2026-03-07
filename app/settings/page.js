@@ -2,12 +2,16 @@
 
 import { useState, useEffect } from 'react';
 import { useSession, signIn, signOut } from 'next-auth/react';
-import { Cloud, Cpu, ExternalLink, CheckCircle2, LogOut, User, FileText } from 'lucide-react';
+import { Cloud, Cpu, ExternalLink, CheckCircle2, LogOut, User, FileText, Sun, Moon, Monitor } from 'lucide-react';
+import { useTheme } from '@/components/ThemeProvider';
 
 export default function SettingsPage() {
     const { data: session, status } = useSession();
     const isGoogleConnected = !!session?.user;
     
+    // Theme
+    const { theme, toggleTheme } = useTheme();
+
     // Phonetool alias state
     const [phonetoolAlias, setPhonetoolAlias] = useState('');
     const [aliasSaving, setAliasSaving] = useState(false);
@@ -216,6 +220,40 @@ export default function SettingsPage() {
             <p className="header-date" style={{ marginBottom: 32 }}>
                 Connect your accounts and configure SmartAI
             </p>
+
+            {/* Appearance Section */}
+            <div className="settings-section">
+                <div className="settings-section-title">
+                    <Sun size={20} />
+                    Appearance
+                </div>
+
+                <div className="settings-card">
+                    <div className="settings-card-info">
+                        <div className="settings-card-icon" style={{ background: theme === 'dark' ? 'rgba(99, 102, 241, 0.1)' : 'rgba(251, 191, 36, 0.1)' }}>
+                            {theme === 'dark' ? '🌙' : '☀️'}
+                        </div>
+                        <div className="settings-card-text">
+                            <h3>Color Scheme</h3>
+                            <p>Switch between dark and light mode. Your preference is saved locally.</p>
+                        </div>
+                    </div>
+                    <button
+                        onClick={toggleTheme}
+                        className="btn btn-secondary"
+                        style={{
+                            minWidth: 140,
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: 8,
+                            justifyContent: 'center',
+                        }}
+                    >
+                        {theme === 'dark' ? <Sun size={16} /> : <Moon size={16} />}
+                        {theme === 'dark' ? 'Light Mode' : 'Dark Mode'}
+                    </button>
+                </div>
+            </div>
 
             {/* User Profile Card */}
             {isGoogleConnected && (

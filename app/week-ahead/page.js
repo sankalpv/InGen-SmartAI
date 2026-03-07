@@ -59,7 +59,6 @@ export default function WeekAheadPage() {
 
     return (
         <div>
-            <Header />
             <div style={{ padding: '24px', maxWidth: '1200px', margin: '0 auto' }}>
                 {/* Header — always visible */}
                 <div style={{ marginBottom: '24px' }}>

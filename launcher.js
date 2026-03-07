@@ -1,4 +1,4 @@
-const { spawn } = require('child_process');
+const { spawn, execSync } = require('child_process');
 const path = require('path');
 const os = require('os');
 const fs = require('fs');
@@ -13,6 +13,12 @@ const RUN_MODE = process.argv.includes('--production') ? 'start' : 'dev';
 const BACKGROUND_AGENT_SCRIPT = IS_WINDOWS
     ? path.join(__dirname, 'services', 'background-agent-windows.js')
     : path.join(__dirname, 'services', 'background-agent.js');
+
+// Data files for first-run detection
+const DATA_DIR = path.join(__dirname, 'data');
+const EMAILS_FILE = path.join(DATA_DIR, 'emails.json');
+const CALENDAR_FILE = path.join(DATA_DIR, 'calendar.json');
+const SYNC_SCRIPT = path.join(__dirname, 'scripts', 'sync-local-data.mjs');
 
 // Logging Setup
 const LOG_FILE = path.join(__dirname, 'smartai.log');
@@ -34,6 +40,70 @@ console.log(`[Launcher] Detected Platform: ${os.platform()}`);
 console.log(`[Launcher] Starting InGen SmartAI in ${RUN_MODE} mode...`);
 console.log(`[Launcher] Logging to: ${LOG_FILE}`);
 
+// ─── First-Run Detection ───
+
+function isFirstRun() {
+    // First run if data directory or either core data file is missing
+    if (!fs.existsSync(DATA_DIR)) return true;
+    if (!fs.existsSync(EMAILS_FILE)) return true;
+    if (!fs.existsSync(CALENDAR_FILE)) return true;
+
+    // Also treat as first run if files exist but are empty/invalid
+    try {
+        const emails = JSON.parse(fs.readFileSync(EMAILS_FILE, 'utf8'));
+        const calendar = JSON.parse(fs.readFileSync(CALENDAR_FILE, 'utf8'));
+        if (!emails.data || !Array.isArray(emails.data) || emails.data.length === 0) return true;
+        if (!calendar.data || !Array.isArray(calendar.data) || calendar.data.length === 0) return true;
+    } catch (e) {
+        return true; // Corrupted files — treat as first run
+    }
+
+    return false;
+}
+
+function runFirstRunSync() {
+    console.log('');
+    console.log('[Launcher] 🆕 First run detected — caching your Outlook data before launch...');
+    console.log('[Launcher] This may take 30-60 seconds. Please ensure Microsoft Outlook is open.');
+    console.log('');
+
+    try {
+        execSync(`node "${SYNC_SCRIPT}"`, {
+            cwd: __dirname,
+            timeout: 300000, // 5 minute timeout
+            maxBuffer: 10 * 1024 * 1024,
+            stdio: ['pipe', 'pipe', 'inherit'] // stderr shows progress, stdout captured for result
+        });
+
+        // Read back the cached data to report counts
+        let emailCount = 0;
+        let calendarCount = 0;
+        try {
+            if (fs.existsSync(EMAILS_FILE)) {
+                const emails = JSON.parse(fs.readFileSync(EMAILS_FILE, 'utf8'));
+                emailCount = emails.count || 0;
+            }
+            if (fs.existsSync(CALENDAR_FILE)) {
+                const calendar = JSON.parse(fs.readFileSync(CALENDAR_FILE, 'utf8'));
+                calendarCount = calendar.count || 0;
+            }
+        } catch (e) { /* ignore read errors */ }
+
+        console.log('');
+        console.log(`[Launcher] ✅ Initial data cached: ${emailCount} emails, ${calendarCount} calendar events`);
+        console.log('[Launcher] 🚀 Launching dashboard — open http://localhost:3000');
+        console.log('');
+
+        return true;
+    } catch (error) {
+        console.error('');
+        console.error(`[Launcher] ⚠️  First-run data sync encountered an issue: ${error.message}`);
+        console.error('[Launcher] Launching anyway — data will sync in the background.');
+        console.error('');
+        return false;
+    }
+}
+
 // Run startup checks before launching
 console.log('[Launcher] Running startup checks...');
 runStartupChecks().then((report) => {
@@ -41,6 +111,11 @@ runStartupChecks().then((report) => {
 
     if (report.hasCriticalFailure) {
         console.log('[Launcher] ⚠️  Critical issues detected above. Starting anyway — some features may not work.\n');
+    }
+
+    // First-run: cache data before starting the app so dashboard has data immediately
+    if (isFirstRun()) {
+        runFirstRunSync();
     }
 
     // 1. Start Next.js App

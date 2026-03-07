@@ -77,6 +77,14 @@
 - [ ] Create insight analytics dashboard <!-- id: 55 -->
 - [ ] Add confidence-based filtering <!-- id: 56 -->
 
+## Phase 8: Engineering Metrics Dashboard (Code Metrics)
+- [x] Create `services/eng-metrics.js` — SQLite store + amzn-mcp code.amazon.com fetcher <!-- id: 62 -->
+- [x] Create `app/api/eng-metrics/route.js` — API endpoint (dashboard, engineer, trend, refresh, sparkline views) <!-- id: 63 -->
+- [x] Create `app/eng-metrics/page.js` — Frontend dashboard page with org summary, engineer table, trend chart, goal alignment, bus factor <!-- id: 64 -->
+- [x] Update `components/Sidebar.js` — Add Code Metrics nav item (Code2 icon) <!-- id: 65 -->
+- [x] Update `config/settings.json` — Add `engMetrics` config section <!-- id: 66 -->
+- [x] Update `README.md` — Document Engineering Metrics feature <!-- id: 67 -->
+
 ### Week 4-5: Production & Optimization (Planned)
 - [ ] Optimize LLM prompts for accuracy <!-- id: 57 -->
 - [ ] Add embedding caching for performance <!-- id: 58 -->

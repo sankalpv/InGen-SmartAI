@@ -23,8 +23,11 @@ import AIChat from '@/components/AIChat'; // Added
 import StreamingBriefing from '@/components/StreamingBriefing'; // Phase 3: ChatGPT-style streaming
 
 // Email Priority Lanes Component - Visual swim lanes by urgency
+const PAGE_SIZE = 20;
+
 function EmailPriorityLanes({ emails }) {
     const [emailDateRange, setEmailDateRange] = useState(1); // Default: today (1 day)
+    const [currentPage, setCurrentPage] = useState(1);
 
     // Filter emails by date range
     const cutoffDate = new Date(Date.now() - emailDateRange * 24 * 60 * 60 * 1000);
@@ -32,6 +35,17 @@ function EmailPriorityLanes({ emails }) {
         const emailDate = new Date(e.date || e.received || e.receivedDateTime);
         return emailDate >= cutoffDate;
     });
+
+    // Pagination
+    const totalPages = Math.ceil(filteredEmails.length / PAGE_SIZE);
+    const startIdx = (currentPage - 1) * PAGE_SIZE;
+    const paginatedEmails = filteredEmails.slice(startIdx, startIdx + PAGE_SIZE);
+
+    // Reset to page 1 when date range changes
+    const handleDateRangeChange = (value) => {
+        setEmailDateRange(value);
+        setCurrentPage(1);
+    };
 
     const dateRangeOptions = [
         { value: 1, label: 'Today' },
@@ -47,7 +61,7 @@ function EmailPriorityLanes({ emails }) {
             color: '#ef4444',
             bgColor: 'rgba(239, 68, 68, 0.08)',
             borderColor: 'rgba(239, 68, 68, 0.25)',
-            emails: filteredEmails.filter(e => (e.aiCategory || '').toLowerCase() === 'respond_now'),
+            emails: paginatedEmails.filter(e => (e.aiCategory || '').toLowerCase() === 'respond_now'),
             defaultOpen: true
         },
         {
@@ -56,7 +70,7 @@ function EmailPriorityLanes({ emails }) {
             color: '#eab308',
             bgColor: 'rgba(234, 179, 8, 0.06)',
             borderColor: 'rgba(234, 179, 8, 0.2)',
-            emails: filteredEmails.filter(e => (e.aiCategory || '').toLowerCase() === 'respond_today'),
+            emails: paginatedEmails.filter(e => (e.aiCategory || '').toLowerCase() === 'respond_today'),
             defaultOpen: true
         },
         {
@@ -65,7 +79,7 @@ function EmailPriorityLanes({ emails }) {
             color: '#6b7280',
             bgColor: 'rgba(107, 114, 128, 0.05)',
             borderColor: 'rgba(107, 114, 128, 0.15)',
-            emails: filteredEmails.filter(e => {
+            emails: paginatedEmails.filter(e => {
                 const cat = (e.aiCategory || 'fyi').toLowerCase();
                 return cat !== 'respond_now' && cat !== 'respond_today';
             }),
@@ -83,16 +97,17 @@ function EmailPriorityLanes({ emails }) {
 
     return (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-            {/* Date Range Filter */}
+            {/* Date Range Filter + Pagination Info */}
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                 <span style={{ fontSize: '13px', color: 'var(--text-tertiary)' }}>
-                    Showing {filteredEmails.length} of {emails.length} emails
+                    Showing {startIdx + 1}–{Math.min(startIdx + PAGE_SIZE, filteredEmails.length)} of {filteredEmails.length} emails
+                    {filteredEmails.length !== emails.length && ` (${emails.length} total)`}
                 </span>
                 <div style={{ display: 'flex', gap: '6px' }}>
                     {dateRangeOptions.map(opt => (
                         <button
                             key={opt.value}
-                            onClick={() => setEmailDateRange(opt.value)}
+                            onClick={() => handleDateRangeChange(opt.value)}
                             style={{
                                 padding: '5px 12px',
                                 borderRadius: '6px',
@@ -174,6 +189,56 @@ function EmailPriorityLanes({ emails }) {
                     )}
                 </div>
             ))}
+
+            {/* Pagination Controls */}
+            {totalPages > 1 && (
+                <div style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: '12px',
+                    marginTop: '8px',
+                    padding: '12px 0'
+                }}>
+                    <button
+                        onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                        disabled={currentPage === 1}
+                        style={{
+                            padding: '8px 16px',
+                            borderRadius: '8px',
+                            border: 'none',
+                            background: currentPage === 1 ? 'rgba(255, 255, 255, 0.03)' : 'rgba(139, 92, 246, 0.15)',
+                            color: currentPage === 1 ? 'var(--text-tertiary)' : '#a78bfa',
+                            fontSize: '13px',
+                            fontWeight: '600',
+                            cursor: currentPage === 1 ? 'default' : 'pointer',
+                            transition: 'all 0.2s ease'
+                        }}
+                    >
+                        ← Previous
+                    </button>
+                    <span style={{ fontSize: '13px', color: 'var(--text-secondary)', fontWeight: '500' }}>
+                        Page {currentPage} of {totalPages}
+                    </span>
+                    <button
+                        onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                        disabled={currentPage === totalPages}
+                        style={{
+                            padding: '8px 16px',
+                            borderRadius: '8px',
+                            border: 'none',
+                            background: currentPage === totalPages ? 'rgba(255, 255, 255, 0.03)' : 'rgba(139, 92, 246, 0.15)',
+                            color: currentPage === totalPages ? 'var(--text-tertiary)' : '#a78bfa',
+                            fontSize: '13px',
+                            fontWeight: '600',
+                            cursor: currentPage === totalPages ? 'default' : 'pointer',
+                            transition: 'all 0.2s ease'
+                        }}
+                    >
+                        Next →
+                    </button>
+                </div>
+            )}
         </div>
     );
 }
@@ -342,10 +407,24 @@ export default function Dashboard() {
 
     const actionSlack = slackMessages.filter(m => m.needsResponse || m.actionItem);
 
+    // Filter to today only for consistent stat display
+    const todayStart = new Date(new Date().toDateString());
+    const todayEnd = new Date(todayStart);
+    todayEnd.setDate(todayEnd.getDate() + 1);
+
+    const todayEmails = receivedEmails.filter(e => {
+        const d = new Date(e.date || e.received || e.receivedDateTime);
+        return d >= todayStart && d < todayEnd;
+    });
+    const todayUrgent = todayEmails.filter(e => (e.aiCategory || '').toLowerCase() === 'respond_now');
+    const todayMeetings = meetings.filter(m => {
+        const d = new Date(m.startTime || m.start || m.date);
+        return d >= todayStart && d < todayEnd;
+    });
+
     const tabs = [
-        { id: 'emails', label: 'Email Triage', icon: Mail, count: receivedEmails.length },
-        { id: 'meetings', label: 'Meeting Prep', icon: Calendar, count: meetings.length },
-        { id: 'slack', label: 'Slack Digest', icon: MessageSquare, count: slackMessages.length },
+        { id: 'emails', label: 'Email Triage', icon: Mail, count: todayEmails.length },
+        { id: 'meetings', label: 'Meeting Prep', icon: Calendar, count: todayMeetings.length },
     ];
 
     // XKCD comic state for loading screen
@@ -458,8 +537,8 @@ export default function Dashboard() {
                         <Inbox size={22} />
                     </div>
                     <div>
-                        <div className="stat-value">{briefing?.summary?.totalEmails || emails.length}</div>
-                        <div className="stat-label">Total Emails</div>
+                        <div className="stat-value">{todayEmails.length}</div>
+                        <div className="stat-label">Today&apos;s Emails</div>
                     </div>
                 </div>
                 <div className="stat-card animate-in">
@@ -467,7 +546,7 @@ export default function Dashboard() {
                         <AlertTriangle size={22} />
                     </div>
                     <div>
-                        <div className="stat-value">{briefing?.summary?.urgentCount || urgentEmails.length}</div>
+                        <div className="stat-value">{todayUrgent.length}</div>
                         <div className="stat-label">Urgent</div>
                     </div>
                 </div>
@@ -476,17 +555,8 @@ export default function Dashboard() {
                         <Calendar size={22} />
                     </div>
                     <div>
-                        <div className="stat-value">{briefing?.summary?.meetingsToday || meetings.length}</div>
+                        <div className="stat-value">{todayMeetings.length}</div>
                         <div className="stat-label">Meetings Today</div>
-                    </div>
-                </div>
-                <div className="stat-card animate-in">
-                    <div className="stat-icon orange">
-                        <MessageSquare size={22} />
-                    </div>
-                    <div>
-                        <div className="stat-value">{briefing?.summary?.slackActionItems || actionSlack.length}</div>
-                        <div className="stat-label">Slack Actions</div>
                     </div>
                 </div>
             </div>

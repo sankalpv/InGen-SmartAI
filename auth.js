@@ -1,7 +1,12 @@
 import NextAuth from 'next-auth';
 import Google from 'next-auth/providers/google';
 
+// Generate a deterministic fallback secret for local-only installs
+// (InGen doesn't use OAuth — this just silences next-auth's requirement)
+const AUTH_SECRET_FALLBACK = process.env.AUTH_SECRET || process.env.NEXTAUTH_SECRET || 'ingen-local-only-no-oauth-needed';
+
 export const { handlers, signIn, signOut, auth } = NextAuth({
+    secret: AUTH_SECRET_FALLBACK,
     providers: [
         Google({
             clientId: process.env.GOOGLE_CLIENT_ID,

@@ -1,4 +1,4 @@
-#!/usr/bin/env node
+code#!/usr/bin/env node
 /**
  * Sync local data from Outlook — runs as ESM module
  * Called by local-store.js via child process to avoid ESM/CJS conflicts
@@ -59,9 +59,14 @@ try {
         console.error(`[Sync] First batch: ${firstBatch.length} emails cached`);
         
         // Fetch additional batches using offset (JXA script supports it)
+        // Fix 5: Import execSync once outside the loop
+        const { execSync } = await import('child_process');
         for (let offset = BATCH_SIZE; offset < TARGET_EMAILS; offset += BATCH_SIZE) {
             try {
-                const { execSync } = await import('child_process');
+                // Fix 5: 3-second cooldown between batches to give Outlook breathing room
+                console.error(`[Sync] Waiting 3s before next batch (offset ${offset})...`);
+                await new Promise(r => setTimeout(r, 3000));
+                
                 const scriptPath = path.join(__dirname, '..', 'scripts', 'fetch_outlook_ui_optimized.js');
                 const raw = execSync(`osascript -l JavaScript "${scriptPath}" ${BATCH_SIZE} ${offset}`, { timeout: 60000, maxBuffer: 10 * 1024 * 1024 }).toString();
                 let batch;
@@ -105,6 +110,46 @@ try {
     }
 } catch (e) {
     console.error('Calendar sync failed:', e.message);
+}
+
+// Fetch "Issues" folder (SIM tickets, Taskei tasks, CloudWatch alarms)
+// Supports subfolder paths like "Inbox/Issues" — configurable in settings.json
+try {
+    const { execSync: execSyncIssues } = await import('child_process');
+    const issuesScriptPath = path.join(__dirname, '..', 'scripts', 'fetch_outlook_folder.scpt');
+    
+    // Read configured folder path from settings.json (default: "Inbox/Issues")
+    let issuesFolderPath = 'Inbox/Issues';
+    try {
+        const settingsPath = path.join(__dirname, '..', 'config', 'settings.json');
+        if (fs.existsSync(settingsPath)) {
+            const settings = JSON.parse(fs.readFileSync(settingsPath, 'utf8'));
+            if (settings.issuesFolderPath) issuesFolderPath = settings.issuesFolderPath;
+        }
+    } catch (e) { /* use default */ }
+    
+    // Fetch up to 200 issues emails (most recent)
+    console.error(`[Sync] Fetching Issues folder from Outlook (${issuesFolderPath})...`);
+    const issuesRaw = execSyncIssues(
+        `osascript "${issuesScriptPath}" "${issuesFolderPath}" 200`,
+        { timeout: 120000, maxBuffer: 10 * 1024 * 1024 }
+    ).toString();
+    
+    let issuesEmails;
+    try { issuesEmails = JSON.parse(issuesRaw); } catch { issuesEmails = []; }
+    
+    if (Array.isArray(issuesEmails) && issuesEmails.length > 0 && !issuesEmails[0]?.error) {
+        writeStore(path.join(DATA_DIR, 'issues-raw.json'), issuesEmails);
+        result.issues = issuesEmails.length;
+        console.error(`[Sync] Issues: ${issuesEmails.length} emails cached`);
+    } else {
+        const errorMsg = issuesEmails[0]?.error || 'empty response';
+        console.error(`[Sync] Issues folder: ${errorMsg} (folder may not exist or Outlook not running)`);
+        result.issues = 0;
+    }
+} catch (e) {
+    console.error(`[Sync] Issues folder fetch failed: ${e.message}`);
+    result.issues = 0;
 }
 
 // Output result as JSON for parent process

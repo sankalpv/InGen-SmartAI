@@ -129,25 +129,114 @@ fi
 # ─── Step 4: Check/Install Node.js ───
 print_step 4 "Checking Node.js..."
 
+# Helper: detect how Node was installed
+detect_node_source() {
+    local node_path
+    node_path=$(which node 2>/dev/null)
+    if [[ -z "$node_path" ]]; then
+        echo "none"
+    elif [[ "$node_path" == *".nvm/"* ]]; then
+        echo "nvm"
+    elif [[ "$node_path" == "/opt/homebrew/"* ]] || [[ "$node_path" == "/usr/local/Cellar/"* ]] || (brew list node &>/dev/null 2>&1); then
+        echo "brew"
+    elif [[ "$node_path" == "/usr/local/bin/node" ]] && [[ -d "/usr/local/include/node" ]]; then
+        echo "pkg"
+    else
+        echo "unknown"
+    fi
+}
+
+# Helper: load nvm if available but not in current shell
+load_nvm_if_available() {
+    if [[ -z "$NVM_DIR" ]]; then
+        export NVM_DIR="$HOME/.nvm"
+    fi
+    if [[ -s "$NVM_DIR/nvm.sh" ]]; then
+        source "$NVM_DIR/nvm.sh"
+        return 0
+    fi
+    return 1
+}
+
+upgrade_node() {
+    local source
+    source=$(detect_node_source)
+    print_info "Node.js installed via: $source"
+
+    case "$source" in
+        brew)
+            print_info "Upgrading Node.js via Homebrew..."
+            brew upgrade node 2>/dev/null || brew install node@22 2>/dev/null
+            # If node@22 was installed as a keg, link it
+            brew link --overwrite node@22 2>/dev/null || brew link --overwrite node 2>/dev/null || true
+            ;;
+        nvm)
+            print_info "Upgrading Node.js via nvm..."
+            load_nvm_if_available
+            nvm install 22 2>/dev/null && nvm use 22 2>/dev/null && nvm alias default 22 2>/dev/null
+            ;;
+        pkg)
+            print_info "Node.js was installed via .pkg installer. Installing fresh via Homebrew..."
+            # Homebrew's node will take precedence on PATH after install
+            brew install node 2>/dev/null
+            # If brew node exists but old pkg node shadows it, force link
+            brew link --overwrite node 2>/dev/null || true
+            ;;
+        none)
+            # Check if nvm is available but no node is active
+            if load_nvm_if_available && command -v nvm &>/dev/null; then
+                print_info "nvm detected but no Node active. Installing Node 22 via nvm..."
+                nvm install 22 && nvm use 22 && nvm alias default 22
+            else
+                print_info "Installing Node.js via Homebrew..."
+                brew install node
+            fi
+            ;;
+        *)
+            # Unknown source — try Homebrew install as override
+            print_info "Unknown Node.js source ($source). Installing via Homebrew..."
+            brew install node 2>/dev/null
+            brew link --overwrite node 2>/dev/null || true
+            ;;
+    esac
+}
+
 if ! command -v node &>/dev/null; then
-    print_warn "Node.js not found. Installing via Homebrew..."
-    brew install node
+    print_warn "Node.js not found."
+    upgrade_node
 fi
 
 # Verify Node.js version (must be >= 20)
 NODE_VERSION=$(node -v 2>/dev/null | sed 's/v//' | cut -d. -f1)
 if [[ -z "$NODE_VERSION" ]] || [[ "$NODE_VERSION" -lt 20 ]]; then
-    print_warn "Node.js ${NODE_VERSION:-not found} is too old (need 20+). Upgrading..."
-    brew upgrade node 2>/dev/null || brew install node 2>/dev/null
+    print_warn "Node.js v${NODE_VERSION:-??} is too old (need 20+). Upgrading..."
+    upgrade_node
+    
+    # Refresh PATH in case brew/nvm changed it
+    hash -r 2>/dev/null
+    if [[ -s "$HOME/.nvm/nvm.sh" ]]; then
+        source "$HOME/.nvm/nvm.sh" 2>/dev/null
+    fi
     
     # Re-check after upgrade
     NODE_VERSION=$(node -v 2>/dev/null | sed 's/v//' | cut -d. -f1)
     if [[ -z "$NODE_VERSION" ]] || [[ "$NODE_VERSION" -lt 20 ]]; then
         print_fail "Node.js upgrade failed. Current: $(node -v 2>/dev/null || echo 'not found')"
-        print_info "Please install Node.js 20+ manually:"
-        print_info "  brew install node"
-        print_info "  OR: Visit https://nodejs.org and download v20+"
-        print_info "If using nvm: nvm install 20 && nvm use 20"
+        echo ""
+        print_info "Please install Node.js 20+ manually using ONE of these methods:"
+        echo ""
+        echo -e "    ${CYAN}Method 1 (Homebrew):${NC}"
+        echo -e "      brew install node"
+        echo ""
+        echo -e "    ${CYAN}Method 2 (nvm):${NC}"
+        echo -e "      curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.1/install.sh | bash"
+        echo -e "      source ~/.zshrc"
+        echo -e "      nvm install 22"
+        echo ""
+        echo -e "    ${CYAN}Method 3 (Direct download):${NC}"
+        echo -e "      Visit https://nodejs.org and download v22+"
+        echo ""
+        print_info "Then re-run this installer: bash scripts/install-ingen.sh"
         exit 1
     fi
 fi
@@ -381,6 +470,38 @@ except: pass
 " 2>/dev/null
 fi
 print_ok "Phonetool alias: $USER_ALIAS"
+
+# Fetch org tree for this alias (saves to SQLite)
+echo ""
+echo -e "  ${BOLD}🏢 Fetching Org Tree${NC}"
+print_info "Fetching your org hierarchy from Phonetool (may take 30-60 seconds)..."
+if command -v node &>/dev/null && [[ -f "$INSTALL_DIR/services/org-store.js" ]]; then
+    cd "$INSTALL_DIR"
+    ORG_RESULT=$(node -e "
+const orgStore = require('./services/org-store');
+async function main() {
+    try {
+        const count = await orgStore.populateFromPhoneTool('$USER_ALIAS');
+        console.log(JSON.stringify({success: true, count}));
+    } catch(e) {
+        console.log(JSON.stringify({success: false, error: e.message}));
+    }
+    process.exit(0);
+}
+main();
+" 2>/dev/null || echo '{"success":false,"error":"script failed"}')
+    
+    ORG_COUNT=$(echo "$ORG_RESULT" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('count',0))" 2>/dev/null || echo "0")
+    ORG_OK=$(echo "$ORG_RESULT" | python3 -c "import sys,json; d=json.load(sys.stdin); print('true' if d.get('success') else 'false')" 2>/dev/null || echo "false")
+    
+    if [[ "$ORG_OK" == "true" && "$ORG_COUNT" -gt "0" ]]; then
+        print_ok "Org tree saved: $ORG_COUNT people found in your org (stored in data/org.db)"
+    else
+        print_warn "Could not fetch org tree (VPN/Midway may be needed). You can fetch later from Settings."
+    fi
+else
+    print_warn "Skipped org tree fetch (dependencies not ready). Will fetch on first app load."
+fi
 
 # Quip API Token
 echo ""

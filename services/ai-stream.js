@@ -10,6 +10,7 @@ const require = createRequire(import.meta.url);
 const logger = require('./logger').child('AI-Stream');
 const promptLoader = require('./prompt-loader');
 const quipFetcher = require('./quip-fetcher');
+const issuesStore = require('./issues-store');
 
 // Helper: read emails from local store (single source of truth)
 function getLocalEmails() {
@@ -23,6 +24,33 @@ function getLocalEmails() {
         }
     } catch (e) { }
     return null;
+}
+
+// ─── Filter to Today Only (safety filter) ───
+function filterToToday(items, dateField) {
+    const now = new Date();
+    const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const endOfDay = new Date(startOfDay.getTime() + 24 * 60 * 60 * 1000);
+
+    return items.filter(item => {
+        const dateValue = item[dateField];
+        if (!dateValue) return false;
+        const d = new Date(dateValue);
+        return !isNaN(d.getTime()) && d >= startOfDay && d < endOfDay;
+    });
+}
+
+function filterMeetingsToToday(meetings) {
+    const now = new Date();
+    const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const endOfDay = new Date(startOfDay.getTime() + 24 * 60 * 60 * 1000);
+
+    return meetings.filter(m => {
+        const dateValue = m.start?.dateTime || m.startTime || m.date;
+        if (!dateValue) return false;
+        const d = new Date(dateValue);
+        return !isNaN(d.getTime()) && d >= startOfDay && d < endOfDay;
+    });
 }
 
 const OLLAMA_MODEL = process.env.LLM_MODEL || process.env.OLLAMA_MODEL || 'qwen3:latest';
@@ -93,7 +121,11 @@ export async function streamCompletion(systemPrompt, userPrompt, onChunk, option
 export async function streamDailyBriefing(emails, meetings, slackMessages, onChunk) {
     const system = promptLoader.get('system') || "You are the AI engine for 'SmartAI', a productivity dashboard. Be helpful, concise, and proactive.";
 
-    const limitedEmails = emails.slice(0, 5).map(e => ({
+    // Safety filter: only use today's emails and meetings for the daily briefing
+    const todayEmails = filterToToday(emails, 'received');
+    const todayMeetings = filterMeetingsToToday(meetings);
+
+    const limitedEmails = todayEmails.slice(0, 5).map(e => ({
         from: e.from,
         subject: e.subject,
         snippet: (e.snippet || '').substring(0, 2000)
@@ -117,21 +149,51 @@ export async function streamDailyBriefing(emails, meetings, slackMessages, onChu
         }
     }
 
+    // Fetch Issues summary from SQLite (offline — no Outlook calls)
+    let issuesContext = '';
+    try {
+        await issuesStore.init();
+        const openIssues = await issuesStore.getOpenIssues();
+        const slaViolations = await issuesStore.getSlaViolations(7);
+        const agingIssues = await issuesStore.getAgingIssues(7);
+
+        if (openIssues.length > 0 || slaViolations.length > 0) {
+            const issuesSummary = openIssues.slice(0, 8).map(i => 
+                `- [Impact ${i.impact || '?'}] "${i.title}" (${i.status || 'Open'}, ${i.ageDays || 0}d old, assignee: ${i.assigneeAlias || 'unassigned'})`
+            ).join('\n');
+            
+            const slaSummary = slaViolations.length > 0 
+                ? `\nSLA VIOLATIONS (last 7 days): ${slaViolations.map(s => `${s.resolverGroup} on "${s.title}"`).join(', ')}`
+                : '';
+            
+            const agingSummary = agingIssues.length > 0
+                ? `\nAGING TICKETS (>7 days): ${agingIssues.length} tickets`
+                : '';
+
+            issuesContext = `\nOPEN ISSUES/TICKETS (${openIssues.length} total):\n${issuesSummary}${slaSummary}${agingSummary}`;
+        }
+    } catch (e) {
+        logger.warn('Failed to fetch issues for briefing:', e.message);
+    }
+
     let prompt = `You are my executive productivity assistant.
 
 INPUT:
 Emails: ${JSON.stringify(limitedEmails)}
-Meetings: ${JSON.stringify(meetings.map(m => ({ title: m.title, time: m.start?.dateTime || m.date || 'All Day' })))}
+Meetings: ${JSON.stringify(todayMeetings.map(m => ({ title: m.title, time: m.start?.dateTime || m.date || 'All Day' })))}${issuesContext}
 
-TASK: Analyze the emails and meetings to produce a comprehensive Daily Briefing.
+TASK: Analyze the emails, meetings, and open issues/tickets to produce a comprehensive Daily Briefing.
 
 OUTPUT FORMAT:
 ## EXECUTIVE SUMMARY
-(3-5 sentences summarizing the day)
+(3-5 sentences summarizing the day, including any critical open tickets or SLA issues)
 
 ## TOP PRIORITIES
 - [URGENCY: HIGH] Title | Reason
-- [URGENCY: MEDIUM] Title | Reason`;
+- [URGENCY: MEDIUM] Title | Reason
+
+## OPS HEALTH
+(Brief summary of open tickets, SLA status, aging issues — only if there are noteworthy issues)`;
 
     if (quipContext) {
         prompt += `\n\n## LINKED DOCUMENTS\n${quipContext}`;

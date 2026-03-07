@@ -1,5 +1,6 @@
 {
   "outlookCalendarId": "432",
+  "issuesFolderPath": "Inbox/Issues",
   "ignoreExternalEmails": true,
   "insightConfidenceThreshold": 0.5,
   "lowPowerMode": false,
@@ -17,6 +18,23 @@
       "command": "/Users/sankalpv/.toolbox/bin/amzn-mcp",
       "args": [],
       "env": {}
+    },
+    "builder-mcp": {
+      "command": "/Users/sankalpv/.toolbox/bin/builder-mcp",
+      "args": [],
+      "env": {}
     }
+  },
+  "wbr": {
+    "roomId": "2c8f0ce4-0d0d-4ff9-9d8d-eb744252bc23",
+    "folderId": "ab02443f-f7a8-4fec-a815-afc0a27906fa",
+    "goalPrefix": "CPP2026Goal",
+    "title": "Classification and Policy Platform - 2026 Goals and Projects Status"
+  },
+  "engMetrics": {
+    "weeklyRetentionWeeks": 52,
+    "staleCrThresholdDays": 5,
+    "busFactorWindowDays": 90,
+    "fetchDelayMs": 500
   }
 }

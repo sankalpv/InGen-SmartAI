@@ -24,11 +24,36 @@ on run argv
             try
                 set theAccount to default account
             
-            -- Dynamic Folder Selection
-            if folderName is "Inbox" then
+            -- Dynamic Folder Selection (supports paths like "Inbox/Issues")
+            if folderName contains "/" then
+                -- Path-based navigation: split by "/" and traverse
+                set AppleScript's text item delimiters to "/"
+                set pathParts to text items of folderName
+                set AppleScript's text item delimiters to ""
+                
+                -- Start from the first folder
+                try
+                    set theFolder to folder (item 1 of pathParts) of theAccount
+                on error
+                    -- Try inbox() shortcut if first part is "Inbox"
+                    if (item 1 of pathParts) is "Inbox" then
+                        set theFolder to inbox of theAccount
+                    else
+                        return "[{\"error\": \"Folder '" & (item 1 of pathParts) & "' not found\"}]"
+                    end if
+                end try
+                
+                -- Navigate deeper through subfolders
+                repeat with i from 2 to (count of pathParts)
+                    try
+                        set theFolder to mail folder (item i of pathParts) of theFolder
+                    on error
+                        return "[{\"error\": \"Subfolder '" & (item i of pathParts) & "' not found in path '" & folderName & "'\"}]"
+                    end try
+                end repeat
+            else if folderName is "Inbox" then
                 set theFolder to folder "Inbox" of theAccount
             else if folderName is "Sent" or folderName is "Sent Items" then
-                -- Try to find the sent folder
                 try
                     set theFolder to folder "Sent Items" of theAccount
                 on error
@@ -39,11 +64,16 @@ on run argv
                     end try
                 end try
             else
-                -- Try generic name
+                -- Try generic name at top level
                 try
                     set theFolder to folder folderName of theAccount
                 on error
-                    return "[{\"error\": \"Folder '" & folderName & "' not found\"}]"
+                    -- Also try as a subfolder of inbox (common pattern)
+                    try
+                        set theFolder to mail folder folderName of (inbox of theAccount)
+                    on error
+                        return "[{\"error\": \"Folder '" & folderName & "' not found (checked top-level and Inbox subfolders)\"}]"
+                    end try
                 end try
             end if
             

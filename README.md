@@ -126,6 +126,26 @@ Time audit, relationship health scores, action item extraction, blocker detectio
 ### 🔔 Proactive Insights
 AI-generated meeting prep insights, email priority alerts, and weekly reports delivered as toast notifications.
 
+### 📊 Engineering Metrics (Code Metrics)
+Per-engineer code review dashboard powered by `code.amazon.com` via `amzn-mcp`. Tracks CRs created/reviewed, lines changed, CR turnaround time, and stale CRs across the entire org. Features include:
+
+- **Org-level summary** — Total CRs, lines, P50 turnaround, week-over-week trends
+- **Engineer table** — Per-person metrics with mini sparkline trends (8-week)
+- **Weekly velocity chart** — Horizontal bar chart showing CR created vs reviewed over 8 weeks
+- **Goal-to-Code alignment** — Cross-references WBR goals with CR descriptions to show engineering investment per goal
+- **Bus Factor detection** — Flags packages with only a single committer in the last 90 days
+- **Stale CR alerts** — Highlights CRs open for >5 days
+- **Engineer drill-down** — Slide-out panel with 12-week history, recent CRs, and contributing goals
+
+**Data flow:** Org roster (Phonetool → `org-store.js`) → per-engineer code search (`amzn-mcp` → `search_internal_code` type=user) → SQLite weekly snapshots (`data/eng-metrics.db`, 52-week retention) → React dashboard.
+
+**Files:**
+- `services/eng-metrics.js` — Backend service (SQLite store + MCP fetcher)
+- `app/api/eng-metrics/route.js` — API route (dashboard, engineer, trend, refresh, sparkline views)
+- `app/eng-metrics/page.js` — Frontend dashboard page
+- `config/settings.json` → `engMetrics` section for thresholds
+- Mockup reference: `mockups/eng-metrics-mockup.html`
+
 ---
 
 ## Architecture

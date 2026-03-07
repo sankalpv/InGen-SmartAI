@@ -16,6 +16,22 @@ let directReportsCache = null;
 let cacheTimestamp = 0;
 const CACHE_TTL = 24 * 60 * 60 * 1000; // 24 hours
 
+// Name resolution cache (alias → full name)
+let nameCache = {};
+const NAME_CACHE_PATH = path.join(process.cwd(), 'brain', 'name-cache.json');
+
+// Load name cache from disk on startup
+try {
+    if (fs.existsSync(NAME_CACHE_PATH)) {
+        const cached = JSON.parse(fs.readFileSync(NAME_CACHE_PATH, 'utf8'));
+        if (cached && cached.names) {
+            nameCache = cached.names;
+        }
+    }
+} catch (e) {
+    // Ignore — start with empty cache
+}
+
 /**
  * Get the configured Phonetool alias from settings
  */
@@ -242,6 +258,215 @@ function parseDirectReports(content, managerAlias) {
 }
 
 /**
+ * Fetch a person's full name from their alias via Phonetool/MCP.
+ * Caches results to avoid repeated lookups.
+ * @param {string} alias - The Amazon alias (e.g., "adaliep")
+ * @returns {Promise<string|null>} The full name, or null if lookup fails
+ */
+async function fetchPersonName(alias) {
+    if (!alias) return null;
+    
+    // Check in-memory cache first
+    if (nameCache[alias]) {
+        return nameCache[alias];
+    }
+    
+    try {
+        const url = `https://phonetool.amazon.com/users/${alias}`;
+        const result = await mcpClient.callTool('amzn-mcp', 'read_internal_website', { url });
+        
+        if (!result || !result.content) return null;
+        
+        const content = typeof result.content === 'string'
+            ? result.content
+            : result.content.map(c => c.text || '').join('\n');
+        
+        let name = null;
+        try {
+            // Extract JSON (strip trailing deprecation notices)
+            const jsonMatch = content.match(/^\s*(\{[\s\S]*\})\s*(?:⚠|$)/);
+            const jsonStr = jsonMatch ? jsonMatch[1] : content;
+            const parsed = JSON.parse(jsonStr);
+            const userData = parsed.content || parsed;
+            name = userData.name || userData.first_name || null;
+        } catch (jsonError) {
+            // Try markdown parsing: look for name in heading
+            const nameMatch = content.match(/^#\s+(.+)/m) || content.match(/\*\*(.+?)\*\*/);
+            if (nameMatch) name = nameMatch[1].trim();
+        }
+        
+        if (name) {
+            // Cache it
+            nameCache[alias] = name;
+            // Persist to disk
+            try {
+                const brainDir = path.join(process.cwd(), 'brain');
+                if (!fs.existsSync(brainDir)) fs.mkdirSync(brainDir, { recursive: true });
+                fs.writeFileSync(NAME_CACHE_PATH, JSON.stringify({
+                    names: nameCache,
+                    updatedAt: new Date().toISOString()
+                }, null, 2));
+            } catch (e) { /* ignore write errors */ }
+        }
+        
+        return name;
+    } catch (error) {
+        logger.warn(`Failed to fetch name for alias ${alias}: ${error.message}`);
+        return null;
+    }
+}
+
+/**
+ * Batch-resolve multiple aliases to full names.
+ * Returns a map of alias → name.
+ * @param {string[]} aliases - Array of aliases to resolve
+ * @returns {Promise<Object>} Map of alias → full name
+ */
+async function fetchPersonNames(aliases) {
+    const result = {};
+    const toFetch = [];
+    
+    for (const alias of aliases) {
+        if (nameCache[alias]) {
+            result[alias] = nameCache[alias];
+        } else {
+            toFetch.push(alias);
+        }
+    }
+    
+    // Fetch uncached names (limit concurrency to avoid flooding MCP)
+    for (const alias of toFetch.slice(0, 10)) { // Max 10 at a time
+        const name = await fetchPersonName(alias);
+        if (name) result[alias] = name;
+    }
+    
+    return result;
+}
+
+/**
+ * Get cached name for an alias (no network call).
+ * @param {string} alias
+ * @returns {string|null}
+ */
+function getCachedName(alias) {
+    return nameCache[alias] || null;
+}
+
+// ─── Org Tree (recursive hierarchy) ───
+
+const ORG_TREE_CACHE_PATH = path.join(process.cwd(), 'brain', 'org-tree-cache.json');
+
+/**
+ * Fetch the full org tree recursively from Phonetool.
+ * Gets direct reports, then recursively fetches their reports.
+ * @param {string} alias - Root manager alias
+ * @param {number} maxDepth - Max recursion depth (default 3)
+ * @returns {Promise<Object>} Tree: { alias, name, reports: [...] }
+ */
+async function fetchOrgTree(alias, maxDepth = 3) {
+    if (!alias) return null;
+
+    // Check file cache first
+    try {
+        if (fs.existsSync(ORG_TREE_CACHE_PATH)) {
+            const cached = JSON.parse(fs.readFileSync(ORG_TREE_CACHE_PATH, 'utf8'));
+            if (cached.alias === alias && (Date.now() - cached.timestamp < CACHE_TTL)) {
+                logger.info(`Returning cached org tree for ${alias} (${cached.totalPeople} people)`);
+                return cached.tree;
+            }
+        }
+    } catch (e) {
+        logger.warn('Failed to read org tree cache:', e.message);
+    }
+
+    logger.info(`Building org tree for ${alias} (maxDepth=${maxDepth})...`);
+    const tree = await _buildOrgNode(alias, 0, maxDepth);
+
+    // Count total people
+    const totalPeople = _countPeople(tree);
+
+    // Cache to disk
+    try {
+        const brainDir = path.join(process.cwd(), 'brain');
+        if (!fs.existsSync(brainDir)) fs.mkdirSync(brainDir, { recursive: true });
+        fs.writeFileSync(ORG_TREE_CACHE_PATH, JSON.stringify({
+            alias,
+            tree,
+            totalPeople,
+            timestamp: Date.now(),
+            fetchedAt: new Date().toISOString()
+        }, null, 2));
+    } catch (e) {
+        logger.warn('Failed to save org tree cache:', e.message);
+    }
+
+    logger.info(`Org tree built: ${totalPeople} people for ${alias}`);
+    return tree;
+}
+
+async function _buildOrgNode(alias, depth, maxDepth) {
+    const name = await fetchPersonName(alias) || alias;
+    const node = { alias, name, depth, reports: [] };
+
+    if (depth >= maxDepth) return node;
+
+    try {
+        const reports = await fetchDirectReports(alias);
+        // Reset the cache so fetchDirectReports works for the next person
+        directReportsCache = null;
+        cacheTimestamp = 0;
+
+        for (const report of reports) {
+            const childNode = await _buildOrgNode(report.alias, depth + 1, maxDepth);
+            // Also put name in the cache
+            if (report.name && report.name !== report.alias) {
+                nameCache[report.alias] = report.name;
+            }
+            node.reports.push(childNode);
+        }
+    } catch (e) {
+        logger.warn(`Failed to fetch reports for ${alias}: ${e.message}`);
+    }
+
+    return node;
+}
+
+function _countPeople(node) {
+    if (!node) return 0;
+    let count = 1;
+    for (const r of (node.reports || [])) {
+        count += _countPeople(r);
+    }
+    return count;
+}
+
+/**
+ * Get a flat list of all people in the org tree.
+ * @param {string} alias - Root manager alias
+ * @returns {Promise<Array>} Flat array of { alias, name, depth, managerAlias }
+ */
+async function getOrgFlatList(alias) {
+    const tree = await fetchOrgTree(alias);
+    if (!tree) return [];
+    const flat = [];
+    _flattenTree(tree, null, flat);
+    return flat;
+}
+
+function _flattenTree(node, managerAlias, result) {
+    result.push({
+        alias: node.alias,
+        name: node.name,
+        depth: node.depth,
+        managerAlias,
+        hasReports: (node.reports || []).length > 0
+    });
+    for (const r of (node.reports || [])) {
+        _flattenTree(r, node.alias, result);
+    }
+}
+
+/**
  * Clear the phonetool cache
  */
 function clearCache() {
@@ -260,5 +485,10 @@ function clearCache() {
 module.exports = {
     getAlias,
     fetchDirectReports,
+    fetchPersonName,
+    fetchPersonNames,
+    getCachedName,
+    fetchOrgTree,
+    getOrgFlatList,
     clearCache
 };

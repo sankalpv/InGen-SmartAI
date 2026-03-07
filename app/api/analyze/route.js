@@ -12,6 +12,47 @@ export const runtime = 'nodejs';
 const BRIEFING_CACHE_FILE = path.join(process.cwd(), 'data', 'last-briefing.json');
 const BRIEFING_CACHE_TTL = 30 * 60 * 1000; // 30 minutes
 
+// ─── Filter to Today Only ───
+function filterToToday(items, dateField) {
+    const now = new Date();
+    const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const endOfDay = new Date(startOfDay.getTime() + 24 * 60 * 60 * 1000);
+
+    return items.filter(item => {
+        // Support nested date fields like 'start.dateTime'
+        let dateValue;
+        if (dateField.includes('.')) {
+            const parts = dateField.split('.');
+            dateValue = item;
+            for (const part of parts) {
+                dateValue = dateValue?.[part];
+            }
+        } else {
+            dateValue = item[dateField];
+        }
+        if (!dateValue) return false;
+        const d = new Date(dateValue);
+        return !isNaN(d.getTime()) && d >= startOfDay && d < endOfDay;
+    });
+}
+
+function getTodayEmails(allEmails) {
+    return filterToToday(allEmails, 'received');
+}
+
+function getTodayMeetings(allMeetings) {
+    // Calendar events may use start.dateTime or date (for all-day events)
+    return allMeetings.filter(m => {
+        const now = new Date();
+        const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+        const endOfDay = new Date(startOfDay.getTime() + 24 * 60 * 60 * 1000);
+        const dateValue = m.start?.dateTime || m.startTime || m.date;
+        if (!dateValue) return false;
+        const d = new Date(dateValue);
+        return !isNaN(d.getTime()) && d >= startOfDay && d < endOfDay;
+    });
+}
+
 // Ensure data directory exists
 function ensureDataDir() {
     const dataDir = path.join(process.cwd(), 'data');
@@ -100,8 +141,17 @@ function refreshBriefingInBackground(source) {
     console.log('[API/Analyze] Starting background briefing refresh...');
     (async () => {
         try {
-            const emails = await fetchOutlookEmails(20);
-            const briefing = await generateDailyBriefing(emails, [], []);
+            const fetched = await fetchOutlookEmails(20);
+            const emails = getTodayEmails(fetched);
+
+            // Load today's meetings from local store
+            let todayMeetings = [];
+            const calCache = localStore.getCalendar ? localStore.getCalendar() : { data: null };
+            if (calCache.data && calCache.data.length > 0) {
+                todayMeetings = getTodayMeetings(calCache.data);
+            }
+
+            const briefing = await generateDailyBriefing(emails, todayMeetings, []);
             briefing.source = 'live';
             cacheBriefing(briefing);
             console.log('[API/Analyze] Background briefing refresh complete');
@@ -121,26 +171,36 @@ async function streamBriefing(source) {
                 // Send initial event
                 controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'start', message: 'Generating briefing...' })}\n\n`));
 
-                // Read emails from local store (single source of truth)
+                // Read emails from local store (single source of truth) — filter to TODAY only
                 let realEmails = [];
                 const emailCache = localStore.getEmails ? localStore.getEmails() : { data: null };
                 if (emailCache.data && emailCache.data.length > 0 && emailCache.data[0]?.id !== 'error') {
-                    realEmails = emailCache.data;
-                    controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'progress', message: `Using ${realEmails.length} cached emails` })}\n\n`));
+                    const allEmails = emailCache.data;
+                    realEmails = getTodayEmails(allEmails);
+                    controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'progress', message: `Found ${realEmails.length} emails from today (out of ${allEmails.length} cached)` })}\n\n`));
                 } else {
                     // Fallback to live fetch if no cache
                     try {
-                        realEmails = await fetchOutlookEmails(20);
-                        controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'progress', message: `Fetched ${realEmails.length} emails` })}\n\n`));
+                        const fetched = await fetchOutlookEmails(20);
+                        realEmails = getTodayEmails(fetched);
+                        controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'progress', message: `Fetched ${realEmails.length} today's emails` })}\n\n`));
                     } catch (e) {
                         controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'progress', message: 'Email fetch failed, continuing...' })}\n\n`));
                     }
                 }
 
+                // Read calendar from local store — filter to TODAY only
+                let todayMeetings = [];
+                const calCache = localStore.getCalendar ? localStore.getCalendar() : { data: null };
+                if (calCache.data && calCache.data.length > 0) {
+                    todayMeetings = getTodayMeetings(calCache.data);
+                    controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'progress', message: `Found ${todayMeetings.length} meetings today` })}\n\n`));
+                }
+
                 // Stream the Ollama generation
                 const { streamDailyBriefing } = await import('@/services/ai-stream');
                 
-                const fullText = await streamDailyBriefing(realEmails, [], [], (chunk) => {
+                const fullText = await streamDailyBriefing(realEmails, todayMeetings, [], (chunk) => {
                     controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'chunk', text: chunk })}\n\n`));
                 });
 

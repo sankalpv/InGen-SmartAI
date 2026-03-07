@@ -1,5 +1,6 @@
 import './globals.css';
 import Sidebar from '@/components/Sidebar';
+import ThemeProvider from '@/components/ThemeProvider';
 import { SessionProvider } from 'next-auth/react';
 
 export const metadata = {
@@ -9,15 +10,33 @@ export const metadata = {
 
 export default function RootLayout({ children }) {
     return (
-        <html lang="en">
+        <html lang="en" suppressHydrationWarning>
+            <head>
+                <script
+                    dangerouslySetInnerHTML={{
+                        __html: `
+                            (function() {
+                                try {
+                                    var theme = localStorage.getItem('ingen-theme');
+                                    if (theme === 'light') {
+                                        document.documentElement.setAttribute('data-theme', 'light');
+                                    }
+                                } catch(e) {}
+                            })();
+                        `,
+                    }}
+                />
+            </head>
             <body>
                 <SessionProvider>
-                    <div className="app-layout">
-                        <Sidebar />
-                        <main className="main-content">
-                            {children}
-                        </main>
-                    </div>
+                    <ThemeProvider>
+                        <div className="app-layout">
+                            <Sidebar />
+                            <main className="main-content">
+                                {children}
+                            </main>
+                        </div>
+                    </ThemeProvider>
                 </SessionProvider>
             </body>
         </html>

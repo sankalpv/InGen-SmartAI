@@ -147,28 +147,6 @@ export default function Header({ onRefresh, isLoading, onShowRetro }) {
                         <Settings size={18} />
                     </button>
 
-                    <button
-                        className="btn"
-                        onClick={onShowRetro}
-                        style={{
-                            marginRight: '12px',
-                            background: 'rgba(255,255,255,0.05)',
-                            border: '1px solid rgba(255,255,255,0.1)',
-                            color: 'var(--text-secondary)'
-                        }}
-                    >
-                        <WeeklyRetroIcon size={16} style={{ marginRight: 6 }} />
-                        Review
-                    </button>
-
-                    <button
-                        className="btn btn-primary"
-                        onClick={onRefresh}
-                        disabled={isLoading}
-                    >
-                        <RefreshCw size={16} className={isLoading ? 'loading-spinner' : ''} />
-                        {isLoading ? 'Analyzing...' : 'Generate Daily Brief'}
-                    </button>
                 </div>
             </div>
 

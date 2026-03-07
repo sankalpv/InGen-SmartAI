@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { X, Save, Check, Loader2, Calendar as CalendarIcon, RefreshCw, TriangleAlert, Upload } from 'lucide-react';
+import { X, Save, Check, Loader2, Calendar as CalendarIcon, RefreshCw, AlertTriangle, Upload } from 'lucide-react';
 
 export default function SettingsModal({ isOpen, onClose }) {
     const [calendars, setCalendars] = useState([]);
@@ -10,50 +10,36 @@ export default function SettingsModal({ isOpen, onClose }) {
     const [ignoreExternal, setIgnoreExternal] = useState(false);
     const [logUploadUrl, setLogUploadUrl] = useState('');
     const [isUploadingLogs, setIsUploadingLogs] = useState(false);
-    const [logUploadStatus, setLogUploadStatus] = useState(null); // 'success' | 'error' | null
+    const [logUploadStatus, setLogUploadStatus] = useState(null);
     const [gistUrl, setGistUrl] = useState(null);
     const [isLoading, setIsLoading] = useState(true);
     const [isSaving, setIsSaving] = useState(false);
     const [isUpdatingPrompts, setIsUpdatingPrompts] = useState(false);
-    const [updateStatus, setUpdateStatus] = useState(null); // 'success' | 'error' | null
+    const [updateStatus, setUpdateStatus] = useState(null);
     const [error, setError] = useState(null);
 
     useEffect(() => {
-        if (isOpen) {
-            fetchData();
-        }
+        if (isOpen) fetchData();
     }, [isOpen]);
 
     const fetchData = async () => {
         setIsLoading(true);
         setError(null);
         try {
-            // 1. Fetch Config
             const configRes = await fetch('/api/settings/config');
             const configData = await configRes.json();
-            const currentId = configData.outlookCalendarId || '';
             setPromptUrl(configData.promptUpdateUrl || '');
             setIgnoreExternal(configData.ignoreExternalEmails === true);
             setLogUploadUrl(configData.logUploadUrl || '');
 
-            // 2. Fetch Calendars
             const calRes = await fetch('/api/settings/calendars');
             const calData = await calRes.json();
-
             setCalendars(calData.calendars || []);
 
-            // Set selected ID (fallback to first found if not set, or keep empty)
-            if (currentId) {
-                setSelectedId(String(currentId));
-            } else if (calData.calendars?.length > 0) {
-                // Optionally auto-select the first one if nothing is saved?
-                // Let's force user to pick or just show nothing selected
-                // setSelectedId(String(calData.calendars[0].id));
-            }
-
+            const currentId = configData.outlookCalendarId || '';
+            if (currentId) setSelectedId(String(currentId));
         } catch (err) {
-            console.error('Failed to load settings:', err);
-            setError('Failed to load local Outlook calendars.');
+            setError('Failed to load settings.');
         } finally {
             setIsLoading(false);
         }
@@ -72,12 +58,8 @@ export default function SettingsModal({ isOpen, onClose }) {
                     logUploadUrl: logUploadUrl
                 })
             });
-
             if (!res.ok) throw new Error('Failed to save');
-
             onClose();
-            // detailed success feedback or reload could happen here
-            // For now, closing is enough. The app might need a refresh to pick up changes immediately implies a reload
             window.location.reload();
         } catch (err) {
             setError('Failed to save settings.');
@@ -96,15 +78,10 @@ export default function SettingsModal({ isOpen, onClose }) {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ url: promptUrl })
             });
-
-            const data = await res.json();
-            if (!res.ok) throw new Error(data.error || 'Update failed');
-
+            if (!res.ok) throw new Error('Update failed');
             setUpdateStatus('success');
-            // Auto-clear success message after 3s
             setTimeout(() => setUpdateStatus(null), 3000);
         } catch (err) {
-            console.error(err);
             setUpdateStatus('error');
         } finally {
             setIsUpdatingPrompts(false);
@@ -122,295 +99,210 @@ export default function SettingsModal({ isOpen, onClose }) {
             setGistUrl(data.gistUrl);
             setLogUploadStatus('success');
         } catch (err) {
-            console.error(err);
             setLogUploadStatus('error');
         } finally {
             setIsUploadingLogs(false);
         }
     };
 
-
     if (!isOpen) return null;
 
+    const inputStyle = {
+        width: '100%', padding: '10px 14px', borderRadius: '10px',
+        border: '1px solid rgba(255,255,255,0.08)', background: 'rgba(255,255,255,0.04)',
+        color: 'var(--text-primary)', fontSize: '13px', fontFamily: 'inherit',
+        outline: 'none', boxSizing: 'border-box',
+    };
+
+    const sectionTitle = (icon, text) => (
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', fontWeight: 600, color: 'var(--text-primary)', marginBottom: '12px', paddingBottom: '8px', borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
+            <span style={{ fontSize: '16px' }}>{icon}</span> {text}
+        </div>
+    );
+
     return (
-        <div className="modal-overlay">
-            <div className="modal-content" style={{ maxWidth: '600px' }}>
-                <div className="modal-header">
-                    <h2>Settings</h2>
-                    <button onClick={onClose} className="close-button">
-                        <X size={20} />
+        <>
+            {/* Backdrop */}
+            <div onClick={onClose} style={{
+                position: 'fixed', top: 0, left: 0, width: '100%', height: '100%',
+                background: 'rgba(0,0,0,0.4)', zIndex: 999,
+                animation: 'fadeIn 0.2s ease-out',
+            }} />
+
+            {/* Slide-out Panel */}
+            <div style={{
+                position: 'fixed', top: 0, right: 0, width: '480px', height: '100vh',
+                background: 'rgba(18,18,28,0.97)', backdropFilter: 'blur(24px)',
+                borderLeft: '1px solid rgba(139,92,246,0.2)', zIndex: 1000,
+                overflowY: 'auto', padding: '28px',
+                boxShadow: '-16px 0 60px rgba(0,0,0,0.5)',
+                animation: 'slideInRight 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
+            }}>
+                <style>{`
+                    @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+                    @keyframes slideInRight { from { transform: translateX(100%); } to { transform: translateX(0); } }
+                `}</style>
+
+                {/* Header */}
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
+                    <h3 style={{ margin: 0, fontSize: '18px', fontWeight: 700, color: '#a78bfa', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        ⚙️ Quick Settings
+                    </h3>
+                    <button onClick={onClose} style={{
+                        background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.1)',
+                        color: '#fff', borderRadius: '10px', padding: '8px 16px', cursor: 'pointer',
+                        fontFamily: 'inherit', fontSize: '13px', fontWeight: 500,
+                    }}>
+                        ✕ Close
                     </button>
                 </div>
 
-                <div className="modal-body">
-                    {/* --- Calendars --- */}
-                    <section style={{ marginBottom: '32px' }}>
-                        <h3>Outlook Calendar Configuration</h3>
-                        <p style={{ color: '#666', fontSize: '14px', marginBottom: '16px' }}>
-                            Select the Outlook calendar you want to sync with SmartAI.
-                        </p>
+                {error && (
+                    <div style={{ padding: '10px 14px', borderRadius: '10px', background: 'rgba(255,69,58,0.1)', border: '1px solid rgba(255,69,58,0.2)', color: '#ff453a', fontSize: '13px', marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                        <AlertTriangle size={14} /> {error}
+                    </div>
+                )}
 
-                        {error && (
-                            <div className="error-banner" style={{ marginBottom: '16px', padding: '8px', background: '#ffebee', color: '#c62828', borderRadius: '4px' }}>
-                                {error}
-                            </div>
-                        )}
-
-                        {isLoading ? (
-                            <div style={{ display: 'flex', justifyContent: 'center', padding: '40px' }}>
-                                <Loader2 className="animate-spin" size={24} />
-                            </div>
-                        ) : (
-                            <div className="calendar-list" style={{ display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '200px', overflowY: 'auto' }}>
-                                {calendars.length === 0 ? (
-                                    <p>No calendars found in Outlook (New UI).</p>
-                                ) : (
-                                    calendars.map(cal => (
-                                        <button
-                                            key={cal.id}
-                                            onClick={() => setSelectedId(String(cal.id))}
-                                            className={`calendar-option ${String(selectedId) === String(cal.id) ? 'selected' : ''}`}
-                                            style={{
-                                                display: 'flex',
-                                                alignItems: 'center',
-                                                padding: '12px',
-                                                border: String(selectedId) === String(cal.id) ? '2px solid #2563eb' : '1px solid #e5e7eb',
-                                                borderRadius: '8px',
-                                                background: String(selectedId) === String(cal.id) ? '#eff6ff' : 'white',
-                                                cursor: 'pointer',
-                                                textAlign: 'left'
-                                            }}
-                                        >
-                                            <CalendarIcon size={18} style={{ marginRight: '12px', color: '#4b5563' }} />
-                                            <div style={{ flex: 1 }}>
-                                                <div style={{ fontWeight: 500 }}>{cal.name}</div>
-                                                <div style={{ fontSize: '12px', color: '#6b7280' }}>
-                                                    {cal.account} • ID: {cal.id}
-                                                </div>
-                                            </div>
-                                            {String(selectedId) === String(cal.id) && <Check size={18} color="#2563eb" />}
-                                        </button>
-                                    ))
-                                )}
-                            </div>
-                        )}
-                    </section>
-
-                    {/* --- Email Filters --- */}
-                    <section style={{ borderTop: '1px solid #eee', paddingTop: '24px', marginBottom: '24px' }}>
-                        <h3>Email Preferences</h3>
-                        <p style={{ color: '#666', fontSize: '14px', marginBottom: '16px' }}>
-                            Configure how SmartAI handles your emails.
-                        </p>
-
-                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px', background: '#f9fafb', borderRadius: '8px', border: '1px solid #e5e7eb' }}>
-                            <div>
-                                <div style={{ fontWeight: 500, color: '#374151' }}>Ignore External Emails</div>
-                                <div style={{ fontSize: '12px', color: '#6b7280' }}>
-                                    If enabled, emails with <code>[EXTERNAL]</code> in the subject line will be hidden from the triage tab and excluded from AI analysis and vector search.
-                                </div>
-                            </div>
-                            <label className="switch" style={{ position: 'relative', display: 'inline-block', width: '44px', height: '24px', flexShrink: 0, marginLeft: '16px' }}>
-                                <input
-                                    type="checkbox"
-                                    checked={ignoreExternal}
-                                    onChange={(e) => setIgnoreExternal(e.target.checked)}
-                                    style={{ opacity: 0, width: 0, height: 0 }}
-                                />
-                                <span className="slider round" style={{
-                                    position: 'absolute', cursor: 'pointer', top: 0, left: 0, right: 0, bottom: 0,
-                                    backgroundColor: ignoreExternal ? '#2563eb' : '#ccc',
-                                    transition: '.4s', borderRadius: '24px'
-                                }}>
-                                    <span style={{
-                                        position: 'absolute', content: '""', height: '18px', width: '18px', left: '3px', bottom: '3px',
-                                        backgroundColor: 'white', transition: '.4s', borderRadius: '50%',
-                                        transform: ignoreExternal ? 'translateX(20px)' : 'translateX(0)'
-                                    }}></span>
-                                </span>
-                            </label>
+                {/* Calendar Selection */}
+                <div style={{ marginBottom: '24px' }}>
+                    {sectionTitle('📅', 'Outlook Calendar')}
+                    {isLoading ? (
+                        <div style={{ textAlign: 'center', padding: '24px', color: 'var(--text-tertiary)' }}>
+                            <Loader2 size={20} style={{ animation: 'spin 1s linear infinite' }} />
                         </div>
-                    </section>
-
-                    {/* --- AI Prompts --- */}
-                    <section style={{ borderTop: '1px solid #eee', paddingTop: '24px' }}>
-                        <h3>AI & Prompts</h3>
-                        <p style={{ color: '#666', fontSize: '14px', marginBottom: '16px' }}>
-                            Configure the URL for fetching the latest AI prompts.
-                        </p>
-
-                        <div style={{ display: 'flex', gap: '8px', alignItems: 'flex-start' }}>
-                            <div style={{ flex: 1 }}>
-                                <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, marginBottom: '4px', color: '#374151' }}>
-                                    Prompts Update URL (JSON)
-                                </label>
-                                <input
-                                    type="text"
-                                    value={promptUrl}
-                                    onChange={(e) => setPromptUrl(e.target.value)}
-                                    placeholder="https://gist.githubusercontent.com/..."
-                                    style={{
-                                        width: '100%',
-                                        padding: '10px',
-                                        borderRadius: '6px',
-                                        border: '1px solid #d1d5db',
-                                        fontSize: '14px'
-                                    }}
-                                />
-                            </div>
-                            <button
-                                onClick={handleUpdatePrompts}
-                                disabled={isUpdatingPrompts || !promptUrl}
-                                style={{
-                                    marginTop: '22px',
-                                    padding: '10px 16px',
-                                    borderRadius: '6px',
-                                    border: '1px solid #d1d5db',
-                                    background: '#f9fafb',
-                                    color: '#374151',
-                                    cursor: isUpdatingPrompts ? 'not-allowed' : 'pointer',
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    gap: '6px'
-                                }}
-                            >
-                                {isUpdatingPrompts ? <Loader2 size={16} className="animate-spin" /> : <RefreshCw size={16} />}
-                                Update
-                            </button>
+                    ) : calendars.length === 0 ? (
+                        <div style={{ fontSize: '13px', color: 'var(--text-tertiary)', fontStyle: 'italic' }}>No calendars found in Outlook.</div>
+                    ) : (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', maxHeight: '180px', overflowY: 'auto' }}>
+                            {calendars.map(cal => {
+                                const isSelected = String(selectedId) === String(cal.id);
+                                return (
+                                    <button key={cal.id} onClick={() => setSelectedId(String(cal.id))} style={{
+                                        display: 'flex', alignItems: 'center', gap: '10px', padding: '10px 14px',
+                                        borderRadius: '10px', cursor: 'pointer', textAlign: 'left', fontFamily: 'inherit',
+                                        background: isSelected ? 'rgba(139,92,246,0.12)' : 'rgba(255,255,255,0.03)',
+                                        border: isSelected ? '1px solid rgba(139,92,246,0.3)' : '1px solid rgba(255,255,255,0.06)',
+                                        color: 'var(--text-primary)', transition: 'all 0.15s',
+                                    }}>
+                                        <CalendarIcon size={16} style={{ color: isSelected ? '#a78bfa' : 'var(--text-tertiary)', flexShrink: 0 }} />
+                                        <div style={{ flex: 1 }}>
+                                            <div style={{ fontSize: '13px', fontWeight: 600 }}>{cal.name}</div>
+                                            <div style={{ fontSize: '11px', color: 'var(--text-tertiary)' }}>{cal.account} · ID: {cal.id}</div>
+                                        </div>
+                                        {isSelected && <Check size={16} color="#a78bfa" />}
+                                    </button>
+                                );
+                            })}
                         </div>
-
-                        {updateStatus === 'success' && (
-                            <div style={{ marginTop: '8px', fontSize: '13px', color: '#10b981', display: 'flex', alignItems: 'center', gap: '4px' }}>
-                                <Check size={14} /> Prompts updated successfully!
-                            </div>
-                        )}
-                        {updateStatus === 'error' && (
-                            <div style={{ marginTop: '8px', fontSize: '13px', color: '#ef4444', display: 'flex', alignItems: 'center', gap: '4px' }}>
-                                <TriangleAlert size={14} /> Failed to update prompts. Check URL and try again.
-                            </div>
-                        )}
-                    </section>
-
-                    {/* --- Log Upload --- */}
-                    <section style={{ borderTop: '1px solid #eee', paddingTop: '24px' }}>
-                        <h3>Diagnostics & Logs</h3>
-                        <p style={{ color: '#666', fontSize: '14px', marginBottom: '16px' }}>
-                            Upload <code>smartai.log</code> to a secret GitHub Gist for remote debugging.
-                            Requires <code>GITHUB_GIST_TOKEN</code> in <code>.env.local</code>.
-                        </p>
-
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
-                            <button
-                                onClick={handleUploadLogs}
-                                disabled={isUploadingLogs}
-                                style={{
-                                    padding: '10px 20px',
-                                    borderRadius: '6px',
-                                    border: '1px solid #d1d5db',
-                                    background: '#f9fafb',
-                                    color: '#374151',
-                                    cursor: isUploadingLogs ? 'not-allowed' : 'pointer',
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    gap: '6px',
-                                    fontWeight: 500
-                                }}
-                            >
-                                {isUploadingLogs ? <Loader2 size={16} className="animate-spin" /> : <Upload size={16} />}
-                                {isUploadingLogs ? 'Uploading...' : 'Send Logs to GitHub Gist'}
-                            </button>
-
-                            {logUploadStatus === 'success' && gistUrl && (
-                                <a
-                                    href={gistUrl}
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                    style={{ fontSize: '13px', color: '#2563eb', display: 'flex', alignItems: 'center', gap: '4px', textDecoration: 'underline' }}
-                                >
-                                    <Check size={14} color="#10b981" /> View Gist →
-                                </a>
-                            )}
-                        </div>
-
-                        {logUploadStatus === 'error' && (
-                            <div style={{ marginTop: '8px', fontSize: '13px', color: '#ef4444', display: 'flex', alignItems: 'center', gap: '4px' }}>
-                                <TriangleAlert size={14} /> Upload failed. Check that GITHUB_GIST_TOKEN is set in .env.local.
-                            </div>
-                        )}
-                    </section>
+                    )}
                 </div>
 
+                {/* Email Preferences */}
+                <div style={{ marginBottom: '24px' }}>
+                    {sectionTitle('📧', 'Email Preferences')}
+                    <div style={{
+                        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                        padding: '12px 14px', borderRadius: '10px',
+                        background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)',
+                    }}>
+                        <div>
+                            <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-primary)' }}>Ignore External Emails</div>
+                            <div style={{ fontSize: '11px', color: 'var(--text-tertiary)', marginTop: '2px' }}>Hide [EXTERNAL] emails from triage & AI</div>
+                        </div>
+                        <input type="checkbox" checked={ignoreExternal} onChange={(e) => setIgnoreExternal(e.target.checked)}
+                            style={{ width: '18px', height: '18px', accentColor: '#8b5cf6', cursor: 'pointer' }} />
+                    </div>
+                </div>
 
-                <div className="modal-footer" style={{ marginTop: '24px', display: 'flex', justifyContent: 'flex-end', gap: '12px' }}>
-                    <button onClick={onClose} className="btn-secondary" style={{ padding: '8px 16px', borderRadius: '6px', border: '1px solid #d1d5db', background: 'white' }}>
+                {/* AI Prompts */}
+                <div style={{ marginBottom: '24px' }}>
+                    {sectionTitle('🤖', 'AI Prompts')}
+                    <div style={{ display: 'flex', gap: '8px', alignItems: 'flex-end' }}>
+                        <div style={{ flex: 1 }}>
+                            <label style={{ fontSize: '11px', fontWeight: 600, color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '4px', display: 'block' }}>
+                                Prompts URL
+                            </label>
+                            <input type="text" value={promptUrl} onChange={(e) => setPromptUrl(e.target.value)}
+                                placeholder="https://gist.githubusercontent.com/..." style={inputStyle} />
+                        </div>
+                        <button onClick={handleUpdatePrompts} disabled={isUpdatingPrompts || !promptUrl} style={{
+                            padding: '10px 14px', borderRadius: '10px', border: '1px solid rgba(255,255,255,0.1)',
+                            background: 'rgba(139,92,246,0.12)', color: '#a78bfa', cursor: isUpdatingPrompts ? 'not-allowed' : 'pointer',
+                            display: 'flex', alignItems: 'center', gap: '6px', fontFamily: 'inherit', fontSize: '12px', fontWeight: 600,
+                            opacity: !promptUrl ? 0.4 : 1,
+                        }}>
+                            {isUpdatingPrompts ? <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> : <RefreshCw size={14} />}
+                            Sync
+                        </button>
+                    </div>
+                    {updateStatus === 'success' && (
+                        <div style={{ marginTop: '6px', fontSize: '12px', color: '#30d158', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                            <Check size={12} /> Prompts updated!
+                        </div>
+                    )}
+                    {updateStatus === 'error' && (
+                        <div style={{ marginTop: '6px', fontSize: '12px', color: '#ff453a', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                            <AlertTriangle size={12} /> Failed — check URL
+                        </div>
+                    )}
+                </div>
+
+                {/* Diagnostics */}
+                <div style={{ marginBottom: '24px' }}>
+                    {sectionTitle('🔧', 'Diagnostics')}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                        <button onClick={handleUploadLogs} disabled={isUploadingLogs} style={{
+                            padding: '10px 16px', borderRadius: '10px', border: '1px solid rgba(255,255,255,0.1)',
+                            background: 'rgba(255,255,255,0.04)', color: 'var(--text-secondary)',
+                            cursor: isUploadingLogs ? 'not-allowed' : 'pointer',
+                            display: 'flex', alignItems: 'center', gap: '6px', fontFamily: 'inherit', fontSize: '13px', fontWeight: 500,
+                        }}>
+                            {isUploadingLogs ? <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> : <Upload size={14} />}
+                            {isUploadingLogs ? 'Uploading...' : 'Send Logs to Gist'}
+                        </button>
+                        {logUploadStatus === 'success' && gistUrl && (
+                            <a href={gistUrl} target="_blank" rel="noopener noreferrer" style={{ fontSize: '12px', color: '#818cf8' }}>
+                                ✅ View Gist →
+                            </a>
+                        )}
+                    </div>
+                    {logUploadStatus === 'error' && (
+                        <div style={{ marginTop: '6px', fontSize: '12px', color: '#ff453a' }}>
+                            <AlertTriangle size={12} /> Upload failed — check GITHUB_GIST_TOKEN
+                        </div>
+                    )}
+                </div>
+
+                {/* Save Footer */}
+                <div style={{
+                    position: 'sticky', bottom: 0, padding: '16px 0', marginTop: '16px',
+                    borderTop: '1px solid rgba(255,255,255,0.06)',
+                    background: 'rgba(18,18,28,0.97)',
+                    display: 'flex', justifyContent: 'flex-end', gap: '10px',
+                }}>
+                    <button onClick={onClose} style={{
+                        padding: '10px 20px', borderRadius: '10px', border: '1px solid rgba(255,255,255,0.1)',
+                        background: 'rgba(255,255,255,0.05)', color: 'var(--text-secondary)',
+                        cursor: 'pointer', fontFamily: 'inherit', fontSize: '13px', fontWeight: 500,
+                    }}>
                         Cancel
                     </button>
-                    <button
-                        onClick={handleSave}
-                        disabled={isSaving}
-                        className="btn-primary"
-                        style={{
-                            padding: '8px 16px',
-                            borderRadius: '6px',
-                            background: '#2563eb',
-                            color: 'white',
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: '8px',
-                            opacity: isSaving ? 0.7 : 1
-                        }}
-                    >
-                        {isSaving ? <Loader2 size={16} className="animate-spin" /> : <Save size={16} />}
+                    <button onClick={handleSave} disabled={isSaving} style={{
+                        padding: '10px 24px', borderRadius: '10px', border: 'none',
+                        background: 'linear-gradient(135deg, #8b5cf6, #6366f1)', color: '#fff',
+                        cursor: isSaving ? 'not-allowed' : 'pointer', fontFamily: 'inherit', fontSize: '13px', fontWeight: 600,
+                        display: 'flex', alignItems: 'center', gap: '6px', opacity: isSaving ? 0.7 : 1,
+                        boxShadow: '0 4px 12px rgba(139,92,246,0.25)',
+                    }}>
+                        {isSaving ? <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> : <Save size={14} />}
                         Save Changes
                     </button>
                 </div>
-            </div>
 
-            <style jsx>{`
-                .modal-overlay {
-                    position: fixed;
-                    top: 0;
-                    left: 0;
-                    right: 0;
-                    bottom: 0;
-                    background: rgba(0, 0, 0, 0.5);
-                    display: flex;
-                    justify-content: center;
-                    align-items: center;
-                    z-index: 1000;
-                    backdrop-filter: blur(2px);
-                }
-                .modal-content {
-                    background: white;
-                    border-radius: 12px;
-                    padding: 24px;
-                    width: 90%;
-                    max-height: 90vh;
-                    overflow-y: auto;
-                    box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
-                }
-                .modal-header {
-                    display: flex;
-                    justify-content: space-between;
-                    align-items: center;
-                    margin-bottom: 20px;
-                }
-                .modal-header h2 {
-                    margin: 0;
-                    font-size: 20px;
-                    font-weight: 600;
-                }
-                .close-button {
-                    background: none;
-                    border: none;
-                    cursor: pointer;
-                    padding: 4px;
-                    color: #6b7280;
-                }
-                .close-button:hover {
-                    color: #111827;
-                }
-            `}</style>
-        </div>
+                <div style={{ fontSize: '11px', color: 'rgba(255,255,255,0.15)', textAlign: 'center', marginTop: '12px' }}>
+                    Full settings available at /settings
+                </div>
+            </div>
+        </>
     );
 }

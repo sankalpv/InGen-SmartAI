@@ -1,0 +1,583 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Team Pulse — InGen Design Mockup</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Inter", sans-serif;
+    background-color: #000;
+    background-image:
+      radial-gradient(circle at 15% 50%, rgba(76, 29, 149, 0.15), transparent 25%),
+      radial-gradient(circle at 85% 30%, rgba(10, 132, 255, 0.15), transparent 25%),
+      linear-gradient(135deg, #0f0f13 0%, #1a1a2e 100%);
+    background-attachment: fixed;
+    color: rgba(255,255,255,0.95);
+    min-height: 100vh;
+    -webkit-font-smoothing: antialiased;
+    display: flex;
+  }
+
+  /* Sidebar */
+  .sidebar {
+    position: fixed; width: 260px; height: 100vh;
+    background: rgba(10,10,15,0.6);
+    backdrop-filter: blur(60px); -webkit-backdrop-filter: blur(60px);
+    border-right: 1px solid rgba(255,255,255,0.08);
+    padding: 32px 20px; display: flex; flex-direction: column; z-index: 100;
+  }
+  .sidebar-logo { display: flex; align-items: center; gap: 14px; margin-bottom: 40px; padding-left: 8px; }
+  .sidebar-logo .icon { font-size: 28px; }
+  .sidebar-logo h1 {
+    font-size: 22px; font-weight: 700;
+    background: linear-gradient(135deg, #fff 0%, #a5b4fc 100%);
+    -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent;
+  }
+  .sidebar-logo .sub { font-size: 12px; color: rgba(255,255,255,0.4); margin-top: 2px; }
+  .nav-item {
+    display: flex; align-items: center; gap: 14px;
+    padding: 12px 16px; margin-bottom: 6px; border-radius: 16px;
+    color: rgba(255,255,255,0.6); font-weight: 500; font-size: 14px;
+    cursor: pointer; transition: 0.2s; border: 1px solid transparent;
+  }
+  .nav-item:hover { background: rgba(255,255,255,0.05); color: #fff; }
+  .nav-item.active {
+    background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.1);
+    color: #fff; box-shadow: inset 0 0 20px rgba(255,255,255,0.05);
+  }
+  .nav-icon { font-size: 18px; width: 24px; text-align: center; }
+
+  /* Main */
+  .main { margin-left: 260px; padding: 36px 44px; width: calc(100vw - 260px); min-width: 0; overflow-x: hidden; }
+
+  /* Header */
+  .page-header { margin-bottom: 28px; }
+  .page-header h1 {
+    font-size: 2.8rem; font-weight: 700; letter-spacing: -1px;
+    background: linear-gradient(180deg, #fff 0%, #94a3b8 100%);
+    -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent;
+  }
+  .page-header .meta {
+    display: flex; align-items: center; gap: 16px; margin-top: 8px;
+    color: rgba(255,255,255,0.45); font-size: 14px;
+  }
+  .refresh-btn {
+    background: rgba(139,92,246,0.15); color: #a78bfa; border: none;
+    padding: 6px 16px; border-radius: 8px; font-size: 13px; font-weight: 600;
+    cursor: pointer; transition: 0.2s;
+  }
+  .refresh-btn:hover { background: rgba(139,92,246,0.3); }
+
+  /* AI Summary */
+  .ai-summary {
+    padding: 32px; border-radius: 24px; margin-bottom: 28px;
+    background: linear-gradient(145deg, rgba(255,255,255,0.05) 0%, rgba(255,255,255,0.01) 100%);
+    backdrop-filter: blur(50px); border: 1px solid rgba(255,255,255,0.1);
+    box-shadow: 0 20px 40px rgba(0,0,0,0.2), inset 0 0 0 1px rgba(255,255,255,0.05);
+    position: relative; overflow: hidden;
+  }
+  .ai-summary::after {
+    content: ''; position: absolute; top: 0; left: 0; right: 0; height: 1px;
+    background: linear-gradient(90deg, transparent, rgba(255,255,255,0.5), transparent);
+  }
+  .ai-badge {
+    display: inline-flex; align-items: center; gap: 6px;
+    background: rgba(191,90,242,0.2); color: #df9bfd;
+    padding: 5px 14px; border-radius: 99px; font-size: 12px; font-weight: 600;
+    box-shadow: 0 0 15px rgba(191,90,242,0.3); border: 1px solid rgba(191,90,242,0.3);
+    margin-bottom: 16px;
+  }
+  .ai-summary p { font-size: 15px; line-height: 1.7; color: rgba(255,255,255,0.7); max-width: 800px; }
+
+  /* Stats Bar */
+  .stats-bar { display: grid; grid-template-columns: repeat(4, 1fr); gap: 20px; margin-bottom: 28px; }
+  .stat-card {
+    background: rgba(255,255,255,0.03); backdrop-filter: blur(30px);
+    border: 1px solid rgba(255,255,255,0.08); border-radius: 16px;
+    padding: 20px; display: flex; align-items: center; gap: 16px;
+    transition: transform 0.3s;
+  }
+  .stat-card:hover { transform: translateY(-3px); background: rgba(255,255,255,0.06); }
+  .stat-icon { font-size: 28px; }
+  .stat-value {
+    font-size: 2rem; font-weight: 800; letter-spacing: -0.5px;
+    background: linear-gradient(to bottom right, #fff, #aaa);
+    -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent;
+  }
+  .stat-label { color: rgba(255,255,255,0.4); text-transform: uppercase; font-size: 11px; font-weight: 600; letter-spacing: 1px; }
+
+  /* Filter Bar */
+  .filter-bar {
+    display: inline-flex; background: rgba(0,0,0,0.3); padding: 5px;
+    border-radius: 99px; border: 1px solid rgba(255,255,255,0.05);
+    margin-bottom: 28px; backdrop-filter: blur(10px);
+  }
+  .filter-btn {
+    padding: 10px 24px; border-radius: 99px; color: rgba(255,255,255,0.5);
+    font-weight: 500; background: transparent; border: none; cursor: pointer;
+    transition: 0.3s; font-size: 13px;
+  }
+  .filter-btn:hover { color: #fff; }
+  .filter-btn.active {
+    background: linear-gradient(135deg, rgba(139,92,246,0.9) 0%, rgba(59,130,246,0.9) 100%);
+    color: #fff; box-shadow: 0 4px 15px rgba(139,92,246,0.4);
+  }
+
+  /* Manager Group */
+  .manager-group { margin-bottom: 32px; }
+  .manager-header {
+    display: flex; align-items: center; gap: 12px;
+    padding: 12px 0; cursor: pointer; user-select: none;
+  }
+  .manager-header .name { font-size: 16px; font-weight: 700; color: rgba(255,255,255,0.9); }
+  .manager-header .count {
+    background: rgba(139,92,246,0.2); color: #a78bfa;
+    padding: 2px 10px; border-radius: 10px; font-size: 12px; font-weight: 600;
+  }
+  .manager-header .toggle { color: rgba(255,255,255,0.3); font-size: 14px; margin-left: auto; }
+  .manager-divider {
+    height: 1px; background: linear-gradient(90deg, rgba(139,92,246,0.3), transparent);
+    margin-bottom: 16px;
+  }
+
+  /* Person Card */
+  .person-card {
+    background: rgba(22,22,30,0.6); backdrop-filter: blur(20px);
+    border: 1px solid rgba(255,255,255,0.05); border-radius: 16px;
+    padding: 20px; margin-bottom: 12px; transition: 0.2s; overflow: hidden;
+  }
+  .person-card:hover { background: rgba(255,255,255,0.05); border-color: rgba(255,255,255,0.12); }
+
+  .person-header { display: flex; align-items: center; gap: 14px; margin-bottom: 14px; }
+  .avatar {
+    width: 42px; height: 42px; border-radius: 12px; display: flex;
+    align-items: center; justify-content: center; font-weight: 700;
+    font-size: 15px; color: #fff; flex-shrink: 0;
+  }
+  .person-name { font-size: 15px; font-weight: 600; }
+  .person-alias { font-size: 12px; color: rgba(255,255,255,0.4); }
+  .activity-dots { margin-left: auto; display: flex; gap: 4px; }
+  .activity-dots .dot {
+    width: 8px; height: 8px; border-radius: 50%;
+  }
+  .dot.active { background: #30d158; box-shadow: 0 0 6px #30d158; }
+  .dot.moderate { background: #ff9f0a; box-shadow: 0 0 6px #ff9f0a; }
+  .dot.quiet { background: rgba(255,255,255,0.15); }
+
+  /* Mini Stats */
+  .mini-stats { display: flex; gap: 10px; margin-bottom: 14px; }
+  .mini-stat {
+    background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.06);
+    border-radius: 10px; padding: 8px 14px; text-align: center; flex: 1;
+  }
+  .mini-stat .num { font-size: 18px; font-weight: 700; color: #fff; }
+  .mini-stat .lbl { font-size: 10px; color: rgba(255,255,255,0.4); text-transform: uppercase; letter-spacing: 0.5px; }
+
+  /* AI Person Summary */
+  .person-ai {
+    background: rgba(139,92,246,0.05); border-left: 3px solid rgba(139,92,246,0.4);
+    padding: 10px 14px; border-radius: 0 8px 8px 0; margin-bottom: 12px;
+    font-size: 13px; line-height: 1.6; color: rgba(255,255,255,0.7);
+  }
+  .person-ai .icon { color: #bf5af2; font-size: 12px; margin-right: 6px; }
+
+  /* Blocker */
+  .blocker {
+    background: rgba(255,69,58,0.08); border: 1px solid rgba(255,69,58,0.2);
+    border-radius: 8px; padding: 8px 12px; margin-bottom: 12px;
+    font-size: 12px; color: #ff453a; display: flex; align-items: center; gap: 8px;
+  }
+
+  /* Actions */
+  .person-actions { display: flex; gap: 8px; justify-content: flex-end; }
+  .action-btn {
+    padding: 7px 14px; border-radius: 10px; font-size: 12px; font-weight: 600;
+    cursor: pointer; transition: 0.2s; border: none;
+  }
+  .action-btn.secondary {
+    background: rgba(255,255,255,0.08); color: rgba(255,255,255,0.7);
+    border: 1px solid rgba(255,255,255,0.1);
+  }
+  .action-btn.secondary:hover { background: rgba(255,255,255,0.15); color: #fff; }
+  .action-btn.primary {
+    background: rgba(10,132,255,0.2); color: #0a84ff;
+    border: 1px solid rgba(10,132,255,0.3);
+  }
+  .action-btn.primary:hover { background: rgba(10,132,255,0.35); }
+
+  /* Expanded Details */
+  .details { display: none; margin-top: 14px; padding-top: 14px; border-top: 1px solid rgba(255,255,255,0.06); }
+  .details.open { display: block; }
+  .details-section { margin-bottom: 14px; }
+  .details-section h4 {
+    font-size: 11px; text-transform: uppercase; letter-spacing: 1px;
+    color: rgba(255,255,255,0.35); margin-bottom: 8px; font-weight: 600;
+  }
+  .detail-item {
+    font-size: 13px; color: rgba(255,255,255,0.6); padding: 4px 0;
+    display: flex; align-items: center; gap: 8px;
+  }
+  .detail-item .emoji { font-size: 14px; }
+  .sev-badge {
+    display: inline-block; padding: 1px 6px; border-radius: 4px;
+    font-size: 10px; font-weight: 700;
+  }
+  .sev-badge.sev3 { background: rgba(255,159,10,0.2); color: #ff9f0a; }
+  .sev-badge.sev4 { background: rgba(107,114,128,0.2); color: #9ca3af; }
+  .cr-package { color: rgba(139,92,246,0.7); font-size: 11px; }
+
+  /* Date Selector */
+  .date-selector { display: inline-flex; gap: 4px; margin-left: 12px; }
+  .date-btn {
+    padding: 4px 12px; border-radius: 6px; border: none; font-size: 12px;
+    background: rgba(255,255,255,0.05); color: rgba(255,255,255,0.5);
+    cursor: pointer; font-weight: 500;
+  }
+  .date-btn.active { background: rgba(139,92,246,0.2); color: #a78bfa; }
+</style>
+</head>
+<body>
+
+<!-- Sidebar -->
+<div class="sidebar">
+  <div class="sidebar-logo">
+    <span class="icon">🧬</span>
+    <div>
+      <h1>InGen</h1>
+      <div class="sub">Intelligent Agent</div>
+    </div>
+  </div>
+  <div class="nav-item"><span class="nav-icon">📊</span> Dashboard</div>
+  <div class="nav-item"><span class="nav-icon">📅</span> Week Ahead</div>
+  <div class="nav-item"><span class="nav-icon">📈</span> Leadership</div>
+  <div class="nav-item active"><span class="nav-icon">👥</span> Team Pulse</div>
+  <div class="nav-item"><span class="nav-icon">💡</span> Insights</div>
+  <div class="nav-item"><span class="nav-icon">⚙️</span> Settings</div>
+</div>
+
+<!-- Main Content -->
+<div class="main">
+
+  <!-- Header -->
+  <div class="page-header">
+    <h1>Team Pulse</h1>
+    <div class="meta">
+      <span>Your extended org · 6 managers, 24 ICs</span>
+      <span>·</span>
+      <span>Last synced 14 min ago</span>
+      <button class="refresh-btn" onclick="alert('Syncing SIMs + code.amazon.com for 24 team members...\nEstimated: 3-5 minutes')">🔄 Refresh</button>
+      <div class="date-selector">
+        <button class="date-btn active">Today</button>
+        <button class="date-btn">This Week</button>
+        <button class="date-btn">This Month</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- AI Org Summary -->
+  <div class="ai-summary">
+    <div class="ai-badge">✨ AI Org Summary</div>
+    <p>Your org is heavily focused on <strong>MBR preparation</strong> and <strong>Artemis self-healing classifiers</strong> this week. The Drift Detection team has a Sev-3 SIM that may be blocking experiment progress. Deqian and Fardeen are actively pushing code for embedding improvements. Ana's team is closing out the VibeForge integration steelthread. Two 1:1s are scheduled today — consider asking about the pipeline blocker.</p>
+  </div>
+
+  <!-- Stats Bar -->
+  <div class="stats-bar">
+    <div class="stat-card">
+      <span class="stat-icon">👔</span>
+      <div>
+        <div class="stat-value">6</div>
+        <div class="stat-label">Managers</div>
+      </div>
+    </div>
+    <div class="stat-card">
+      <span class="stat-icon">👩‍💻</span>
+      <div>
+        <div class="stat-value">24</div>
+        <div class="stat-label">ICs</div>
+      </div>
+    </div>
+    <div class="stat-card">
+      <span class="stat-icon">🎫</span>
+      <div>
+        <div class="stat-value">8</div>
+        <div class="stat-label">Open SIMs</div>
+      </div>
+    </div>
+    <div class="stat-card">
+      <span class="stat-icon">💻</span>
+      <div>
+        <div class="stat-value">31</div>
+        <div class="stat-label">Active CRs</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Filters -->
+  <div class="filter-bar">
+    <button class="filter-btn active">All (24)</button>
+    <button class="filter-btn">🔴 Has Blockers (3)</button>
+    <button class="filter-btn">💻 Active CRs (18)</button>
+    <button class="filter-btn">😴 Quiet (2)</button>
+  </div>
+
+  <!-- ═══ Manager Group: Surbhi ═══ -->
+  <div class="manager-group">
+    <div class="manager-header">
+      <span>👤</span>
+      <span class="name">Surbhi Gupta's Team</span>
+      <span class="count">5 ICs</span>
+      <span class="toggle">▾</span>
+    </div>
+    <div class="manager-divider"></div>
+
+    <!-- Person: Abhijit -->
+    <div class="person-card">
+      <div class="person-header">
+        <div class="avatar" style="background: linear-gradient(135deg, #4f8cff, #3b6fd4);">AS</div>
+        <div>
+          <div class="person-name">Abhijit Sharma</div>
+          <div class="person-alias">abhijits@amazon.com</div>
+        </div>
+        <div class="activity-dots">
+          <div class="dot active"></div>
+          <div class="dot active"></div>
+          <div class="dot moderate"></div>
+        </div>
+      </div>
+
+      <div class="mini-stats">
+        <div class="mini-stat"><div class="num">3</div><div class="lbl">📧 Emails</div></div>
+        <div class="mini-stat"><div class="num">2</div><div class="lbl">📅 Meetings</div></div>
+        <div class="mini-stat"><div class="num">2</div><div class="lbl">🎫 SIMs</div></div>
+        <div class="mini-stat"><div class="num">4</div><div class="lbl">💻 CRs</div></div>
+      </div>
+
+      <div class="person-ai">
+        <span class="icon">🤖</span>
+        Working on <strong>Drift Detection science experiment</strong>. Latest CR adds retry logic for the classifier pipeline. Discussed experiment results in email thread with science team. Has a Sev-3 SIM for a pipeline timeout that may be blocking progress.
+      </div>
+
+      <div class="blocker">
+        🔴 <strong>Blocker:</strong> Sev-3 SIM "Pipeline timeout in prod environment" — assigned 2 days ago
+      </div>
+
+      <div class="person-actions">
+        <button class="action-btn secondary" onclick="this.closest('.person-card').querySelector('.details').classList.toggle('open')">▸ Show Details</button>
+        <button class="action-btn primary" onclick="alert('Opening chat: What has Abhijit been working on this week?')">💬 Ask about Abhijit</button>
+      </div>
+
+      <div class="details">
+        <div class="details-section">
+          <h4>📧 Recent Emails</h4>
+          <div class="detail-item"><span class="emoji">→</span> "Re: Drift Detection experiment results" <span style="color:rgba(255,255,255,0.3)">(today)</span></div>
+          <div class="detail-item"><span class="emoji">→</span> "Review: Science experiment plan document" <span style="color:rgba(255,255,255,0.3)">(yesterday)</span></div>
+          <div class="detail-item"><span class="emoji">→</span> "Re: Pipeline monitoring alert" <span style="color:rgba(255,255,255,0.3)">(2d ago)</span></div>
+        </div>
+        <div class="details-section">
+          <h4>🎫 Open SIMs</h4>
+          <div class="detail-item"><span class="sev-badge sev3">SEV-3</span> Pipeline timeout in prod environment <span style="color:rgba(255,255,255,0.3)">(assigned 2d ago)</span></div>
+          <div class="detail-item"><span class="sev-badge sev4">SEV-4</span> Update runbook documentation <span style="color:rgba(255,255,255,0.3)">(1w old)</span></div>
+        </div>
+        <div class="details-section">
+          <h4>💻 Recent Code Reviews</h4>
+          <div class="detail-item"><span class="emoji">📝</span> "Add retry logic for classifier" <span class="cr-package">DriftDetection</span></div>
+          <div class="detail-item"><span class="emoji">📝</span> "Fix embedding dimension mismatch" <span class="cr-package">Artemis</span></div>
+          <div class="detail-item"><span class="emoji">📝</span> "Update config for staging env" <span class="cr-package">DriftDetection</span></div>
+          <div class="detail-item"><span class="emoji">📝</span> "Add unit tests for scorer module" <span class="cr-package">DriftDetection</span></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Person: Deqian -->
+    <div class="person-card">
+      <div class="person-header">
+        <div class="avatar" style="background: linear-gradient(135deg, #a855f7, #7c3aed);">DL</div>
+        <div>
+          <div class="person-name">Deqian Liu</div>
+          <div class="person-alias">deqianl@amazon.com</div>
+        </div>
+        <div class="activity-dots">
+          <div class="dot active"></div>
+          <div class="dot active"></div>
+          <div class="dot active"></div>
+        </div>
+      </div>
+      <div class="mini-stats">
+        <div class="mini-stat"><div class="num">1</div><div class="lbl">📧 Emails</div></div>
+        <div class="mini-stat"><div class="num">3</div><div class="lbl">📅 Meetings</div></div>
+        <div class="mini-stat"><div class="num">1</div><div class="lbl">🎫 SIMs</div></div>
+        <div class="mini-stat"><div class="num">7</div><div class="lbl">💻 CRs</div></div>
+      </div>
+      <div class="person-ai">
+        <span class="icon">🤖</span>
+        Highly active on <strong>UFC Embedding Excellence</strong>. Pushed 7 code reviews this week — the most on the team. Upgrading embedding model to v3 and adding monitoring. One low-priority SIM for a monitoring gap.
+      </div>
+      <div class="person-actions">
+        <button class="action-btn secondary" onclick="this.closest('.person-card').querySelector('.details').classList.toggle('open')">▸ Show Details</button>
+        <button class="action-btn primary">💬 Ask about Deqian</button>
+      </div>
+      <div class="details">
+        <div class="details-section">
+          <h4>💻 Recent Code Reviews (7)</h4>
+          <div class="detail-item"><span class="emoji">📝</span> "Upgrade embedding model to v3" <span class="cr-package">UFCEmbeddings</span></div>
+          <div class="detail-item"><span class="emoji">📝</span> "Add monitoring dashboards" <span class="cr-package">UFCEmbeddings</span></div>
+          <div class="detail-item"><span class="emoji">📝</span> "Fix dimension alignment for new model" <span class="cr-package">UFCEmbeddings</span></div>
+          <div class="detail-item"><span class="emoji">📝</span> "Update integration tests" <span class="cr-package">UFCEmbeddings</span></div>
+          <div class="detail-item" style="color:rgba(255,255,255,0.3)">+ 3 more CRs</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Person: Fardeen -->
+    <div class="person-card">
+      <div class="person-header">
+        <div class="avatar" style="background: linear-gradient(135deg, #34d399, #059669);">FK</div>
+        <div>
+          <div class="person-name">Fardeen Khan</div>
+          <div class="person-alias">fardeenk@amazon.com</div>
+        </div>
+        <div class="activity-dots">
+          <div class="dot active"></div>
+          <div class="dot moderate"></div>
+          <div class="dot quiet"></div>
+        </div>
+      </div>
+      <div class="mini-stats">
+        <div class="mini-stat"><div class="num">2</div><div class="lbl">📧 Emails</div></div>
+        <div class="mini-stat"><div class="num">1</div><div class="lbl">📅 Meetings</div></div>
+        <div class="mini-stat"><div class="num">0</div><div class="lbl">🎫 SIMs</div></div>
+        <div class="mini-stat"><div class="num">3</div><div class="lbl">💻 CRs</div></div>
+      </div>
+      <div class="person-ai">
+        <span class="icon">🤖</span>
+        Working on <strong>Artemis self-healing classifiers</strong>. Shared a Quip design doc on the new approach. 3 code reviews focused on classifier logic. No blockers detected.
+      </div>
+      <div class="person-actions">
+        <button class="action-btn secondary">▸ Show Details</button>
+        <button class="action-btn primary">💬 Ask about Fardeen</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══ Manager Group: Ana ═══ -->
+  <div class="manager-group">
+    <div class="manager-header">
+      <span>👤</span>
+      <span class="name">Ana Rodriguez's Team</span>
+      <span class="count">4 ICs</span>
+      <span class="toggle">▾</span>
+    </div>
+    <div class="manager-divider"></div>
+
+    <!-- Person: Dev1 -->
+    <div class="person-card">
+      <div class="person-header">
+        <div class="avatar" style="background: linear-gradient(135deg, #fb923c, #ea580c);">RM</div>
+        <div>
+          <div class="person-name">Ravi Mehta</div>
+          <div class="person-alias">ravim@amazon.com</div>
+        </div>
+        <div class="activity-dots">
+          <div class="dot active"></div>
+          <div class="dot active"></div>
+          <div class="dot quiet"></div>
+        </div>
+      </div>
+      <div class="mini-stats">
+        <div class="mini-stat"><div class="num">4</div><div class="lbl">📧 Emails</div></div>
+        <div class="mini-stat"><div class="num">2</div><div class="lbl">📅 Meetings</div></div>
+        <div class="mini-stat"><div class="num">1</div><div class="lbl">🎫 SIMs</div></div>
+        <div class="mini-stat"><div class="num">5</div><div class="lbl">💻 CRs</div></div>
+      </div>
+      <div class="person-ai">
+        <span class="icon">🤖</span>
+        Leading the <strong>VibeForge integration steelthread</strong>. 5 CRs this week closing out scope. Email thread about "steelthread scope closure for Authoring" with cross-team stakeholders. On track for completion.
+      </div>
+      <div class="person-actions">
+        <button class="action-btn secondary" onclick="this.closest('.person-card').querySelector('.details').classList.toggle('open')">▸ Show Details</button>
+        <button class="action-btn primary">💬 Ask about Ravi</button>
+      </div>
+      <div class="details">
+        <div class="details-section">
+          <h4>💻 Recent Code Reviews (5)</h4>
+          <div class="detail-item"><span class="emoji">📝</span> "Close steelthread: Authoring integration" <span class="cr-package">VibeForge</span></div>
+          <div class="detail-item"><span class="emoji">📝</span> "Add end-to-end tests for authoring flow" <span class="cr-package">VibeForge</span></div>
+          <div class="detail-item"><span class="emoji">📝</span> "Fix API contract for downstream" <span class="cr-package">VibeForge</span></div>
+          <div class="detail-item" style="color:rgba(255,255,255,0.3)">+ 2 more CRs</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Person: Quiet IC -->
+    <div class="person-card" style="opacity: 0.7;">
+      <div class="person-header">
+        <div class="avatar" style="background: linear-gradient(135deg, #22d3ee, #0891b2);">PJ</div>
+        <div>
+          <div class="person-name">Priya Joshi</div>
+          <div class="person-alias">priyaj@amazon.com</div>
+        </div>
+        <div class="activity-dots">
+          <div class="dot quiet"></div>
+          <div class="dot quiet"></div>
+          <div class="dot quiet"></div>
+        </div>
+      </div>
+      <div class="mini-stats">
+        <div class="mini-stat"><div class="num">0</div><div class="lbl">📧 Emails</div></div>
+        <div class="mini-stat"><div class="num">1</div><div class="lbl">📅 Meetings</div></div>
+        <div class="mini-stat"><div class="num">0</div><div class="lbl">🎫 SIMs</div></div>
+        <div class="mini-stat"><div class="num">0</div><div class="lbl">💻 CRs</div></div>
+      </div>
+      <div class="person-ai">
+        <span class="icon">🤖</span>
+        <strong style="color: rgba(255,159,10,0.9);">Low activity detected.</strong> No emails, code reviews, or SIMs in the last 3 days. Only 1 meeting (team standup). May be on PTO, ramping up, or needs a check-in.
+      </div>
+      <div class="person-actions">
+        <button class="action-btn secondary">▸ Show Details</button>
+        <button class="action-btn primary">💬 Ask about Priya</button>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- ═══ Manager Group: Ganesh (collapsed) ═══ -->
+  <div class="manager-group">
+    <div class="manager-header" onclick="this.nextElementSibling.style.display = this.nextElementSibling.style.display === 'none' ? 'block' : 'none'; this.querySelector('.toggle').textContent = this.querySelector('.toggle').textContent === '▸' ? '▾' : '▸'">
+      <span>👤</span>
+      <span class="name">Ganesh Patel's Team</span>
+      <span class="count">4 ICs</span>
+      <span class="toggle">▸</span>
+    </div>
+    <div style="display: none;">
+      <div class="manager-divider"></div>
+      <div style="padding: 16px; text-align: center; color: rgba(255,255,255,0.3); font-size: 13px;">
+        Click to expand team members
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══ Manager Group: Deven (collapsed) ═══ -->
+  <div class="manager-group">
+    <div class="manager-header" onclick="this.nextElementSibling.style.display = this.nextElementSibling.style.display === 'none' ? 'block' : 'none'; this.querySelector('.toggle').textContent = this.querySelector('.toggle').textContent === '▸' ? '▾' : '▸'">
+      <span>👤</span>
+      <span class="name">Deven Kumar's Team</span>
+      <span class="count">3 ICs</span>
+      <span class="toggle">▸</span>
+    </div>
+    <div style="display: none;">
+      <div class="manager-divider"></div>
+      <div style="padding: 16px; text-align: center; color: rgba(255,255,255,0.3); font-size: 13px;">
+        Click to expand team members
+      </div>
+    </div>
+  </div>
+
+</div>
+
+</body>
+</html>

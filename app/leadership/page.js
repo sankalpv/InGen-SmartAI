@@ -33,8 +33,6 @@ export default function LeadershipDashboard() {
 
     return (
         <div>
-            <Header />
-            
             <div className="p-6">
                     {/* Header */}
                     <div className="mb-8">

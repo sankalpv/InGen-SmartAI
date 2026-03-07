@@ -14,6 +14,7 @@ const DATA_DIR = path.join(process.cwd(), 'data');
 const EMAILS_FILE = path.join(DATA_DIR, 'emails.json');
 const CALENDAR_FILE = path.join(DATA_DIR, 'calendar.json');
 const CALENDAR_WEEK_FILE = path.join(DATA_DIR, 'calendar-week.json');
+const ISSUES_FILE = path.join(DATA_DIR, 'issues-raw.json');
 
 const MAX_STALE_MS = 60 * 60 * 1000; // 60 minutes — consider data stale after this
 
@@ -95,12 +96,24 @@ function saveCalendarWeek(events) {
     return writeStore(CALENDAR_WEEK_FILE, events);
 }
 
+// ─── Issues (from Outlook "Issues" folder) ───
+
+function getIssues() {
+    return readStore(ISSUES_FILE);
+}
+
+function saveIssues(issues) {
+    return writeStore(ISSUES_FILE, issues);
+}
+
 // ─── Status ───
 
 function getStatus() {
     const emails = readStore(EMAILS_FILE);
     const calendar = readStore(CALENDAR_FILE);
     const calendarWeek = readStore(CALENDAR_WEEK_FILE);
+
+    const issues = readStore(ISSUES_FILE);
 
     return {
         emails: {
@@ -123,6 +136,13 @@ function getStatus() {
             ageMinutes: calendarWeek.ageMinutes,
             isStale: calendarWeek.isStale,
             updatedAt: calendarWeek.updatedAt
+        },
+        issues: {
+            exists: issues.exists,
+            count: issues.data ? issues.data.length : 0,
+            ageMinutes: issues.ageMinutes,
+            isStale: issues.isStale,
+            updatedAt: issues.updatedAt
         }
     };
 }
@@ -133,53 +153,58 @@ function getStatus() {
 
 const { exec } = require('child_process');
 
-let isSyncing = false;
+// Fix 3: Coalesce concurrent sync requests — if a sync is already in-flight,
+// return the same promise instead of spawning a duplicate child process.
+let _pendingSyncPromise = null;
 
 async function fullSync() {
-    if (isSyncing) {
-        logger.info('Sync already in progress, skipping');
-        return { success: false, reason: 'already_syncing' };
+    if (_pendingSyncPromise) {
+        logger.info('Sync already in progress, coalescing — returning in-flight promise');
+        return _pendingSyncPromise;
     }
 
-    isSyncing = true;
     logger.info('Starting full local data sync from Outlook...');
     const startTime = Date.now();
 
-    try {
-        const syncScript = path.join(process.cwd(), 'scripts', 'sync-local-data.mjs');
-        
-        return new Promise((resolve) => {
-            exec(
-                `node "${syncScript}"`,
-                { cwd: process.cwd(), timeout: 300000, maxBuffer: 10 * 1024 * 1024 },
-                (error, stdout, stderr) => {
-                    const elapsed = Math.round((Date.now() - startTime) / 1000);
-                    
-                    if (error) {
-                        logger.error('Sync script failed:', error.message);
-                        if (stderr) logger.error('Sync stderr:', stderr.substring(0, 500));
-                        resolve({ success: false, error: error.message, elapsed });
-                        return;
-                    }
+    _pendingSyncPromise = (async () => {
+        try {
+            const syncScript = path.join(process.cwd(), 'scripts', 'sync-local-data.mjs');
+            
+            return await new Promise((resolve) => {
+                exec(
+                    `node "${syncScript}"`,
+                    { cwd: process.cwd(), timeout: 300000, maxBuffer: 10 * 1024 * 1024 },
+                    (error, stdout, stderr) => {
+                        const elapsed = Math.round((Date.now() - startTime) / 1000);
+                        
+                        if (error) {
+                            logger.error('Sync script failed:', error.message);
+                            if (stderr) logger.error('Sync stderr:', stderr.substring(0, 500));
+                            resolve({ success: false, error: error.message, elapsed });
+                            return;
+                        }
 
-                    try {
-                        const result = JSON.parse(stdout.trim().split('\n').pop());
-                        logger.info(`Full sync complete in ${elapsed}s: ${result.emails} emails, ${result.calendar} cal, ${result.calendarWeek} week`);
-                        resolve({ success: true, ...result, elapsed });
-                    } catch (e) {
-                        logger.warn(`Sync completed but output parse failed. stdout: ${stdout.substring(0, 200)}`);
-                        resolve({ success: true, elapsed });
+                        try {
+                            const result = JSON.parse(stdout.trim().split('\n').pop());
+                            logger.info(`Full sync complete in ${elapsed}s: ${result.emails} emails, ${result.calendar} cal, ${result.calendarWeek} week`);
+                            resolve({ success: true, ...result, elapsed });
+                        } catch (e) {
+                            logger.warn(`Sync completed but output parse failed. stdout: ${stdout.substring(0, 200)}`);
+                            resolve({ success: true, elapsed });
+                        }
                     }
-                }
-            );
-        });
+                );
+            });
 
-    } catch (error) {
-        logger.error('Full sync failed:', error.message);
-        return { success: false, error: error.message };
-    } finally {
-        isSyncing = false;
-    }
+        } catch (error) {
+            logger.error('Full sync failed:', error.message);
+            return { success: false, error: error.message };
+        } finally {
+            _pendingSyncPromise = null;
+        }
+    })();
+
+    return _pendingSyncPromise;
 }
 
 module.exports = {
@@ -189,6 +214,8 @@ module.exports = {
     saveCalendar,
     getCalendarWeek,
     saveCalendarWeek,
+    getIssues,
+    saveIssues,
     getStatus,
     fullSync,
     ensureDataDir

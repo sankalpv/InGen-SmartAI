@@ -45,6 +45,17 @@ fi
 echo -e "  Updating dependencies..."
 npm install --production 2>/dev/null || npm install
 
+# Clear issues DB to force re-parse with latest parser improvements
+if [[ -f "$INSTALL_DIR/data/issues.db" ]]; then
+    echo -e "  Clearing issues database (will re-parse on next load)..."
+    rm -f "$INSTALL_DIR/data/issues.db"
+    echo -e "  ${GREEN}✅ Issues DB cleared — Team Pulse will re-parse with improved owner detection${NC}"
+fi
+
+# Clear Next.js build cache
+echo -e "  Clearing build cache..."
+rm -rf "$INSTALL_DIR/.next" 2>/dev/null
+
 # Done
 echo ""
 echo -e "${GREEN}╔══════════════════════════════════════════════════════════════╗${NC}"
