@@ -106,10 +106,10 @@ echo "QUIP_API_TOKEN=paste_your_token_here" > ~/.amazon-internal-mcp-server/.env
 ## Features
 
 ### 📊 AI Daily Briefing
-AI-generated executive summary of your day — top priorities, urgent emails, key meetings, and linked Quip documents. Streams word-by-word (ChatGPT-style) on first generation, then cached for instant loads.
+AI-generated executive summary of your day — top priorities, urgent emails, key meetings, and linked Quip documents. Streams word-by-word (ChatGPT-style) on first generation, then cached for instant loads. Dashboard shows today's email count, urgent count, and meeting count.
 
 ### 📧 Email Triage
-Emails organized into priority swim lanes: 🔴 Respond Now, 🟡 Respond Today, 🟢 FYI. Filter by date range (Today, 7/14/30 days).
+Emails organized into priority swim lanes: 🔴 Respond Now, 🟡 Respond Today, 🟢 FYI. Filter by date range (Today, 7/14/30 days) with pagination.
 
 ### 📅 Week Ahead
 7-day calendar view with meeting load indicators, deep work slots, 1:1 detection, and AI coaching brief.
@@ -126,25 +126,52 @@ Time audit, relationship health scores, action item extraction, blocker detectio
 ### 🔔 Proactive Insights
 AI-generated meeting prep insights, email priority alerts, and weekly reports delivered as toast notifications.
 
+### 🏥 Team Health (WBR Goals)
+Weekly Business Review dashboard showing goal status across your org. Features:
+
+- **Dynamic WBR title** — Shows "Classification and Policy Platform - 2026 Goals and Projects Status" with current week and date range
+- **AI Goal Health Summary** — Ollama-powered executive summary with goal classification (On Track, Needs Attention, Completed, Stale)
+- **Status color cards** — Green/Yellow/Red/Total at a glance
+- **ECD tracking** — Missed ECDs, upcoming ECDs (3-day warning), ECD drift detection with slipped/pulled-in comparison
+- **Deep scan** — On-demand recursive scan (depth-3) for missed ECDs in child/grandchild tasks
+- **Goal sections** — Goals organized by workflow status (Started, Blocked, In Planning, etc.)
+- **Child task expansion** — Drill down into subtasks with recursive expand
+
+**Data flow:** Taskei (SIM) via `builder-mcp` → `wbr-report.js` (goal parsing + ECD snapshots) → React dashboard
+
 ### 📊 Engineering Metrics (Code Metrics)
-Per-engineer code review dashboard powered by `code.amazon.com` via `amzn-mcp`. Tracks CRs created/reviewed, lines changed, CR turnaround time, and stale CRs across the entire org. Features include:
+Per-engineer code review dashboard powered by `code.amazon.com` via `builder-mcp`. Features:
 
-- **Org-level summary** — Total CRs, lines, P50 turnaround, week-over-week trends
-- **Engineer table** — Per-person metrics with mini sparkline trends (8-week)
+- **Org-level summary** — Total CRs created/reviewed, P50 turnaround, stale CRs
+- **Engineer table** — Sortable by CRs Created, CRs Reviewed, Review Ratio (click headers to sort)
+- **Week-over-week trends** — ▲/▼ delta indicators per engineer vs last week
+- **3-week declining streak** — Amber row highlighting for engineers with 3 consecutive weeks of declining output
+- **Mini sparklines** — 8-week CR creation trend per engineer
 - **Weekly velocity chart** — Horizontal bar chart showing CR created vs reviewed over 8 weeks
-- **Goal-to-Code alignment** — Cross-references WBR goals with CR descriptions to show engineering investment per goal
-- **Bus Factor detection** — Flags packages with only a single committer in the last 90 days
-- **Stale CR alerts** — Highlights CRs open for >5 days
-- **Engineer drill-down** — Slide-out panel with 12-week history, recent CRs, and contributing goals
+- **Year-to-date trend** — Full year line chart with 4-week rolling average
+- **Stale CR alerts** — Org-wide count of CRs open >5 days
+- **Engineer drill-down** — Slide-out panel with 12-week history and recent CRs
+- **Backfill** — One-click backfill for historical weekly data (52-week retention)
 
-**Data flow:** Org roster (Phonetool → `org-store.js`) → per-engineer code search (`amzn-mcp` → `search_internal_code` type=user) → SQLite weekly snapshots (`data/eng-metrics.db`, 52-week retention) → React dashboard.
+**Data flow:** Org roster (Phonetool → `org-store.js`) → per-engineer code search (`builder-mcp` → `ReadInternalWebsites`) → SQLite weekly snapshots (`data/eng-metrics.db`) → React dashboard
 
-**Files:**
-- `services/eng-metrics.js` — Backend service (SQLite store + MCP fetcher)
-- `app/api/eng-metrics/route.js` — API route (dashboard, engineer, trend, refresh, sparkline views)
-- `app/eng-metrics/page.js` — Frontend dashboard page
-- `config/settings.json` → `engMetrics` section for thresholds
-- Mockup reference: `mockups/eng-metrics-mockup.html`
+### 🎫 Ticket Health
+Resolver group ticket dashboard showing open/aging/SLA status across your teams. Features:
+
+- **Summary cards** — Total open, assigned to you, aging >14d, aging >30d, resolved (30d), baseline overdue
+- **Status distribution** — Visual bar showing ticket status breakdown
+- **Resolver group table** — Role, open count, resolved, status breakdown, oldest ticket age, baseline status
+- **Aging tickets tab** — Tickets older than 7 days sorted by age
+- **My tickets tab** — Tickets assigned to you across all resolver groups
+- **Group detail panel** — Slide-out showing all tickets for a specific resolver group
+
+**Data flow:** `builder-mcp` → `TicketingReadActions` → `ticket-health.js` (caching) → React dashboard
+
+### 🌗 Dark/Light Theme
+Toggle between dark and light mode from the sidebar or Settings page. Preference persists in localStorage with anti-flash script for instant theme application on page load.
+
+### 📐 Collapsible Sidebar
+Sidebar collapses to icon-only mode (72px) for more content space. State persists in localStorage. Expand/collapse via button at bottom of sidebar.
 
 ---
 
@@ -170,6 +197,23 @@ All processing happens locally. No data leaves your machine.
 | Vector DB | hnswlib-node (local, in-process) |
 | Data Bridge | AppleScript/JXA → local JSON cache |
 | Background | node-cron (hourly sync) |
+| MCP Integration | `builder-mcp` for Phonetool, code.amazon.com, Taskei, Quip |
+| Data Storage | JSON files + SQLite (eng-metrics, issues, org-store, insights) |
+
+---
+
+## Pages
+
+| Route | Page | Description |
+|---|---|---|
+| `/` | Dashboard | AI briefing, email triage, meeting prep, AI chat |
+| `/week-ahead` | Week Ahead | 7-day calendar with AI coaching |
+| `/leadership` | Leadership | Time audit, relationships, action items, blockers |
+| `/my-team` | Team Health | WBR goal status with AI summary |
+| `/eng-metrics` | Code Metrics | Per-engineer CR dashboard |
+| `/ticket-health` | Ticket Health | Resolver group ticket dashboard |
+| `/insights/analytics` | Insights | Proactive AI insight analytics |
+| `/settings` | Settings | Calendar, alias, Quip, theme, AI preferences |
 
 ---
 
