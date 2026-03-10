@@ -2,6 +2,8 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { RefreshCw, Info, ChevronDown, ChevronUp, ExternalLink, X, AlertTriangle, TrendingUp, TrendingDown, Minus, HelpCircle } from 'lucide-react';
+import AIChat from '@/components/AIChat';
+import MetricsVisual from '@/components/MetricsVisual';
 
 // ─── Constants ───
 
@@ -331,6 +333,10 @@ function TrendChart({ trend }) {
 function EngineerPanel({ alias, onClose }) {
     const [detail, setDetail] = useState(null);
     const [loading, setLoading] = useState(true);
+    const [summaryText, setSummaryText] = useState('');
+    const [summaryLoading, setSummaryLoading] = useState(false);
+    const [summaryPhase, setSummaryPhase] = useState(''); // 'fetching' | 'generating' | 'done' | 'error'
+    const [crDetails, setCrDetails] = useState(null);
 
     useEffect(() => {
         if (!alias) return;
@@ -352,8 +358,9 @@ function EngineerPanel({ alias, onClose }) {
             <div style={{
                 position: 'fixed', top: 0, right: 0, width: '600px', height: '100vh',
                 background: 'rgba(12,12,20,0.98)', backdropFilter: 'blur(24px)',
-                borderLeft: '1px solid rgba(10,132,255,0.2)', zIndex: 1000, overflowY: 'auto',
-                padding: '32px', boxShadow: '-16px 0 60px rgba(0,0,0,0.6)',
+                borderLeft: '1px solid rgba(10,132,255,0.2)', zIndex: 1000,
+                overflowY: 'scroll', WebkitOverflowScrolling: 'touch',
+                padding: '32px', paddingBottom: '80px', boxShadow: '-16px 0 60px rgba(0,0,0,0.6)',
                 animation: 'slideInRight 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
             }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '28px' }}>
@@ -403,6 +410,102 @@ function EngineerPanel({ alias, onClose }) {
                                 <OrgStat value={detail.currentWeek.crsReviewed} label="Reviewed" bgClass="green" metricKey="crsReviewed" />
                             </div>
                         )}
+
+                        {/* AI Work Summary */}
+                        <div style={{ background: 'linear-gradient(145deg, rgba(10,132,255,0.08), rgba(139,92,246,0.05))', border: '1px solid rgba(10,132,255,0.2)', borderRadius: '14px', padding: '16px 20px', marginBottom: '24px' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: summaryText || summaryLoading ? '12px' : '0' }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                    <span style={{ fontSize: '16px' }}>🤖</span>
+                                    <span style={{ fontSize: '13px', fontWeight: 700, color: '#60a5fa' }}>AI Work Summary</span>
+                                    <span style={{ fontSize: '10px', padding: '2px 8px', borderRadius: '4px', background: 'rgba(10,132,255,0.15)', color: '#60a5fa' }}>Live CR Fetch</span>
+                                </div>
+                                {!summaryLoading && (
+                                    <button onClick={async () => {
+                                        setSummaryLoading(true);
+                                        setSummaryText('');
+                                        setCrDetails(null);
+                                        setSummaryPhase('fetching');
+                                        try {
+                                            const res = await fetch(`/api/eng-metrics?view=work-summary&alias=${alias}`);
+                                            if (!res.ok) {
+                                                const err = await res.json();
+                                                setSummaryPhase('error');
+                                                setSummaryText(err.error || 'Failed to generate summary');
+                                                setSummaryLoading(false);
+                                                return;
+                                            }
+                                            const reader = res.body.getReader();
+                                            const decoder = new TextDecoder();
+                                            let fullText = '';
+                                            while (true) {
+                                                const { done, value } = await reader.read();
+                                                if (done) break;
+                                                const chunk = decoder.decode(value, { stream: true });
+                                                for (const line of chunk.split('\n').filter(l => l.startsWith('data: '))) {
+                                                    try {
+                                                        const data = JSON.parse(line.slice(6));
+                                                        if (data.type === 'cr-details') {
+                                                            setCrDetails(data.crs);
+                                                            setSummaryPhase('generating');
+                                                        } else if (data.type === 'chunk') {
+                                                            fullText += data.text;
+                                                            setSummaryText(fullText);
+                                                        } else if (data.type === 'done') {
+                                                            setSummaryPhase('done');
+                                                        } else if (data.type === 'error') {
+                                                            setSummaryPhase('error');
+                                                            setSummaryText(data.message);
+                                                        }
+                                                    } catch (e) { /* skip */ }
+                                                }
+                                            }
+                                        } catch (e) {
+                                            setSummaryPhase('error');
+                                            setSummaryText(e.message);
+                                        }
+                                        setSummaryLoading(false);
+                                    }} style={{ padding: '6px 14px', borderRadius: '8px', border: 'none', cursor: 'pointer', fontFamily: 'inherit', fontSize: '12px', fontWeight: 600, background: 'rgba(10,132,255,0.15)', color: '#60a5fa', transition: 'all 0.2s', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                        ✨ {summaryText ? 'Regenerate' : 'Generate Summary'}
+                                    </button>
+                                )}
+                            </div>
+
+                            {/* Loading state */}
+                            {summaryLoading && !summaryText && (
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                    <span style={{ display: 'inline-block', width: '8px', height: '8px', borderRadius: '50%', background: '#60a5fa', animation: 'pulse 1.2s ease-in-out infinite' }} />
+                                    <span style={{ fontSize: '12px', color: 'rgba(255,255,255,0.5)' }}>
+                                        {summaryPhase === 'fetching' ? 'Fetching CR details from code.amazon.com...' : 'Generating AI summary...'}
+                                    </span>
+                                </div>
+                            )}
+
+                            {/* CR Details badges */}
+                            {crDetails && crDetails.length > 0 && (
+                                <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap', marginBottom: summaryText ? '10px' : '0' }}>
+                                    {crDetails.map((cr, i) => (
+                                        <a key={i} href={`https://code.amazon.com/reviews/${cr.id}`} target="_blank" rel="noopener noreferrer" style={{ padding: '2px 8px', borderRadius: '6px', fontSize: '10px', fontWeight: 600, background: cr.type === 'created' ? 'rgba(10,132,255,0.1)' : 'rgba(48,209,88,0.1)', color: cr.type === 'created' ? '#0a84ff' : '#30d158', border: `1px solid ${cr.type === 'created' ? 'rgba(10,132,255,0.15)' : 'rgba(48,209,88,0.15)'}`, textDecoration: 'none' }}>
+                                            {cr.type === 'created' ? '📝' : '👀'} {cr.id}
+                                        </a>
+                                    ))}
+                                </div>
+                            )}
+
+                            {/* Summary text (streaming) */}
+                            {summaryText && (
+                                <div style={{ fontSize: '13px', color: 'rgba(255,255,255,0.8)', lineHeight: '1.7', whiteSpace: 'pre-wrap' }}>
+                                    {summaryText}
+                                    {summaryLoading && <span style={{ display: 'inline-block', width: '6px', height: '14px', background: '#60a5fa', marginLeft: '2px', animation: 'pulse 0.8s ease-in-out infinite', verticalAlign: 'text-bottom' }} />}
+                                </div>
+                            )}
+
+                            {/* Empty state */}
+                            {!summaryLoading && !summaryText && (
+                                <div style={{ fontSize: '11px', color: 'rgba(255,255,255,0.25)', marginTop: '8px' }}>
+                                    Click &quot;Generate Summary&quot; to fetch live CR details and create an AI-powered work summary
+                                </div>
+                            )}
+                        </div>
 
                         {/* Weekly History */}
                         <div style={{ fontSize: '12px', fontWeight: 700, color: 'rgba(255,255,255,0.5)', textTransform: 'uppercase', letterSpacing: '1px', margin: '24px 0 14px', display: 'flex', alignItems: 'center', gap: '6px' }}>
@@ -567,6 +670,8 @@ export default function EngMetricsPage() {
     const [sortDir, setSortDir] = useState('desc');
     const [filterTeam, setFilterTeam] = useState('all');
     const [searchQuery, setSearchQuery] = useState('');
+    const [pageView, setPageView] = useState('visual'); // 'visual' | 'table'
+    const [showStaleCrs, setShowStaleCrs] = useState(false);
     const currentYear = new Date().getFullYear();
 
     const fetchDashboard = useCallback(async () => {
@@ -867,7 +972,7 @@ export default function EngMetricsPage() {
 
                     {/* Alerts */}
                     <div style={{ display: 'flex', gap: '16px', marginBottom: '28px' }}>
-                        <AlertCard icon="🔴" count={dashboard.alerts.staleCrs} label="Stale CRs (>5 days)" color="red" description="Open CRs with no reviewer activity for 5+ days" />
+                        <AlertCard icon="🔴" count={dashboard.alerts.staleCrs} label="Stale CRs (>5 days)" color="red" description="Open CRs with no reviewer activity for 5+ days" onClick={() => setShowStaleCrs(true)} />
                     </div>
 
                     {/* Weekly Trend Chart */}
@@ -903,6 +1008,24 @@ export default function EngMetricsPage() {
                         </div>
                     )}
 
+                    {/* View Toggle */}
+                    <div style={{ display: 'flex', gap: '4px', background: 'rgba(0,0,0,0.4)', padding: '4px', borderRadius: '14px', border: '1px solid rgba(255,255,255,0.06)', marginBottom: '24px', marginTop: '8px' }}>
+                        <button onClick={() => setPageView('visual')} style={{ flex: 1, padding: '10px 16px', borderRadius: '10px', border: 'none', cursor: 'pointer', fontFamily: 'inherit', fontSize: '14px', fontWeight: 600, background: pageView === 'visual' ? 'rgba(10,132,255,0.2)' : 'transparent', color: pageView === 'visual' ? '#60a5fa' : 'rgba(255,255,255,0.35)', transition: 'all 0.25s' }}>
+                            🔥 Visual Dashboard
+                        </button>
+                        <button onClick={() => setPageView('table')} style={{ flex: 1, padding: '10px 16px', borderRadius: '10px', border: 'none', cursor: 'pointer', fontFamily: 'inherit', fontSize: '14px', fontWeight: 600, background: pageView === 'table' ? 'rgba(10,132,255,0.2)' : 'transparent', color: pageView === 'table' ? '#60a5fa' : 'rgba(255,255,255,0.35)', transition: 'all 0.25s' }}>
+                            📋 Table View
+                        </button>
+                    </div>
+
+                    {/* Visual Dashboard (Heatmap + Leaderboard) */}
+                    {pageView === 'visual' && (
+                        <MetricsVisual engineers={dashboard.engineers} onEngineerClick={(alias) => setSelectedEngineer(alias)} />
+                    )}
+
+                    {/* Table View (original) */}
+                    {pageView === 'table' && (
+                    <>
                     {/* Engineer Table */}
                     <div style={{ fontSize: '15px', fontWeight: 700, color: 'rgba(255,255,255,0.7)', margin: '28px 0 16px', display: 'flex', alignItems: 'center', gap: '8px' }}>
                         👩‍💻 Engineers
@@ -1023,8 +1146,66 @@ export default function EngMetricsPage() {
                         </table>
                     </div>
 
+                    </>
+                    )}
                 </>
             )}
+
+            {/* Stale CRs Panel */}
+            {showStaleCrs && (
+                <>
+                    <div onClick={() => setShowStaleCrs(false)} style={{ position: 'fixed', top: 0, left: 0, width: '100%', height: '100%', background: 'rgba(0,0,0,0.5)', zIndex: 999, animation: 'fadeIn 0.2s ease-out' }} />
+                    <div style={{ position: 'fixed', top: 0, right: 0, width: '560px', height: '100vh', background: 'rgba(12,12,20,0.98)', backdropFilter: 'blur(24px)', borderLeft: '1px solid rgba(255,69,58,0.2)', zIndex: 1000, overflowY: 'scroll', WebkitOverflowScrolling: 'touch', padding: '32px', paddingBottom: '80px', boxShadow: '-16px 0 60px rgba(0,0,0,0.6)', animation: 'slideInRight 0.3s cubic-bezier(0.4,0,0.2,1)' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
+                            <h3 style={{ margin: 0, fontSize: '18px', fontWeight: 700, color: '#ff453a', display: 'flex', alignItems: 'center', gap: '8px' }}>🔴 Stale CRs ({dashboard?.alerts?.staleCrDetails?.length || dashboard?.alerts?.staleCrs || 0})</h3>
+                            <button onClick={() => setShowStaleCrs(false)} style={{ background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.1)', color: '#fff', borderRadius: '10px', padding: '8px 18px', cursor: 'pointer', fontFamily: 'inherit', fontSize: '13px', fontWeight: 500 }}>✕ Close</button>
+                        </div>
+                        <div style={{ fontSize: '13px', color: 'rgba(255,255,255,0.4)', marginBottom: '20px' }}>
+                            Open CRs with no reviewer activity for 5+ days. These represent blocked work.
+                        </div>
+
+                        {dashboard?.alerts?.staleCrDetails && dashboard.alerts.staleCrDetails.length > 0 ? (
+                            dashboard.alerts.staleCrDetails.map((cr, i) => (
+                                <a key={i} href={`https://code.amazon.com/reviews/${cr.crId}`} target="_blank" rel="noopener noreferrer" style={{ display: 'block', padding: '16px 18px', marginBottom: '8px', borderRadius: '12px', background: 'rgba(255,69,58,0.06)', border: '1px solid rgba(255,69,58,0.12)', textDecoration: 'none', color: '#fff', transition: 'all 0.2s' }}
+                                    onMouseEnter={e => { e.currentTarget.style.background = 'rgba(255,69,58,0.1)'; e.currentTarget.style.transform = 'translateX(4px)'; }}
+                                    onMouseLeave={e => { e.currentTarget.style.background = 'rgba(255,69,58,0.06)'; e.currentTarget.style.transform = ''; }}>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '8px' }}>
+                                        <span style={{ color: '#818cf8', fontWeight: 700, fontSize: '13px' }}>{cr.crId}</span>
+                                        <span style={{ fontSize: '12px', fontWeight: 700, padding: '2px 8px', borderRadius: '6px', background: 'rgba(255,69,58,0.15)', color: '#ff453a' }}>{cr.ageDays}d stale</span>
+                                    </div>
+                                    <div style={{ display: 'flex', gap: '16px', fontSize: '12px', color: 'rgba(255,255,255,0.4)' }}>
+                                        <span>👤 Author: <strong style={{ color: 'rgba(255,255,255,0.7)' }}>{cr.alias}</strong></span>
+                                        <span>📅 Last touched: {cr.lastTouched}</span>
+                                    </div>
+                                </a>
+                            ))
+                        ) : (
+                            <div style={{ textAlign: 'center', padding: '40px', color: 'rgba(255,255,255,0.3)' }}>
+                                {dashboard?.alerts?.staleCrs > 0 ? (
+                                    <>
+                                        <div style={{ fontSize: '40px', marginBottom: '12px' }}>🔍</div>
+                                        <div style={{ fontSize: '14px', fontWeight: 600 }}>Stale CR details not yet loaded</div>
+                                        <div style={{ fontSize: '12px', marginTop: '6px' }}>Details are fetched in the background. Try refreshing the page.</div>
+                                    </>
+                                ) : (
+                                    <>
+                                        <div style={{ fontSize: '40px', marginBottom: '12px' }}>🎉</div>
+                                        <div style={{ fontSize: '14px', fontWeight: 600 }}>No stale CRs!</div>
+                                        <div style={{ fontSize: '12px', marginTop: '6px' }}>All open CRs have reviewer activity within the last 5 days.</div>
+                                    </>
+                                )}
+                            </div>
+                        )}
+
+                        <div style={{ marginTop: '24px', paddingTop: '16px', borderTop: '1px solid rgba(255,255,255,0.06)', fontSize: '11px', color: 'rgba(255,255,255,0.15)' }}>
+                            Stale threshold: 5 days · Data from code.amazon.com via builder-mcp
+                        </div>
+                    </div>
+                </>
+            )}
+
+            {/* Dive Deep Assistant */}
+            <AIChat pageContext="eng-metrics" />
 
             {/* Engineer Detail Panel */}
             {selectedEngineer && (

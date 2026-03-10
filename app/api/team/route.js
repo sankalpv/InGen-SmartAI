@@ -119,6 +119,86 @@ export async function GET(request) {
                 break;
             }
 
+            case 'wbr-ai-summary-stream': {
+                // Streaming version of AI summary
+                const wbrDataStream = await wbrReport.generateWbrReport(false);
+                if (!wbrDataStream || !wbrDataStream.sections) {
+                    return NextResponse.json({ error: 'No WBR report data available.' }, { status: 400 });
+                }
+
+                const todayStream = new Date(new Date().toDateString());
+                const allGoalsStream = [];
+                for (const section of wbrDataStream.sections) {
+                    for (const goal of (section.goals || [])) allGoalsStream.push(goal);
+                }
+                const goalDetailsStream = allGoalsStream.map(goal => {
+                    const children = goal.subtasks || [];
+                    const closed = children.filter(s => s.status === 'Closed').length;
+                    const total = children.length;
+                    const pct = total > 0 ? Math.round((closed / total) * 100) : 0;
+                    return `${goal.id} "${(goal.title || '').substring(0, 60)}" [${goal.statusColor}/${goal.status}] ECD:${goal.ecd} Tasks:${closed}/${total}(${pct}%)`;
+                });
+
+                const missedEcdStream = wbrDataStream.summary?.missedEcd || [];
+                const goalsPassedEcdStream = allGoalsStream.filter(g => {
+                    if (!g.ecd || g.ecd === 'Missing') return false;
+                    try { const [mm,dd,yyyy] = g.ecd.split('-').map(Number); return new Date(yyyy,mm-1,dd) < todayStream; } catch(e) { return false; }
+                }).map(g => `${g.id}(ECD:${g.ecd})`);
+
+                const todayStrStream = new Date().toISOString().split('T')[0];
+                const promptStream = `You are writing an executive status report for a Weekly Business Review (WBR). Write in Amazon style: data-first, short sentences, no filler words.
+
+TODAY'S DATE: ${todayStrStream}
+REPORTING PERIOD: ${wbrDataStream.subtitle}
+
+GOAL SUMMARY:
+- Total Goals: ${wbrDataStream.totalGoals}
+- Status Colors: Green=${wbrDataStream.summary?.byColor?.Green||0}, Yellow=${wbrDataStream.summary?.byColor?.Yellow||0}, Red=${wbrDataStream.summary?.byColor?.Red||0}, Missing=${wbrDataStream.summary?.byColor?.Missing||0}
+- Goals with passed ECD: ${goalsPassedEcdStream.length > 0 ? goalsPassedEcdStream.join('; ') : 'None'}
+- Missed ECDs: ${missedEcdStream.length}
+
+PER-GOAL DETAIL:
+${goalDetailsStream.join('\n')}
+
+Write a summary with these sections:
+1. **Executive Summary** (2-3 sentences covering overall health)
+2. **Key Risks** (bullet points with specific goal IDs and data)
+3. **Positive Signals** (bullet points showing progress)
+4. **Recommended Actions** (2-3 specific, actionable items)
+
+Be specific. Use goal IDs. Quote numbers. Do not be generic.`;
+
+                const ollamaStream = require('../../../services/ollama-client');
+                const stream = new ReadableStream({
+                    async start(controller) {
+                        try {
+                            const response = await fetch('http://127.0.0.1:11434/api/generate', {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ model: ollamaStream.getConfig().llmModel, prompt: promptStream, stream: true, think: false }),
+                            });
+                            const reader = response.body.getReader();
+                            const decoder = new TextDecoder();
+                            while (true) {
+                                const { done, value } = await reader.read();
+                                if (done) break;
+                                const chunk = decoder.decode(value, { stream: true });
+                                for (const line of chunk.split('\n').filter(Boolean)) {
+                                    try {
+                                        const json = JSON.parse(line);
+                                        if (json.response) controller.enqueue(new TextEncoder().encode(json.response));
+                                    } catch(e) {}
+                                }
+                            }
+                        } catch(e) {
+                            controller.enqueue(new TextEncoder().encode(`\n\nError: ${e.message}`));
+                        }
+                        controller.close();
+                    }
+                });
+                return new Response(stream, { headers: { 'Content-Type': 'text/plain; charset=utf-8', 'Transfer-Encoding': 'chunked' } });
+            }
+
             case 'wbr-ai-summary': {
                 // Generate AI summary using WBR report data + Ollama (no depth scanning)
                 const wbrData = await wbrReport.generateWbrReport(false);
@@ -200,6 +280,147 @@ Be specific. Use goal IDs. Quote numbers. Do not be generic.`;
                         generatedAt: new Date().toISOString(),
                     };
                 }
+                break;
+            }
+
+            case 'staff-meeting-doc': {
+                // Generate and return a .docx Staff Meeting document
+                const { Document: DocxDocument, Packer: DocxPacker, Paragraph: DocxParagraph, Table: DocxTable, TableRow: DocxTableRow, TableCell: DocxTableCell, TextRun: DocxTextRun, HeadingLevel: DocxHeading, AlignmentType: DocxAlign, WidthType: DocxWidth, ShadingType: DocxShading } = await import('docx');
+                
+                const hc = (text, bg = '1A1A2E') => new DocxTableCell({ shading: { type: DocxShading.SOLID, color: bg, fill: bg }, children: [new DocxParagraph({ children: [new DocxTextRun({ text, bold: true, size: 20, color: 'FFFFFF', font: 'Calibri' })] })] });
+                const tc = (text, opts = {}) => new DocxTableCell({ children: [new DocxParagraph({ children: [new DocxTextRun({ text: String(text || '—'), size: opts.size || 20, bold: opts.bold, color: opts.color, font: 'Calibri', italics: opts.italics })] })] });
+
+                // Fetch all data
+                const wbrDoc = await wbrReport.generateWbrReport(false);
+                const allGoalsDoc = (wbrDoc?.sections || []).flatMap(s => s.goals || []).concat(wbrDoc?.projectTasks || []);
+                const seenDoc = new Set(); const goalsDoc = [];
+                for (const g of allGoalsDoc) { if (!seenDoc.has(g.id)) { seenDoc.add(g.id); goalsDoc.push(g); } }
+
+                const engMetrics = require('../../../services/eng-metrics');
+                await engMetrics.init();
+                const dashDoc = await engMetrics.getOrgDashboard().catch(() => null);
+
+                const ticketHealth = require('../../../services/ticket-health');
+                const ticketsDoc = await ticketHealth.buildDashboard().catch(() => null);
+
+                // Fetch comments
+                const mcpClientDoc = require('../../../services/mcp-client');
+                const commentsDoc = {};
+                for (const g of goalsDoc) {
+                    try {
+                        const r = await mcpClientDoc.callTool('builder-mcp', 'ReadInternalWebsites', { inputs: [`https://taskei.amazon.dev/tasks/${g.id}`] });
+                        if (Array.isArray(r?.content)) {
+                            for (const item of r.content) {
+                                let outer = null;
+                                if (item?.text) { try { outer = JSON.parse(item.text); } catch(e) {} }
+                                if (!outer) continue;
+                                const inner = outer?.content || [outer];
+                                const arr = Array.isArray(inner) ? inner : [inner];
+                                for (const el of arr) {
+                                    if (el?.combinedThread?.items) {
+                                        const lc = el.combinedThread.items.filter(ti => ti.payload?.type === 'COMMENT').slice(0, 1).map(ti => ({ message: ti.payload.comment.message, author: ti.payload.comment.author?.name || '?', date: ti.payload.comment.createDate }));
+                                        if (lc.length) commentsDoc[g.id] = lc;
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+                    } catch(e) {}
+                }
+
+                const now = new Date();
+                const wn = Math.ceil((((now - new Date(now.getFullYear(),0,1)) / 86400000) + new Date(now.getFullYear(),0,1).getDay() + 1) / 7);
+                const titleDoc = `Staff Meeting Report — Week ${wn} (${now.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })})`;
+
+                // Build goal children
+                const gc = [];
+                for (const g of goalsDoc) {
+                    const sc = g.statusColor || 'Missing';
+                    const scC = sc === 'Green' ? '30D158' : sc === 'Yellow' ? 'FF9F0A' : sc === 'Red' ? 'FF453A' : '666666';
+                    gc.push(new DocxParagraph({ spacing: { before: 200 }, children: [new DocxTextRun({ text: g.id, bold: true, size: 24, color: '6366F1' }), new DocxTextRun({ text: `  ${g.title}`, bold: true, size: 22 })] }));
+                    gc.push(new DocxParagraph({ children: [new DocxTextRun({ text: `Status: `, size: 20, color: '888888' }), new DocxTextRun({ text: sc, bold: true, size: 20, color: scC }), new DocxTextRun({ text: `  |  ECD: ${g.ecd || 'Missing'}  |  PMT: ${g.quad?.pmt || '—'}  |  Theme: ${g.theme || '—'}`, size: 20, color: '888888' })] }));
+                    if (g.announcement) gc.push(new DocxParagraph({ children: [new DocxTextRun({ text: `📢 (${g.announcement.date}): ${g.announcement.text?.substring(0, 400) || ''}`, size: 18, color: '0A84FF' })] }));
+                    if (g.pathToGreen) gc.push(new DocxParagraph({ children: [new DocxTextRun({ text: `⚠️ Path to Green: ${g.pathToGreen.substring(0, 400)}`, size: 18, color: 'FF453A' })] }));
+                    const lc = commentsDoc[g.id];
+                    if (lc?.length) { const l = lc[0]; const d = l.date ? new Date(l.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : ''; gc.push(new DocxParagraph({ children: [new DocxTextRun({ text: `💬 ${d} by ${l.author}: `, bold: true, size: 18, color: '0A84FF' }), new DocxTextRun({ text: l.message?.substring(0, 600) || '', size: 18, color: '333333' })] })); }
+                    if (g.subtasks?.length) {
+                        gc.push(new DocxTable({ width: { size: 100, type: DocxWidth.PERCENTAGE }, rows: [new DocxTableRow({ children: [hc('ID','2D2D44'), hc('Title','2D2D44'), hc('Status','2D2D44'), hc('Assignee','2D2D44'), hc('ECD','2D2D44')] }), ...g.subtasks.slice(0, 20).map(s => new DocxTableRow({ children: [tc(s.id, { color: '6366F1', size: 18 }), tc((s.title||'').substring(0,50), { size: 18 }), tc(s.status||'Open', { size: 18 }), tc(s.assignee||'—', { size: 18 }), tc(s.ecd||'—', { size: 18 })] }))] }));
+                    }
+                    gc.push(new DocxParagraph({ children: [new DocxTextRun({ text: '─'.repeat(60), size: 12, color: 'DDDDDD' })] }));
+                }
+
+                const doc = new DocxDocument({ creator: 'InGen', title: titleDoc, sections: [{ properties: { page: { margin: { top: 720, right: 720, bottom: 720, left: 720 } } }, children: [
+                    new DocxParagraph({ heading: DocxHeading.HEADING_1, children: [new DocxTextRun({ text: titleDoc, bold: true, size: 32 })] }),
+                    new DocxParagraph({ children: [new DocxTextRun({ text: `Generated by InGen · ${now.toLocaleString()}`, italics: true, size: 18, color: '666666' })] }),
+                    new DocxParagraph({ text: '' }),
+                    new DocxParagraph({ heading: DocxHeading.HEADING_2, children: [new DocxTextRun({ text: `🎯 Goals (${goalsDoc.length})`, bold: true, size: 28, color: '7C3AED' })] }),
+                    ...gc,
+                    ...(dashDoc && !dashDoc.empty ? [
+                        new DocxParagraph({ heading: DocxHeading.HEADING_2, children: [new DocxTextRun({ text: '📊 Code Metrics', bold: true, size: 28, color: '0A84FF' })] }),
+                        new DocxTable({ width: { size: 100, type: DocxWidth.PERCENTAGE }, rows: [new DocxTableRow({ children: ['Engineer','CRs','Reviewed','Ratio'].map(h => hc(h, '0A1628')) }), ...(dashDoc.engineers||[]).map(e => new DocxTableRow({ children: [tc(`${e.name} (${e.alias})`, { size: 18 }), tc(e.crsCreated, { bold: true, size: 18 }), tc(e.crsReviewed, { size: 18 }), tc(e.reviewRatioDisplay||'—', { size: 18 })] }))] }),
+                    ] : []),
+                    ...(ticketsDoc && !ticketsDoc.empty ? [
+                        new DocxParagraph({ heading: DocxHeading.HEADING_2, children: [new DocxTextRun({ text: '🎫 Tickets', bold: true, size: 28, color: '22D3EE' })] }),
+                        new DocxTable({ width: { size: 100, type: DocxWidth.PERCENTAGE }, rows: [new DocxTableRow({ children: ['Group','Open','Resolved','Oldest'].map(h => hc(h, '0A2832')) }), ...(ticketsDoc.groups||[]).map(g => new DocxTableRow({ children: [tc(g.name, { bold: true, size: 18 }), tc(g.open, { size: 18 }), tc(g.resolved30d||0, { size: 18 }), tc(g.oldestAge>0?`${g.oldestAge}d`:'—', { size: 18 })] }))] }),
+                    ] : []),
+                ] }] });
+
+                const buffer = await DocxPacker.toBuffer(doc);
+                const fn = `Staff-Meeting-W${wn}-${now.toISOString().split('T')[0]}.docx`;
+                return new Response(buffer, { headers: { 'Content-Type': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', 'Content-Disposition': `attachment; filename="${fn}"` } });
+            }
+
+            case 'goal-comments': {
+                // Fetch latest comments for goal IDs — one at a time for reliable parsing
+                const goalIds = searchParams.get('ids')?.split(',').filter(Boolean) || [];
+                if (goalIds.length === 0) {
+                    return NextResponse.json({ error: 'ids parameter required' }, { status: 400 });
+                }
+                const mcpClient = require('../../../services/mcp-client');
+                const comments = {};
+                // Process each goal individually for reliable combinedThread extraction
+                for (const goalId of goalIds) {
+                    try {
+                        const result = await mcpClient.callTool('builder-mcp', 'ReadInternalWebsites', {
+                            inputs: [`https://taskei.amazon.dev/tasks/${goalId}`]
+                        });
+                        const content = result?.content;
+                        if (Array.isArray(content)) {
+                            for (const item of content) {
+                                try {
+                                    // MCP content blocks: {type:"text", text:"{\"type\":\"json\",\"content\":[{\"combinedThread\":...}]}"}
+                                    let outer = null;
+                                    if (item?.text) { try { outer = JSON.parse(item.text); } catch(e) {} }
+                                    else if (typeof item === 'string') { try { outer = JSON.parse(item); } catch(e) {} }
+                                    else { outer = item; }
+                                    if (!outer) continue;
+                                    // Unwrap the inner content array if present
+                                    const innerItems = outer?.content || [outer];
+                                    const arr = Array.isArray(innerItems) ? innerItems : [innerItems];
+                                    let thread = null;
+                                    for (const inner of arr) {
+                                        if (inner?.combinedThread?.items) { thread = inner.combinedThread.items; break; }
+                                    }
+                                    if (thread) {
+                                        const latestComments = thread
+                                            .filter(ti => ti.payload?.type === 'COMMENT')
+                                            .slice(0, 2)
+                                            .map(ti => ({
+                                                message: ti.payload.comment.message,
+                                                author: ti.payload.comment.author?.name || 'Unknown',
+                                                date: ti.payload.comment.createDate,
+                                            }));
+                                        if (latestComments.length > 0) {
+                                            comments[goalId] = latestComments;
+                                        }
+                                        break; // Found comments, no need to check other blocks
+                                    }
+                                } catch (e) { /* skip */ }
+                            }
+                        }
+                    } catch (e) { /* skip failed goals */ }
+                }
+                data = { comments, fetched: goalIds.length };
                 break;
             }
 

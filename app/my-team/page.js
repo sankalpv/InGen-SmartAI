@@ -2,9 +2,11 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { RefreshCw, Sparkles, AlertTriangle, CheckCircle, Clock, Target, ChevronDown, ChevronRight, ExternalLink } from 'lucide-react';
+import AIChat from '@/components/AIChat';
+import GoalBoard from '@/components/GoalBoard';
 
 const STATUS_COLORS = { Green: '#30d158', Yellow: '#ff9f0a', Red: '#ff453a', Missing: '#6b7280' };
-const STATUS_ICONS = { Blocked: '🚫', 'In Planning': '📋', Started: '🚀', Paused: '⏸️', 'Not Started': '⏳', DNM: '❌', 'Completed Late': '⏰', Completed: '✅', Cancelled: '🗑️', Cut: '✂️' };
+const STATUS_ICONS = { Blocked: '🚫', 'In Planning': '📋', Started: '🚀', Open: '📂', Paused: '⏸️', 'Not Started': '⏳', DNM: '❌', 'Completed Late': '⏰', Completed: '✅', Cancelled: '🗑️', Cut: '✂️' };
 
 function isEcdPast(ecdStr) {
     if (!ecdStr || ecdStr === 'Missing') return false;
@@ -301,7 +303,7 @@ function EcdAlertPanel({ title, items, goals, alertType, color, onClose }) {
     ) || [];
 
     return (
-        <div style={{
+        <div className="slide-panel" style={{
             position: 'fixed', top: 0, right: 0, width: '520px', height: '100vh',
             background: 'rgba(15,15,22,0.97)', backdropFilter: 'blur(20px)',
             borderLeft: `2px solid ${color}40`, zIndex: 1000, overflowY: 'auto',
@@ -366,6 +368,9 @@ export default function MyTeamPage() {
     const [aiSummary, setAiSummary] = useState(null);
     const [aiSummaryLoading, setAiSummaryLoading] = useState(false);
     const [aiSummaryError, setAiSummaryError] = useState(null);
+    const [pageView, setPageView] = useState('board'); // 'board' | 'status'
+    const [docGenerating, setDocGenerating] = useState(false);
+    const [docStatus, setDocStatus] = useState('');
 
     const fetchReport = useCallback(async (refresh = false) => {
         setIsLoading(true);
@@ -388,22 +393,41 @@ export default function MyTeamPage() {
 
     useEffect(() => { fetchReport(); }, [fetchReport]);
 
-    // Fetch AI Summary after report loads
+    const [aiStreamText, setAiStreamText] = useState('');
+    const [aiStreaming, setAiStreaming] = useState(false);
+
+    // Fetch AI Summary with streaming (word-by-word)
     const fetchAiSummary = async () => {
         setAiSummaryLoading(true);
         setAiSummaryError(null);
+        setAiSummary(null);
+        setAiStreamText('');
+        setAiStreaming(true);
         try {
-            const res = await fetch('/api/team?view=wbr-ai-summary');
-            const data = await res.json();
-            if (data.error) {
-                setAiSummaryError(data.error);
-            } else {
-                setAiSummary(data.data);
+            const res = await fetch('/api/team?view=wbr-ai-summary-stream');
+            if (!res.ok) {
+                const errData = await res.json();
+                setAiSummaryError(errData.error || 'Stream failed');
+                setAiSummaryLoading(false);
+                setAiStreaming(false);
+                return;
             }
+            const reader = res.body.getReader();
+            const decoder = new TextDecoder();
+            let fullText = '';
+            while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+                const chunk = decoder.decode(value, { stream: true });
+                fullText += chunk;
+                setAiStreamText(fullText);
+            }
+            setAiSummary({ summary: fullText, generatedAt: new Date().toISOString() });
         } catch (e) {
             setAiSummaryError(e.message);
         }
         setAiSummaryLoading(false);
+        setAiStreaming(false);
     };
 
     useEffect(() => {
@@ -437,6 +461,40 @@ export default function MyTeamPage() {
                             cursor: isLoading ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', gap: '6px', fontFamily: 'inherit'
                         }}>
                             <RefreshCw size={14} /> {isLoading ? 'Loading...' : 'Refresh from SIM'}
+                        </button>
+                        <button disabled={docGenerating} onClick={async () => {
+                            setDocGenerating(true);
+                            setDocStatus('Fetching goals & comments...');
+                            try {
+                                const res = await fetch('/api/team?view=staff-meeting-doc');
+                                if (res.ok) {
+                                    setDocStatus('Downloading...');
+                                    const blob = await res.blob();
+                                    const url = URL.createObjectURL(blob);
+                                    const a = document.createElement('a');
+                                    a.href = url;
+                                    a.download = res.headers.get('Content-Disposition')?.match(/filename="(.+)"/)?.[1] || 'Staff-Meeting.docx';
+                                    document.body.appendChild(a);
+                                    a.click();
+                                    document.body.removeChild(a);
+                                    URL.revokeObjectURL(url);
+                                    setDocStatus('✅ Downloaded!');
+                                    setTimeout(() => setDocStatus(''), 3000);
+                                } else {
+                                    setDocStatus('❌ Failed');
+                                    setTimeout(() => setDocStatus(''), 3000);
+                                }
+                            } catch (err) { console.error('Doc generation failed:', err); setDocStatus('❌ Error'); setTimeout(() => setDocStatus(''), 3000); }
+                            setDocGenerating(false);
+                        }} style={{
+                            background: docGenerating ? 'rgba(10,132,255,0.25)' : 'rgba(10,132,255,0.15)',
+                            color: '#0a84ff', border: 'none',
+                            padding: '6px 14px', borderRadius: '8px', fontSize: '13px', fontWeight: 600,
+                            cursor: docGenerating ? 'not-allowed' : 'pointer',
+                            display: 'flex', alignItems: 'center', gap: '6px', fontFamily: 'inherit',
+                            opacity: docGenerating ? 0.7 : 1,
+                        }}>
+                            {docGenerating ? '⏳' : '📄'} {docGenerating ? docStatus || 'Generating...' : docStatus || 'Staff Meeting Doc'}
                         </button>
                     </div>
                 </div>
@@ -488,21 +546,30 @@ export default function MyTeamPage() {
 
                         {aiSummaryLoading && (
                             <div>
-                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px' }}>
-                                    <span style={{ display: 'inline-block', width: '8px', height: '8px', borderRadius: '50%', background: '#a78bfa', animation: 'pulse 1.2s ease-in-out infinite' }} />
-                                    <span style={{ fontSize: '13px', color: 'rgba(255,255,255,0.5)' }}>
-                                        Scanning goals and subtasks (depth-3)... This may take 30-60 seconds.
-                                    </span>
-                                </div>
-                                {[100, 80, 65, 50].map((w, i) => (
-                                    <div key={i} style={{
-                                        height: '12px', width: `${w}%`, borderRadius: '6px',
-                                        background: 'rgba(139,92,246,0.08)', marginTop: i === 0 ? 0 : '6px',
-                                        animation: `shimmer 1.6s ease-in-out ${i * 0.15}s infinite`,
-                                        backgroundSize: '200% 100%',
-                                        backgroundImage: 'linear-gradient(90deg, transparent 0%, rgba(139,92,246,0.06) 50%, transparent 100%)',
-                                    }} />
-                                ))}
+                                {aiStreamText ? (
+                                    <div style={{ fontSize: '13px', color: 'rgba(255,255,255,0.8)', lineHeight: '1.7', whiteSpace: 'pre-wrap' }}>
+                                        {aiStreamText}
+                                        <span style={{ display: 'inline-block', width: '6px', height: '14px', background: '#a78bfa', marginLeft: '2px', animation: 'pulse 0.8s ease-in-out infinite', verticalAlign: 'text-bottom' }} />
+                                    </div>
+                                ) : (
+                                    <div>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px' }}>
+                                            <span style={{ display: 'inline-block', width: '8px', height: '8px', borderRadius: '50%', background: '#a78bfa', animation: 'pulse 1.2s ease-in-out infinite' }} />
+                                            <span style={{ fontSize: '13px', color: 'rgba(255,255,255,0.5)' }}>
+                                                Generating AI summary...
+                                            </span>
+                                        </div>
+                                        {[100, 80, 65, 50].map((w, i) => (
+                                            <div key={i} style={{
+                                                height: '12px', width: `${w}%`, borderRadius: '6px',
+                                                background: 'rgba(139,92,246,0.08)', marginTop: i === 0 ? 0 : '6px',
+                                                animation: `shimmer 1.6s ease-in-out ${i * 0.15}s infinite`,
+                                                backgroundSize: '200% 100%',
+                                                backgroundImage: 'linear-gradient(90deg, transparent 0%, rgba(139,92,246,0.06) 50%, transparent 100%)',
+                                            }} />
+                                        ))}
+                                    </div>
+                                )}
                             </div>
                         )}
 
@@ -658,44 +725,72 @@ export default function MyTeamPage() {
                         </div>
                     </div>
 
-                    {/* Goal Update Sections */}
-                    <div style={{ marginBottom: '32px' }}>
-                        <h2 style={{ fontSize: '16px', fontWeight: 700, color: 'rgba(255,255,255,0.8)', marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                            <Target size={18} /> Goal Update
-                        </h2>
-                        {report.sections.map(section => (
-                            <StatusSection key={section.name} section={section} />
+                    {/* View Toggle: Goal Board vs Status List */}
+                    <div style={{ display: 'flex', gap: '4px', background: 'rgba(0,0,0,0.4)', padding: '4px', borderRadius: '14px', border: '1px solid rgba(255,255,255,0.06)', marginBottom: '24px' }}>
+                        {[
+                            { id: 'board', label: '🎯 Goal Board' },
+                            { id: 'status', label: '📋 Status View' },
+                        ].map(v => (
+                            <button key={v.id} onClick={() => setPageView(v.id)} style={{ flex: 1, padding: '10px 16px', borderRadius: '10px', border: 'none', cursor: 'pointer', fontFamily: 'inherit', fontSize: '14px', fontWeight: 600, background: pageView === v.id ? 'rgba(139,92,246,0.2)' : 'transparent', color: pageView === v.id ? '#c4b5fd' : 'rgba(255,255,255,0.35)', transition: 'all 0.25s' }}>
+                                {v.label}
+                            </button>
                         ))}
                     </div>
 
-                    {/* Project Tasks Section */}
-                    {report.projectTasks && report.projectTasks.length > 0 && (
-                        <div>
-                            <h2 style={{ fontSize: '16px', fontWeight: 700, color: 'rgba(255,255,255,0.8)', marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                <Sparkles size={18} /> Project Tasks
-                            </h2>
-                            {report.projectTasks.map(goal => (
-                                <div key={goal.id} style={{ marginBottom: '16px' }}>
-                                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
-                                        <a href={`https://issues.amazon.com/issues/${goal.id}`} target="_blank" rel="noopener noreferrer" style={{ color: '#818cf8', fontWeight: 700, fontSize: '13px', textDecoration: 'none' }}>{goal.id}</a>
-                                        <span style={{ fontSize: '13px', fontWeight: 600, color: 'rgba(255,255,255,0.8)' }}>{goal.title.substring(0, 80)}{goal.title.length > 80 ? '...' : ''}</span>
-                                        <span style={{ padding: '1px 6px', borderRadius: '4px', fontSize: '10px', fontWeight: 600, background: `${STATUS_COLORS[goal.statusColor]}15`, color: STATUS_COLORS[goal.statusColor] }}>
-                                            {goal.statusColor}
-                                        </span>
-                                    </div>
-                                    {goal.subtasks.length > 0 && (
-                                        <div style={{ paddingLeft: '16px' }}>
-                                            {goal.subtasks.slice(0, 20).map((s, i) => (
-                                                <ChildIssueRow key={i} issue={s} />
-                                            ))}
-                                            {goal.subtasks.length > 20 && (
-                                                <div style={{ fontSize: '11px', color: 'rgba(255,255,255,0.25)', padding: '4px 0', paddingLeft: '20px' }}>+ {goal.subtasks.length - 20} more</div>
+                    {/* Goal Board View (new interactive PMT-bucketed view) */}
+                    {pageView === 'board' && (() => {
+                        // Deduplicate goals by ID (sections + projectTasks may overlap)
+                        const seen = new Set();
+                        const allGoals = [];
+                        for (const g of report.sections.flatMap(s => s.goals || []).concat(report.projectTasks || [])) {
+                            if (!seen.has(g.id)) { seen.add(g.id); allGoals.push(g); }
+                        }
+                        return <GoalBoard goals={allGoals} names={{}} />;
+                    })()}
+
+                    {/* Status View (original) */}
+                    {pageView === 'status' && (
+                        <>
+                            {/* Goal Update Sections */}
+                            <div style={{ marginBottom: '32px' }}>
+                                <h2 style={{ fontSize: '16px', fontWeight: 700, color: 'rgba(255,255,255,0.8)', marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                    <Target size={18} /> Goal Update
+                                </h2>
+                                {report.sections.map(section => (
+                                    <StatusSection key={section.name} section={section} />
+                                ))}
+                            </div>
+
+                            {/* Project Tasks Section */}
+                            {report.projectTasks && report.projectTasks.length > 0 && (
+                                <div>
+                                    <h2 style={{ fontSize: '16px', fontWeight: 700, color: 'rgba(255,255,255,0.8)', marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                        <Sparkles size={18} /> Project Tasks
+                                    </h2>
+                                    {report.projectTasks.map(goal => (
+                                        <div key={goal.id} style={{ marginBottom: '16px' }}>
+                                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
+                                                <a href={`https://issues.amazon.com/issues/${goal.id}`} target="_blank" rel="noopener noreferrer" style={{ color: '#818cf8', fontWeight: 700, fontSize: '13px', textDecoration: 'none' }}>{goal.id}</a>
+                                                <span style={{ fontSize: '13px', fontWeight: 600, color: 'rgba(255,255,255,0.8)' }}>{goal.title.substring(0, 80)}{goal.title.length > 80 ? '...' : ''}</span>
+                                                <span style={{ padding: '1px 6px', borderRadius: '4px', fontSize: '10px', fontWeight: 600, background: `${STATUS_COLORS[goal.statusColor]}15`, color: STATUS_COLORS[goal.statusColor] }}>
+                                                    {goal.statusColor}
+                                                </span>
+                                            </div>
+                                            {goal.subtasks.length > 0 && (
+                                                <div style={{ paddingLeft: '16px' }}>
+                                                    {goal.subtasks.slice(0, 20).map((s, i) => (
+                                                        <ChildIssueRow key={i} issue={s} />
+                                                    ))}
+                                                    {goal.subtasks.length > 20 && (
+                                                        <div style={{ fontSize: '11px', color: 'rgba(255,255,255,0.25)', padding: '4px 0', paddingLeft: '20px' }}>+ {goal.subtasks.length - 20} more</div>
+                                                    )}
+                                                </div>
                                             )}
                                         </div>
-                                    )}
+                                    ))}
                                 </div>
-                            ))}
-                        </div>
+                            )}
+                        </>
                     )}
                 </>
             )}
@@ -712,7 +807,7 @@ export default function MyTeamPage() {
                 />
             )}
             {alertPanel === 'drift' && report?.summary?.ecdChanges && (
-                <div style={{
+                <div className="slide-panel" style={{
                     position: 'fixed', top: 0, right: 0, width: '540px', height: '100vh',
                     background: 'rgba(15,15,22,0.97)', backdropFilter: 'blur(20px)',
                     borderLeft: '2px solid rgba(99,102,241,0.3)', zIndex: 1000, overflowY: 'auto',
@@ -778,6 +873,9 @@ export default function MyTeamPage() {
                     </div>
                 </div>
             )}
+            {/* Dive Deep Assistant */}
+            <AIChat pageContext="my-team" />
+
             {alertPanel === 'soon' && report?.summary?.ecdSoon && (
                 <EcdAlertPanel
                     title="🔔 ECD Due in 3 Days"

@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { RefreshCw, AlertTriangle, ExternalLink, ChevronRight } from 'lucide-react';
+import AIChat from '@/components/AIChat';
 
 const STATUS_COLORS = {
     'Assigned': { bg: 'rgba(10,132,255,0.12)', color: '#0a84ff', border: 'rgba(10,132,255,0.25)' },
@@ -68,20 +69,88 @@ function AgeBadge({ days, bucket }) {
     );
 }
 
-function StatCard({ value, label, icon, color, bgColor, borderColor }) {
+function StatCard({ value, label, icon, color, bgColor, borderColor, onClick }) {
     return (
         <div style={{
             borderRadius: '16px', padding: '20px 24px', minWidth: '130px', textAlign: 'center',
             background: bgColor, border: `1px solid ${borderColor}`,
-            transition: 'transform 0.2s, box-shadow 0.2s', cursor: 'default',
+            transition: 'transform 0.2s, box-shadow 0.2s', cursor: onClick ? 'pointer' : 'default',
         }}
-            onMouseEnter={e => { e.currentTarget.style.transform = 'translateY(-2px)'; e.currentTarget.style.boxShadow = '0 8px 24px rgba(0,0,0,0.3)'; }}
+            onClick={onClick}
+            onMouseEnter={e => { e.currentTarget.style.transform = 'translateY(-2px)'; e.currentTarget.style.boxShadow = `0 8px 24px rgba(0,0,0,0.3)${onClick ? ', 0 0 0 2px ' + color + '40' : ''}`; }}
             onMouseLeave={e => { e.currentTarget.style.transform = 'translateY(0)'; e.currentTarget.style.boxShadow = 'none'; }}
         >
             <div style={{ fontSize: '14px', marginBottom: '8px' }}>{icon}</div>
             <div style={{ fontSize: '36px', fontWeight: 800, color, letterSpacing: '-1px', lineHeight: 1 }}>{value}</div>
             <div style={{ fontSize: '10px', color: 'rgba(255,255,255,0.45)', textTransform: 'uppercase', letterSpacing: '0.8px', marginTop: '8px', fontWeight: 600 }}>{label}</div>
+            {onClick && <div style={{ fontSize: '9px', color: 'rgba(255,255,255,0.2)', marginTop: '6px' }}>Click for details →</div>}
         </div>
+    );
+}
+
+function TicketListPanel({ title, icon, color, tickets, resolvedTickets, groups, onClose }) {
+    const items = tickets || [];
+    const resolved = resolvedTickets || [];
+    const showResolved = resolved.length > 0 && items.length === 0;
+    const displayItems = showResolved ? resolved : items;
+
+    return (
+        <>
+            <div onClick={onClose} style={{
+                position: 'fixed', top: 0, left: 0, width: '100%', height: '100%',
+                background: 'rgba(0,0,0,0.5)', zIndex: 999, animation: 'fadeIn 0.2s ease-out',
+            }} />
+            <div className="slide-panel" style={{
+                position: 'fixed', top: 0, right: 0, width: '680px', height: '100vh',
+                background: 'rgba(12,12,20,0.98)', backdropFilter: 'blur(24px)',
+                borderLeft: `2px solid ${color}40`, zIndex: 1000, overflowY: 'auto',
+                padding: '32px', boxShadow: '-16px 0 60px rgba(0,0,0,0.6)',
+                animation: 'slideInRight 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
+            }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+                    <h3 style={{ margin: 0, fontSize: '18px', fontWeight: 700, color }}>
+                        {icon} {title} ({displayItems.length})
+                    </h3>
+                    <button onClick={onClose} style={{
+                        background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.1)', color: '#fff',
+                        borderRadius: '10px', padding: '8px 18px', cursor: 'pointer', fontFamily: 'inherit', fontSize: '13px', fontWeight: 500,
+                    }}>
+                        ✕ Close
+                    </button>
+                </div>
+
+                {/* Group breakdown summary if applicable */}
+                {groups && groups.length > 0 && (
+                    <div style={{ marginBottom: '20px', padding: '12px 16px', borderRadius: '10px', background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)' }}>
+                        <div style={{ fontSize: '11px', fontWeight: 600, color: 'rgba(255,255,255,0.4)', textTransform: 'uppercase', marginBottom: '8px' }}>By Resolver Group</div>
+                        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                            {groups.map((g, i) => (
+                                <span key={i} style={{ fontSize: '11px', padding: '3px 10px', borderRadius: '8px', background: `${color}12`, color, border: `1px solid ${color}25`, fontWeight: 600 }}>
+                                    {g.name}: {g.count}
+                                </span>
+                            ))}
+                        </div>
+                    </div>
+                )}
+
+                {displayItems.length === 0 ? (
+                    <div style={{ textAlign: 'center', padding: '60px 20px', color: 'rgba(255,255,255,0.3)' }}>
+                        <div style={{ fontSize: '48px', marginBottom: '12px' }}>🎉</div>
+                        <div style={{ fontSize: '15px', fontWeight: 600 }}>No tickets in this category!</div>
+                    </div>
+                ) : (
+                    <div>
+                        {displayItems.map((t) => (
+                            <TicketRow key={t.id} ticket={t} />
+                        ))}
+                    </div>
+                )}
+
+                <div style={{ marginTop: '28px', paddingTop: '16px', borderTop: '1px solid rgba(255,255,255,0.06)', fontSize: '11px', color: 'rgba(255,255,255,0.15)' }}>
+                    Data fetched live from ticketing API via builder-mcp
+                </div>
+            </div>
+        </>
     );
 }
 
@@ -199,6 +268,7 @@ export default function TicketHealthPage() {
     const [isRefreshing, setIsRefreshing] = useState(false);
     const [error, setError] = useState(null);
     const [selectedGroup, setSelectedGroup] = useState(null);
+    const [statPanel, setStatPanel] = useState(null); // 'totalOpen' | 'mine' | 'aging14' | 'aging30' | 'resolved' | 'baseline'
     const [activeTab, setActiveTab] = useState('groups');
 
     const fetchDashboard = useCallback(async (refresh = false) => {
@@ -303,18 +373,24 @@ export default function TicketHealthPage() {
             {/* Dashboard */}
             {!isLoading && !error && dashboard && !dashboard.empty && (
                 <>
-                    {/* Summary Cards */}
+                    {/* Summary Cards — clickable for drill-down */}
                     <div style={{ display: 'flex', gap: '14px', flexWrap: 'wrap', marginBottom: '24px' }}>
-                        <StatCard value={summary.totalOpen} label="Total Open" icon="📋" color="#0a84ff" bgColor="rgba(10,132,255,0.08)" borderColor="rgba(10,132,255,0.15)" />
-                        <StatCard value={summary.myTicketsCount} label="Assigned to You" icon="👤" color="#a78bfa" bgColor="rgba(139,92,246,0.08)" borderColor="rgba(139,92,246,0.15)" />
-                        <StatCard value={summary.aging14d} label="Aging >14 Days" icon="⏰" color="#ff9f0a" bgColor="rgba(255,159,10,0.08)" borderColor="rgba(255,159,10,0.15)" />
-                        <StatCard value={summary.aging30d} label="Aging >30 Days" icon="🔴" color="#ff453a" bgColor="rgba(255,69,58,0.08)" borderColor="rgba(255,69,58,0.15)" />
-                        <StatCard value={summary.totalResolved30d} label="Resolved (30d)" icon="✅" color="#30d158" bgColor="rgba(48,209,88,0.08)" borderColor="rgba(48,209,88,0.15)" />
+                        <StatCard value={summary.totalOpen} label="Total Open" icon="📋" color="#0a84ff" bgColor="rgba(10,132,255,0.08)" borderColor="rgba(10,132,255,0.15)"
+                            onClick={() => setStatPanel('totalOpen')} />
+                        <StatCard value={summary.myTicketsCount} label="Assigned to You" icon="👤" color="#a78bfa" bgColor="rgba(139,92,246,0.08)" borderColor="rgba(139,92,246,0.15)"
+                            onClick={() => setStatPanel('mine')} />
+                        <StatCard value={summary.aging14d} label="Aging >14 Days" icon="⏰" color="#ff9f0a" bgColor="rgba(255,159,10,0.08)" borderColor="rgba(255,159,10,0.15)"
+                            onClick={() => setStatPanel('aging14')} />
+                        <StatCard value={summary.aging30d} label="Aging >30 Days" icon="🔴" color="#ff453a" bgColor="rgba(255,69,58,0.08)" borderColor="rgba(255,69,58,0.15)"
+                            onClick={() => setStatPanel('aging30')} />
+                        <StatCard value={summary.totalResolved30d} label="Resolved (30d)" icon="✅" color="#30d158" bgColor="rgba(48,209,88,0.08)" borderColor="rgba(48,209,88,0.15)"
+                            onClick={() => setStatPanel('resolved')} />
                         <StatCard
                             value={summary.baselineOverdue} label="Baseline Overdue" icon="⚠️"
                             color={summary.baselineOverdue > 0 ? '#ff453a' : '#30d158'}
                             bgColor={summary.baselineOverdue > 0 ? 'rgba(255,69,58,0.08)' : 'rgba(48,209,88,0.08)'}
                             borderColor={summary.baselineOverdue > 0 ? 'rgba(255,69,58,0.15)' : 'rgba(48,209,88,0.15)'}
+                            onClick={summary.baselineOverdue > 0 ? () => setStatPanel('baseline') : undefined}
                         />
                     </div>
 
@@ -516,6 +592,80 @@ export default function TicketHealthPage() {
                     </div>
                 </>
             )}
+
+            {/* Dive Deep Assistant */}
+            <AIChat pageContext="ticket-health" />
+
+            {/* Stat Drill-Down Panel */}
+            {statPanel && dashboard && (() => {
+                const allTickets = dashboard.allTickets || [];
+                const agingTickets = dashboard.agingTickets || [];
+                const myTickets = dashboard.myTickets || [];
+                const groups = dashboard.groups || [];
+
+                // Helper: group breakdown for a ticket list
+                const groupBreakdown = (tickets) => {
+                    const counts = {};
+                    tickets.forEach(t => { counts[t.group] = (counts[t.group] || 0) + 1; });
+                    return Object.entries(counts).map(([name, count]) => ({ name, count })).sort((a, b) => b.count - a.count);
+                };
+
+                const configs = {
+                    totalOpen: {
+                        title: 'All Open Tickets', icon: '📋', color: '#0a84ff',
+                        tickets: allTickets.sort((a, b) => b.age - a.age),
+                        groups: groupBreakdown(allTickets),
+                    },
+                    mine: {
+                        title: 'Assigned to You', icon: '👤', color: '#a78bfa',
+                        tickets: myTickets,
+                        groups: groupBreakdown(myTickets),
+                    },
+                    aging14: {
+                        title: 'Aging > 14 Days', icon: '⏰', color: '#ff9f0a',
+                        tickets: agingTickets.filter(t => t.age >= 14),
+                        groups: groupBreakdown(agingTickets.filter(t => t.age >= 14)),
+                    },
+                    aging30: {
+                        title: 'Aging > 30 Days', icon: '🔴', color: '#ff453a',
+                        tickets: agingTickets.filter(t => t.age >= 30),
+                        groups: groupBreakdown(agingTickets.filter(t => t.age >= 30)),
+                    },
+                    resolved: {
+                        title: 'Resolved (Last 30 Days)', icon: '✅', color: '#30d158',
+                        tickets: [],
+                        resolvedTickets: groups.map(g => ({
+                            id: g.name, title: `${g.name} — ${g.resolved30d} resolved`, age: 0, ageBucket: 'ok',
+                            status: 'Resolved', group: g.name, assignee: '', createDate: '',
+                        })).filter(g => g.title.includes('0 resolved') === false),
+                        groups: groups.filter(g => g.resolved30d > 0).map(g => ({ name: g.name, count: g.resolved30d })),
+                    },
+                    baseline: {
+                        title: 'Baseline Overdue Groups', icon: '⚠️', color: '#ff453a',
+                        tickets: [],
+                        resolvedTickets: groups.filter(g => g.baselineStatus && g.baselineStatus !== 'UP_TO_DATE').map(g => ({
+                            id: g.name, title: `${g.name} — Baseline: ${g.baselineStatus?.replace('DUE_', '').replace('_', ' ')}`,
+                            age: 0, ageBucket: 'critical', status: g.baselineStatus, group: g.name, assignee: g.primaryOwner || '', createDate: '',
+                        })),
+                        groups: [],
+                    },
+                };
+
+                const cfg = configs[statPanel];
+                if (!cfg) return null;
+
+                return (
+                    <TicketListPanel
+                        title={cfg.title}
+                        icon={cfg.icon}
+                        color={cfg.color}
+                        tickets={cfg.tickets}
+                        resolvedTickets={cfg.resolvedTickets}
+                        groups={cfg.groups}
+                        onClose={() => setStatPanel(null)}
+                    />
+                );
+            })()}
 
             {/* Group Detail Panel */}
             {selectedGroup && (

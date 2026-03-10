@@ -102,23 +102,69 @@ function FormattedMessage({ content }) {
     return <div>{elements}</div>;
 }
 
-// Suggested prompts for empty chat state
-const SUGGESTED_PROMPTS = [
-    { emoji: '📧', text: 'Summarize my emails from today' },
-    { emoji: '📅', text: "What's my busiest day this week?" },
-    { emoji: '👥', text: 'Who should I follow up with?' },
-    { emoji: '🎯', text: 'What meetings need prep?' },
-];
+// Suggested prompts per page context
+const PAGE_PROMPTS = {
+    'eng-metrics': [
+        { emoji: '📝', text: 'Who has the most CRs this week?' },
+        { emoji: '📉', text: 'Which engineers have declining activity?' },
+        { emoji: '🔄', text: "What's the org review ratio?" },
+        { emoji: '🔴', text: 'Show stale CRs and bottlenecks' },
+    ],
+    'ticket-health': [
+        { emoji: '⏰', text: 'Which tickets are over SLA?' },
+        { emoji: '📋', text: "What's the oldest open ticket?" },
+        { emoji: '👤', text: 'Show my ticket assignments' },
+        { emoji: '🏢', text: 'Which resolver groups need attention?' },
+    ],
+    'my-team': [
+        { emoji: '🎯', text: 'Which goals are at risk (Red/Yellow)?' },
+        { emoji: '⚠️', text: 'Which goals have missed their ECD?' },
+        { emoji: '📊', text: 'Summarize goal health by status' },
+        { emoji: '📋', text: 'What are the blocked goals?' },
+    ],
+    'team-pulse': [
+        { emoji: '👥', text: 'Who in my team needs attention?' },
+        { emoji: '📊', text: 'Show team workload distribution' },
+        { emoji: '🔍', text: 'Any team members at risk?' },
+        { emoji: '📈', text: 'Summarize team health trends' },
+    ],
+    default: [
+        { emoji: '📧', text: 'Summarize my emails from today' },
+        { emoji: '📅', text: "What's my busiest day this week?" },
+        { emoji: '👥', text: 'Who should I follow up with?' },
+        { emoji: '🎯', text: 'What meetings need prep?' },
+    ],
+};
+
+const PAGE_GREETINGS = {
+    'eng-metrics': "Hi! I'm your **Code Metrics Assistant**. Ask me anything about CR activity, review ratios, engineering velocity, and stale CRs.\n\nTry one of the suggestions below, or type your own question.",
+    'ticket-health': "Hi! I'm your **Ticket Health Assistant**. Ask me anything about open tickets, SLA violations, aging tickets, and resolver group health.\n\nTry one of the suggestions below, or type your own question.",
+    'my-team': "Hi! I'm your **Goals & Team Health Assistant**. Ask me anything about goal status, ECD risks, blocked items, and team progress.\n\nTry one of the suggestions below, or type your own question.",
+    'team-pulse': "Hi! I'm your **Team Pulse Assistant**. Ask me anything about team workload, member activity, ops health, and areas needing attention.\n\nTry one of the suggestions below, or type your own question.",
+    default: "Hi! I'm your **Dive Deep Assistant**. Ask me anything about your emails, meetings, or schedule.\n\nTry one of the suggestions below, or type your own question.",
+};
+
+const PAGE_PLACEHOLDERS = {
+    'eng-metrics': 'Ask about CRs, review ratios, engineering velocity...',
+    'ticket-health': 'Ask about tickets, SLA, aging, resolver groups...',
+    'my-team': 'Ask about goals, ECDs, risks, team progress...',
+    'team-pulse': 'Ask about team health, workload, member activity...',
+    default: 'Ask about your emails, meetings, schedule...',
+};
 
 function formatTime(date) {
     return new Date(date).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 }
 
-export default function AIChat() {
+export default function AIChat({ pageContext }) {
     const [isOpen, setIsOpen] = useState(false);
     const [isExpanded, setIsExpanded] = useState(false);
+    const greeting = PAGE_GREETINGS[pageContext] || PAGE_GREETINGS.default;
+    const suggestedPrompts = PAGE_PROMPTS[pageContext] || PAGE_PROMPTS.default;
+    const placeholder = PAGE_PLACEHOLDERS[pageContext] || PAGE_PLACEHOLDERS.default;
+
     const [messages, setMessages] = useState([
-        { role: 'assistant', content: "Hi! I'm your **Dive Deep Assistant**. Ask me anything about your emails, meetings, or schedule.\n\nTry one of the suggestions below, or type your own question.", time: new Date() }
+        { role: 'assistant', content: greeting, time: new Date() }
     ]);
     const [input, setInput] = useState('');
     const [isLoading, setIsLoading] = useState(false);
@@ -151,7 +197,7 @@ export default function AIChat() {
     }, [isOpen]);
 
     const handleClear = () => {
-        setMessages([{ role: 'assistant', content: "Chat cleared. Ready to **dive deep** again!\n\nTry one of the suggestions below.", time: new Date() }]);
+        setMessages([{ role: 'assistant', content: greeting, time: new Date() }]);
     };
 
     const sendMessage = useCallback(async (messageText) => {
@@ -172,7 +218,8 @@ export default function AIChat() {
                 body: JSON.stringify({
                     message: messageText,
                     history: messages.map(m => ({ role: m.role, content: m.content })),
-                    stream: true
+                    stream: true,
+                    pageContext: pageContext || null,
                 }),
             });
 
@@ -554,7 +601,7 @@ export default function AIChat() {
                     gridTemplateColumns: '1fr 1fr',
                     gap: '8px',
                 }}>
-                    {SUGGESTED_PROMPTS.map((prompt, idx) => (
+                    {suggestedPrompts.map((prompt, idx) => (
                         <button
                             key={idx}
                             onClick={() => handleSuggestionClick(prompt.text)}
@@ -605,7 +652,7 @@ export default function AIChat() {
                         type="text"
                         value={input}
                         onChange={(e) => setInput(e.target.value)}
-                        placeholder="Ask about your emails, meetings, schedule..."
+                        placeholder={placeholder}
                         style={{
                             width: '100%',
                             background: 'rgba(255, 255, 255, 0.05)',

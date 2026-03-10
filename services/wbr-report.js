@@ -16,7 +16,7 @@ const CACHE_TTL = 60 * 60 * 1000; // 1 hour
 
 // Status sections in order
 const STATUS_SECTIONS = [
-    'Blocked', 'In Planning', 'Started', 'Paused', 'Not Started',
+    'Blocked', 'In Planning', 'Started', 'Open', 'Paused', 'Not Started',
     'DNM', 'Completed Late', 'Completed', 'Cancelled', 'Cut'
 ];
 
@@ -73,7 +73,7 @@ function normalizeStatus(workflowAction, blocked, taskStatus) {
     // Fallback: use the task's status field (Open/Closed)
     const status = (taskStatus || '').trim();
     if (status === 'Closed') return 'Completed';
-    if (status === 'Open') return 'Started'; // Open tasks default to Started
+    if (status === 'Open') return 'Open';
     
     return 'Not Started';
 }
@@ -255,62 +255,47 @@ async function generateWbrReport(forceRefresh = false) {
 
     logger.info('Generating WBR report...');
 
-    // Step 1: List all goals in the folder
-    const listResult = await mcpClient.callTool('builder-mcp', 'TaskeiListTasks', {
-        roomId: config.roomId,
-        folderId: config.folderId,
-        status: 'ALL',
-        pagination: { maxResults: 100 }
-    });
-    const listText = listResult.content?.map(c => c.text || '').join('') || '{}';
-    const listData = JSON.parse(listText);
-    const goalList = listData.tasks || [];
-
-    logger.info(`Found ${goalList.length} goals in folder`);
-
-    // Step 2: Fetch full details for each goal (batched 5 at a time)
+    // Step 1 & 2: Enumerate goals by ID pattern (CPP2026Goal-1 through CPP2026Goal-50)
+    // This ensures we find ALL goals regardless of which folder/sub-folder they're in
+    const prefix = config.goalPrefix || 'CPP2026Goal';
+    const maxGoalNum = 50; // generous upper bound
+    const goalIds = [];
+    for (let n = 1; n <= maxGoalNum; n++) goalIds.push(`${prefix}-${n}`);
+    
+    logger.info(`Enumerating ${goalIds.length} potential goal IDs (${prefix}-1 to ${prefix}-${maxGoalNum})...`);
+    
     const goals = [];
     const batchSize = 5;
-    for (let i = 0; i < goalList.length; i += batchSize) {
-        const batch = goalList.slice(i, i + batchSize);
+    for (let i = 0; i < goalIds.length; i += batchSize) {
+        const batch = goalIds.slice(i, i + batchSize);
         const batchResults = await Promise.all(
-            batch.map(async (g) => {
+            batch.map(async (goalId) => {
                 try {
                     const result = await mcpClient.callTool('builder-mcp', 'TaskeiGetTask', {
-                        taskId: g.shortId || g.id,
+                        taskId: goalId,
                         includeCustomAttributes: true,
                         commentLimit: 1
                     });
                     const text = result.content?.map(c => c.text || '').join('') || '{}';
                     const data = JSON.parse(text);
-                    return data.task ? parseGoal(data.task) : null;
+                    if (data.task) {
+                        return parseGoal(data.task);
+                    }
+                    return null;
                 } catch (e) {
-                    logger.warn(`Failed to fetch goal ${g.shortId}: ${e.message}`);
-                    // Use basic info from list
-                    return {
-                        id: g.shortId || g.id,
-                        title: g.name || 'Untitled',
-                        description: '',
-                        status: normalizeStatus(g.workflowAction, g.blocked, g.status),
-                        statusColor: 'Missing',
-                        ecd: formatDate(g.estimatedCompletionDate),
-                        goalType: 'Missing',
-                        quad: { pm: 'Missing', pmt: 'Missing', tech: 'Missing', sdm: 'Missing' },
-                        assignee: g.assignee?.username || 'unassigned',
-                        assigneeName: g.assignee?.name || '',
-                        announcement: null,
-                        pathToGreen: null,
-                        subtasks: [],
-                        lastUpdated: formatDate(g.lastUpdatedDate),
-                        blocked: g.blocked || false,
-                        blockedReason: null,
-                    };
+                    // Goal doesn't exist — skip silently
+                    return null;
                 }
             })
         );
-        goals.push(...batchResults.filter(Boolean));
-        logger.info(`Fetched ${Math.min(i + batchSize, goalList.length)}/${goalList.length} goals`);
+        const found = batchResults.filter(Boolean);
+        goals.push(...found);
+        if (found.length > 0) {
+            logger.info(`Batch ${Math.floor(i/batchSize)+1}: found ${found.length} goals (total: ${goals.length})`);
+        }
     }
+    
+    logger.info(`Goal enumeration complete: ${goals.length} goals found out of ${maxGoalNum} checked`);
 
     // Step 3: Organize into sections
     const weekNum = getWeekNumber();
@@ -545,6 +530,7 @@ function computeEcdChanges(goals) {
         totalChanged: slipped.length + pulledIn.length
     };
 }
+
 
 module.exports = {
     generateWbrReport,

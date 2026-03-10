@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
+import AIChat from '@/components/AIChat';
 import {
     Users, AlertTriangle, Clock, TrendingUp,
     ChevronDown, ChevronRight, RefreshCw,
@@ -636,6 +637,9 @@ export default function TeamPulsePage() {
                     </div>
                 </>
             )}
+
+            {/* Dive Deep Assistant */}
+            <AIChat pageContext="team-pulse" />
         </div>
     );
 }

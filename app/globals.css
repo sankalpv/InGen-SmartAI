@@ -1060,6 +1060,28 @@ body {
     background: rgba(255, 255, 255, 0.2);
 }
 
+/* Slide panel scrollbar — always visible on macOS */
+.slide-panel {
+    overflow-y: scroll !important;
+    -webkit-overflow-scrolling: touch;
+}
+.slide-panel::-webkit-scrollbar {
+    width: 10px;
+    -webkit-appearance: none;
+}
+.slide-panel::-webkit-scrollbar-track {
+    background: rgba(255, 255, 255, 0.06);
+    border-radius: 5px;
+}
+.slide-panel::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.25);
+    border-radius: 5px;
+    min-height: 40px;
+}
+.slide-panel::-webkit-scrollbar-thumb:hover {
+    background: rgba(255, 255, 255, 0.4);
+}
+
 /* ============ RESTORED UTILITIES ============ */
 
 /* Buttons */

@@ -46,3 +46,7 @@ debug_ui_output.json
 brain/
 smartai.log
 data/
+
+# demo recording output
+scripts/demo-audio/
+scripts/demo-output/

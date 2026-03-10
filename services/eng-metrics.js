@@ -244,24 +244,24 @@ async function fetchEngineerCodeActivity(alias, startDate, endDate) {
         await new Promise(r => setTimeout(r, 200));
 
         // ── 2. CRs submitted by engineer ──
-        const crsFromUrl = `https://code.amazon.com/reviews/from-user/${alias}?shipped=true&open=true&pending=true&start_time=${startDate}&end_time=${endDate}`;
+        const crsFromUrl = `https://code.amazon.com/reviews/from-user/${alias}?open=true&shipped=true&start_time=${startDate}&end_time=${endDate}`;
         const crsFromResult = await mcpClient.callTool('builder-mcp', 'ReadInternalWebsites', {
             inputs: [crsFromUrl]
         });
         const crsFromText = parseMcpContent(crsFromResult);
 
-        // Parse CR table — deduplicate CR IDs
-        const crFromMatches = crsFromText.match(/CR-(\d+)/g) || [];
-        const uniqueFromCrs = [...new Set(crFromMatches)];
-        metrics.crs_created = uniqueFromCrs.length;
-
-        // Extract cr_count from metadata (most reliable source)
+        // Use cr_count from Metadata as the authoritative source
         const crCountMatch = crsFromText.match(/"cr_count"\s*:\s*"?\((\d+)\)"?/);
         if (crCountMatch) {
             metrics.crs_created = parseInt(crCountMatch[1]);
+        } else {
+            // Fallback: count unique CR IDs in response
+            const crFromMatches = crsFromText.match(/CR-(\d+)/g) || [];
+            metrics.crs_created = [...new Set(crFromMatches)].length;
         }
 
         // Extract CR details for goal alignment
+        const uniqueFromCrs = [...new Set(crsFromText.match(/CR-(\d+)/g) || [])];
         for (const crId of uniqueFromCrs) {
             metrics.cr_details.push({ id: crId, type: 'created', snippet: '' });
         }
@@ -271,24 +271,24 @@ async function fetchEngineerCodeActivity(alias, startDate, endDate) {
         await new Promise(r => setTimeout(r, 200));
 
         // ── 3. CRs reviewed (sent to engineer) ──
-        const crsToUrl = `https://code.amazon.com/reviews/to-user/${alias}?shipped=true&open=true&pending=true&start_time=${startDate}&end_time=${endDate}`;
+        const crsToUrl = `https://code.amazon.com/reviews/to-user/${alias}?open=true&shipped=true&start_time=${startDate}&end_time=${endDate}`;
         const crsToResult = await mcpClient.callTool('builder-mcp', 'ReadInternalWebsites', {
             inputs: [crsToUrl]
         });
         const crsToText = parseMcpContent(crsToResult);
 
-        // Parse reviewed CRs — deduplicate
-        const crToMatches = crsToText.match(/CR-(\d+)/g) || [];
-        const uniqueToCrs = [...new Set(crToMatches)];
-        metrics.crs_reviewed = uniqueToCrs.length;
-
-        // Use metadata count as primary (most reliable)
+        // Use cr_count from Metadata as the authoritative source
         const crToCountMatch = crsToText.match(/"cr_count"\s*:\s*"?\((\d+)\)"?/);
         if (crToCountMatch) {
             metrics.crs_reviewed = parseInt(crToCountMatch[1]);
+        } else {
+            // Fallback: count unique CR IDs in response
+            const crToMatches = crsToText.match(/CR-(\d+)/g) || [];
+            metrics.crs_reviewed = [...new Set(crToMatches)].length;
         }
 
         // Add reviewed CRs to details
+        const uniqueToCrs = [...new Set(crsToText.match(/CR-(\d+)/g) || [])];
         for (const crId of uniqueToCrs) {
             metrics.cr_details.push({ id: crId, type: 'reviewed', snippet: '' });
         }
@@ -301,12 +301,37 @@ async function fetchEngineerCodeActivity(alias, startDate, endDate) {
     return metrics;
 }
 
-// ─── Batched Org Fetch (7x faster) ───
+// ─── Batched Org Fetch ───
+
+const BATCH_CHUNK_SIZE = 10; // Max engineers per MCP call to avoid 60s timeout
 
 /**
- * Fetch code activity for ALL engineers in one batched call per data type.
- * Uses ReadInternalWebsites with multiple URLs in the inputs array.
- * 3 MCP calls instead of 111 (37 engineers × 3 endpoints).
+ * Helper: call ReadInternalWebsites in chunks to avoid MCP timeout.
+ * Returns flat array of content blocks in the same order as urls.
+ */
+async function fetchUrlsChunked(mcpClient, urls, chunkSize = BATCH_CHUNK_SIZE) {
+    const allContent = [];
+    for (let i = 0; i < urls.length; i += chunkSize) {
+        const chunk = urls.slice(i, i + chunkSize);
+        const result = await mcpClient.callTool('builder-mcp', 'ReadInternalWebsites', {
+            inputs: chunk,
+            concurrencyLimit: chunkSize
+        });
+        const content = result?.content;
+        if (Array.isArray(content)) {
+            allContent.push(...content);
+        } else {
+            // Single-item fallback
+            allContent.push(content || { text: '' });
+        }
+        if (i + chunkSize < urls.length) await new Promise(r => setTimeout(r, 300));
+    }
+    return allContent;
+}
+
+/**
+ * Fetch code activity for ALL engineers using chunked batched calls.
+ * Sends ~10 URLs per MCP call to stay well within the 60s timeout.
  */
 async function fetchOrgCodeActivityBatched(aliases, startDate, endDate) {
     const mcpClient = require('./mcp-client');
@@ -324,149 +349,111 @@ async function fetchOrgCodeActivityBatched(aliases, startDate, endDate) {
     const fiveDaysAgo = new Date(now - 5 * 24 * 60 * 60 * 1000);
 
     try {
-        // ── Batch 1: Commits for all engineers ──
+        // ── Batch 1: Commits for all engineers (chunked) ──
         const commitUrls = aliases.map(a =>
             `https://code.amazon.com/api/asci/changes_for_user?user=${a}&from_date=${startDate}&to_date=${endDate}`
         );
-        logger.info(`Fetching commits for ${aliases.length} engineers in 1 batched call...`);
-        const commitsResult = await mcpClient.callTool('builder-mcp', 'ReadInternalWebsites', {
-            inputs: commitUrls,
-            concurrencyLimit: 10
-        });
+        logger.info(`Fetching commits for ${aliases.length} engineers in chunks of ${BATCH_CHUNK_SIZE}...`);
+        const commitsContent = await fetchUrlsChunked(mcpClient, commitUrls);
 
-        // Parse batched response — builder-mcp returns multiple content blocks
-        const commitsContent = commitsResult?.content;
-        if (Array.isArray(commitsContent)) {
-            for (let idx = 0; idx < commitsContent.length && idx < aliases.length; idx++) {
-                const alias = aliases[idx];
-                const text = commitsContent[idx]?.text || commitsContent[idx]?.content || '';
-                const textStr = typeof text === 'string' ? text : JSON.stringify(text);
-                try {
-                    const arrStart = textStr.indexOf('[');
-                    const arrEnd = textStr.lastIndexOf(']');
-                    if (arrStart !== -1 && arrEnd !== -1) {
-                        const commits = JSON.parse(textStr.substring(arrStart, arrEnd + 1));
-                        if (Array.isArray(commits)) {
-                            const pkgSet = new Set();
-                            for (const c of commits) {
-                                const tc = c.total_changes || 0;
-                                results[alias].lines_changed += tc;
-                                results[alias].lines_added += Math.round(tc * 0.65);
-                                results[alias].lines_removed += Math.round(tc * 0.35);
-                                if (c.package_name) pkgSet.add(c.package_name);
-                            }
-                            results[alias].packages = Array.from(pkgSet);
+        for (let idx = 0; idx < commitsContent.length && idx < aliases.length; idx++) {
+            const alias = aliases[idx];
+            const text = commitsContent[idx]?.text || commitsContent[idx]?.content || '';
+            const textStr = typeof text === 'string' ? text : JSON.stringify(text);
+            try {
+                const arrStart = textStr.indexOf('[');
+                const arrEnd = textStr.lastIndexOf(']');
+                if (arrStart !== -1 && arrEnd !== -1) {
+                    const commits = JSON.parse(textStr.substring(arrStart, arrEnd + 1));
+                    if (Array.isArray(commits)) {
+                        const pkgSet = new Set();
+                        for (const c of commits) {
+                            const tc = c.total_changes || 0;
+                            results[alias].lines_changed += tc;
+                            results[alias].lines_added += Math.round(tc * 0.65);
+                            results[alias].lines_removed += Math.round(tc * 0.35);
+                            if (c.package_name) pkgSet.add(c.package_name);
                         }
+                        results[alias].packages = Array.from(pkgSet);
                     }
-                } catch (e) { /* skip parse error for this alias */ }
-            }
-        } else {
-            // Single content block — try parsing as single engineer (fallback)
-            const text = parseMcpContent(commitsResult);
-            if (aliases.length === 1) {
-                try {
-                    const arrStart = text.indexOf('[');
-                    const arrEnd = text.lastIndexOf(']');
-                    if (arrStart !== -1 && arrEnd !== -1) {
-                        const commits = JSON.parse(text.substring(arrStart, arrEnd + 1));
-                        if (Array.isArray(commits)) {
-                            for (const c of commits) {
-                                const tc = c.total_changes || 0;
-                                results[aliases[0]].lines_changed += tc;
-                                results[aliases[0]].lines_added += Math.round(tc * 0.65);
-                                results[aliases[0]].lines_removed += Math.round(tc * 0.35);
-                                if (c.package_name) results[aliases[0]].packages.push(c.package_name);
-                            }
-                        }
-                    }
-                } catch (e) { /* skip */ }
-            }
+                }
+            } catch (e) { /* skip parse error for this alias */ }
         }
 
-        await new Promise(r => setTimeout(r, 500));
+        await new Promise(r => setTimeout(r, 300));
 
-        // ── Batch 2: CRs created (from-user) for all engineers ──
+        // ── Batch 2: CRs created (from-user) — chunked ──
         const fromUrls = aliases.map(a =>
-            `https://code.amazon.com/reviews/from-user/${a}?shipped=true&open=true&pending=true&start_time=${startDate}&end_time=${endDate}`
+            `https://code.amazon.com/reviews/from-user/${a}?open=true&shipped=true&start_time=${startDate}&end_time=${endDate}`
         );
-        logger.info(`Fetching CRs-created for ${aliases.length} engineers in 1 batched call...`);
-        const fromResult = await mcpClient.callTool('builder-mcp', 'ReadInternalWebsites', {
-            inputs: fromUrls,
-            concurrencyLimit: 10
-        });
+        logger.info(`Fetching CRs-created for ${aliases.length} engineers in chunks of ${BATCH_CHUNK_SIZE}...`);
+        const fromContent = await fetchUrlsChunked(mcpClient, fromUrls);
 
-        const fromContent = fromResult?.content;
-        if (Array.isArray(fromContent)) {
-            for (let idx = 0; idx < fromContent.length && idx < aliases.length; idx++) {
-                const alias = aliases[idx];
-                const text = fromContent[idx]?.text || fromContent[idx]?.content || '';
-                const textStr = typeof text === 'string' ? text : JSON.stringify(text);
+        for (let idx = 0; idx < fromContent.length && idx < aliases.length; idx++) {
+            const alias = aliases[idx];
+            const text = fromContent[idx]?.text || fromContent[idx]?.content || '';
+            const textStr = typeof text === 'string' ? text : JSON.stringify(text);
+
+            // Use cr_count from Metadata as authoritative source
+            const metaMatch = textStr.match(/"cr_count"\s*:\s*"?\((\d+)\)"?/);
+            if (metaMatch) {
+                results[alias].crs_created = parseInt(metaMatch[1]);
+            } else {
+                // Fallback: count unique CR IDs
                 const crMatches = textStr.match(/CR-(\d+)/g) || [];
-                results[alias].crs_created = crMatches.length;
-                // Check metadata count
-                const metaMatch = textStr.match(/"cr_count"\s*:\s*"?\((\d+)\)"?/);
-                if (metaMatch) {
-                    const mc = parseInt(metaMatch[1]);
-                    if (mc > results[alias].crs_created) results[alias].crs_created = mc;
-                }
-                // Extract CR details
-                for (const line of textStr.split('\n')) {
-                    const crIdMatch = line.match(/CR-(\d+)/);
-                    if (crIdMatch) {
-                        const isOpen = line.toLowerCase().includes('open');
-                        if (isOpen) {
-                            const dateMatch = line.match(/(\d{4}-\d{2}-\d{2})/);
-                            if (dateMatch && new Date(dateMatch[1]) < fiveDaysAgo) results[alias].stale_crs++;
-                        }
-                        results[alias].cr_details.push({
-                            id: crIdMatch[0], type: 'created',
-                            snippet: line.replace(/\|/g, ' ').replace(/\[.*?\]/g, '').trim().substring(0, 150)
-                        });
-                    }
+                results[alias].crs_created = [...new Set(crMatches)].length;
+            }
+
+            // Extract CR details
+            for (const line of textStr.split('\n')) {
+                const crIdMatch = line.match(/CR-(\d+)/);
+                if (crIdMatch) {
+                    results[alias].cr_details.push({
+                        id: crIdMatch[0], type: 'created',
+                        snippet: line.replace(/\|/g, ' ').replace(/\[.*?\]/g, '').trim().substring(0, 150)
+                    });
                 }
             }
         }
 
-        await new Promise(r => setTimeout(r, 500));
+        await new Promise(r => setTimeout(r, 300));
 
-        // ── Batch 3: CRs reviewed (to-user) for all engineers ──
+        // ── Batch 3: CRs reviewed (to-user) — chunked ──
         const toUrls = aliases.map(a =>
-            `https://code.amazon.com/reviews/to-user/${a}?shipped=true&open=true&pending=true&start_time=${startDate}&end_time=${endDate}`
+            `https://code.amazon.com/reviews/to-user/${a}?open=true&shipped=true&start_time=${startDate}&end_time=${endDate}`
         );
-        logger.info(`Fetching CRs-reviewed for ${aliases.length} engineers in 1 batched call...`);
-        const toResult = await mcpClient.callTool('builder-mcp', 'ReadInternalWebsites', {
-            inputs: toUrls,
-            concurrencyLimit: 10
-        });
+        logger.info(`Fetching CRs-reviewed for ${aliases.length} engineers in chunks of ${BATCH_CHUNK_SIZE}...`);
+        const toContent = await fetchUrlsChunked(mcpClient, toUrls);
 
-        const toContent = toResult?.content;
-        if (Array.isArray(toContent)) {
-            for (let idx = 0; idx < toContent.length && idx < aliases.length; idx++) {
-                const alias = aliases[idx];
-                const text = toContent[idx]?.text || toContent[idx]?.content || '';
-                const textStr = typeof text === 'string' ? text : JSON.stringify(text);
+        for (let idx = 0; idx < toContent.length && idx < aliases.length; idx++) {
+            const alias = aliases[idx];
+            const text = toContent[idx]?.text || toContent[idx]?.content || '';
+            const textStr = typeof text === 'string' ? text : JSON.stringify(text);
+
+            // Use cr_count from Metadata as authoritative source
+            const metaMatch = textStr.match(/"cr_count"\s*:\s*"?\((\d+)\)"?/);
+            if (metaMatch) {
+                results[alias].crs_reviewed = parseInt(metaMatch[1]);
+            } else {
+                // Fallback: count unique CR IDs
                 const crMatches = textStr.match(/CR-(\d+)/g) || [];
-                results[alias].crs_reviewed = crMatches.length;
-                const metaMatch = textStr.match(/"cr_count"\s*:\s*"?\((\d+)\)"?/);
-                if (metaMatch) {
-                    const mc = parseInt(metaMatch[1]);
-                    if (mc > results[alias].crs_reviewed) results[alias].crs_reviewed = mc;
-                }
-                for (const line of textStr.split('\n')) {
-                    const crIdMatch = line.match(/CR-(\d+)/);
-                    if (crIdMatch) {
-                        results[alias].cr_details.push({
-                            id: crIdMatch[0], type: 'reviewed',
-                            snippet: line.replace(/\|/g, ' ').replace(/\[.*?\]/g, '').trim().substring(0, 150)
-                        });
-                    }
+                results[alias].crs_reviewed = [...new Set(crMatches)].length;
+            }
+
+            // Extract CR details
+            for (const line of textStr.split('\n')) {
+                const crIdMatch = line.match(/CR-(\d+)/);
+                if (crIdMatch) {
+                    results[alias].cr_details.push({
+                        id: crIdMatch[0], type: 'reviewed',
+                        snippet: line.replace(/\|/g, ' ').replace(/\[.*?\]/g, '').trim().substring(0, 150)
+                    });
                 }
             }
         }
 
     } catch (error) {
-        logger.warn(`Batched fetch failed: ${error.message}. Falling back to sequential.`);
-        // Fallback: fetch sequentially for each engineer
+        logger.warn(`Chunked batched fetch failed: ${error.message}. Falling back to sequential.`);
         for (const alias of aliases) {
             try {
                 results[alias] = await fetchEngineerCodeActivity(alias, startDate, endDate);
@@ -480,13 +467,15 @@ async function fetchOrgCodeActivityBatched(aliases, startDate, endDate) {
 // ─── Backfill & Incremental Sync ───
 
 /**
- * Get all week IDs from W01 of a given year to the current week
+ * Get all week IDs from W01 of a given year to the last COMPLETED week.
+ * Excludes the current in-progress week to avoid storing partial data.
  */
 function getYearWeekIds(year = new Date().getFullYear()) {
     const currentWeekId = getWeekId();
     const currentYear = parseInt(currentWeekId.split('-W')[0]);
     const currentWeekNum = parseInt(currentWeekId.split('-W')[1]);
-    const maxWeek = year === currentYear ? currentWeekNum : 52;
+    // Exclude current (in-progress) week — only include completed weeks
+    const maxWeek = year === currentYear ? currentWeekNum - 1 : 52;
 
     const weekIds = [];
     for (let w = 1; w <= maxWeek; w++) {
@@ -527,10 +516,12 @@ async function backfillYear(year = new Date().getFullYear(), onProgress = null) 
         return backfillState.result;
     }
 
-    const allMembers = await orgStore.getAllMembers();
-    if (!allMembers || allMembers.length === 0) {
+    const allMembersRaw = await orgStore.getAllMembers();
+    if (!allMembersRaw || allMembersRaw.length === 0) {
         throw new Error('Org store is empty. Please sync your org first from Settings.');
     }
+    // SDEs only — exclude managers
+    const allMembers = allMembersRaw.filter(m => !m.isManager);
 
     const aliases = allMembers.map(m => m.alias);
     const memberMap = {};
@@ -630,12 +621,36 @@ function startBackfillAsync(year = new Date().getFullYear()) {
 }
 
 /**
- * Incremental sync — ensures current week has data, silently called on page visit
+ * Incremental sync — ensures current week has data, silently called on page visit.
+ * Also detects and re-fetches any previous week that was captured mid-week (partial data).
  */
 async function incrementalSync() {
     await init();
     const currentWeekId = getWeekId();
 
+    // ── Check if previous week was fetched mid-week (incomplete/partial data) ──
+    const [curYear, curWeekStr] = currentWeekId.split('-W');
+    const curWeekNum = parseInt(curWeekStr);
+    let prevWn = curWeekNum - 1;
+    let prevYr = parseInt(curYear);
+    if (prevWn <= 0) { prevWn += 52; prevYr--; }
+    const prevWeekId = `${prevYr}-W${String(prevWn).padStart(2, '0')}`;
+    const prevWeekEnd = new Date(getWeekDateRange(prevWeekId).end + 'T23:59:59Z');
+
+    const prevWeekRow = await dbGet(
+        `SELECT fetched_at FROM eng_metrics_weekly WHERE week_id = ? LIMIT 1`,
+        [prevWeekId]
+    );
+    if (prevWeekRow) {
+        const fetchedDate = new Date(prevWeekRow.fetched_at);
+        if (fetchedDate < prevWeekEnd) {
+            // Data was captured before the week ended — re-fetch for complete data
+            logger.info(`Incremental sync: re-fetching ${prevWeekId} (was fetched mid-week on ${prevWeekRow.fetched_at})`);
+            await fetchOrgMetrics(prevWeekId);
+        }
+    }
+
+    // ── Ensure current week has data ──
     const hasCurrentWeek = await hasDataForWeek(currentWeekId);
     if (hasCurrentWeek) {
         return { status: 'current', weekId: currentWeekId };
@@ -773,50 +788,44 @@ async function countOrgStaleCrs() {
     const orgStore = require('./org-store');
     const mcpClient = require('./mcp-client');
 
-    const allMembers = await orgStore.getAllMembers();
-    if (!allMembers || allMembers.length === 0) return 0;
+    const allMembersRaw = await orgStore.getAllMembers();
+    if (!allMembersRaw || allMembersRaw.length === 0) return 0;
+    // SDEs only — exclude managers
+    const allMembers = allMembersRaw.filter(m => !m.isManager);
 
     const aliases = allMembers.map(m => m.alias);
     const fiveDaysAgo = new Date(Date.now() - 5 * 24 * 60 * 60 * 1000);
 
     try {
-        // Single batched call: all engineers' OPEN CRs
+        // Chunked batched calls to avoid MCP timeout
         const openUrls = aliases.map(a =>
             `https://code.amazon.com/reviews/from-user/${a}?open=true`
         );
-        logger.info(`Counting stale CRs for ${aliases.length} engineers...`);
-        const result = await mcpClient.callTool('builder-mcp', 'ReadInternalWebsites', {
-            inputs: openUrls,
-            concurrencyLimit: 10
-        });
+        logger.info(`Counting stale CRs for ${aliases.length} engineers in chunks of ${BATCH_CHUNK_SIZE}...`);
+        const content = await fetchUrlsChunked(mcpClient, openUrls);
 
         let staleCrCount = 0;
         const staleDetails = [];
-        const content = result?.content;
 
-        if (Array.isArray(content)) {
-            for (let idx = 0; idx < content.length && idx < aliases.length; idx++) {
-                const text = content[idx]?.text || content[idx]?.content || '';
-                const textStr = typeof text === 'string' ? text : JSON.stringify(text);
+        for (let idx = 0; idx < content.length && idx < aliases.length; idx++) {
+            const text = content[idx]?.text || content[idx]?.content || '';
+            const textStr = typeof text === 'string' ? text : JSON.stringify(text);
 
-                // Parse table rows — look for OPEN status with dates
-                const lines = textStr.split('\n');
-                for (const line of lines) {
-                    // Match table rows with CR IDs and OPEN status
-                    if (line.includes('OPEN') && line.match(/CR-(\d+)/)) {
-                        const crMatch = line.match(/CR-(\d+)/);
-                        const dateMatch = line.match(/(\d{4}-\d{2}-\d{2})/);
-                        if (crMatch && dateMatch) {
-                            const lastTouched = new Date(dateMatch[1]);
-                            if (lastTouched < fiveDaysAgo) {
-                                staleCrCount++;
-                                staleDetails.push({
-                                    crId: crMatch[0],
-                                    alias: aliases[idx],
-                                    lastTouched: dateMatch[1],
-                                    ageDays: Math.floor((Date.now() - lastTouched.getTime()) / (1000 * 60 * 60 * 24))
-                                });
-                            }
+            const lines = textStr.split('\n');
+            for (const line of lines) {
+                if (line.includes('OPEN') && line.match(/CR-(\d+)/)) {
+                    const crMatch = line.match(/CR-(\d+)/);
+                    const dateMatch = line.match(/(\d{4}-\d{2}-\d{2})/);
+                    if (crMatch && dateMatch) {
+                        const lastTouched = new Date(dateMatch[1]);
+                        if (lastTouched < fiveDaysAgo) {
+                            staleCrCount++;
+                            staleDetails.push({
+                                crId: crMatch[0],
+                                alias: aliases[idx],
+                                lastTouched: dateMatch[1],
+                                ageDays: Math.floor((Date.now() - lastTouched.getTime()) / (1000 * 60 * 60 * 24))
+                            });
                         }
                     }
                 }
@@ -847,11 +856,12 @@ async function fetchOrgMetrics(weekId = null) {
 
     logger.info(`Fetching org metrics for ${currentWeekId} (${dateRange.start} to ${dateRange.end})`);
 
-    // Get all org members
-    const allMembers = await orgStore.getAllMembers();
-    if (!allMembers || allMembers.length === 0) {
+    // Get all org members (SDEs only — exclude managers)
+    const allMembersRaw = await orgStore.getAllMembers();
+    if (!allMembersRaw || allMembersRaw.length === 0) {
         throw new Error('Org store is empty. Please sync your org first from Settings.');
     }
+    const allMembers = allMembersRaw.filter(m => !m.isManager);
 
     const now = new Date().toISOString();
     let fetchedCount = 0;

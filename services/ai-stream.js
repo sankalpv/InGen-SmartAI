@@ -243,6 +243,60 @@ INSTRUCTIONS:
 }
 
 /**
+ * Stream a page-context-aware chat response — calls onChunk as tokens arrive.
+ * Used by Code Metrics, Ticket Health, Team Pulse pages.
+ */
+export async function streamPageChatResponse(query, pageContext, contextData, history, onChunk) {
+    const PAGE_SYSTEM_PROMPTS = {
+        'eng-metrics': `You are a **Code Metrics Analyst** for an engineering team's productivity dashboard.
+You have access to real-time data about code review (CR) activity, including CRs created, CRs reviewed, review ratios, stale CRs, and per-engineer trends.
+Answer questions about engineering velocity, code review health, individual engineer productivity, and team-wide patterns.
+Be data-driven and cite specific numbers from the provided data. Use markdown formatting for clarity.`,
+
+        'ticket-health': `You are a **Ticket Health Analyst** for a team's operational dashboard.
+You have access to real-time data about open tickets across resolver groups, including ticket ages, SLA status, status distribution, assignments, and baseline compliance.
+Answer questions about ticket health, aging tickets, SLA violations, resolver group workload, and individual assignments.
+Be specific about ticket IDs, ages, and groups. Use markdown formatting for clarity.`,
+
+        'my-team': `You are a **Goals & Team Health Analyst** for a manager's WBR (Weekly Business Review) dashboard.
+You have access to ALL goals for the team including their status (Green/Yellow/Red), ECD (Estimated Completion Date), goal type, theme, quad assignments, and child task counts.
+You also have data on missed ECDs, upcoming ECDs, ECD changes (slipped/pulled in), and status distribution.
+Answer questions about goal health, at-risk goals, blocked items, ECD compliance, status distribution, and team progress.
+When listing goals, include the goal ID, title, status color, and ECD. Be specific and data-driven. Use markdown formatting for clarity.
+IMPORTANT: The data contains ALL goals (the allGoals array). Always reference the complete list, not a subset.`,
+
+        'team-pulse': `You are a **Team Pulse Analyst** for a manager's operational dashboard.
+You have access to data about team members, their issue ownership, activity levels, SLA violations, and aging issues from the Issues/SIM/Taskei system.
+Answer questions about team workload, member activity, issue ownership, SLA health, and areas needing attention.
+Be thoughtful about people-related insights. Use markdown formatting for clarity.`,
+    };
+
+    const systemPrompt = PAGE_SYSTEM_PROMPTS[pageContext] || "You are a helpful assistant for a productivity dashboard.";
+
+    const historyStr = history.slice(-5).map(msg => `${msg.role === 'user' ? 'User' : 'AI'}: ${msg.content}`).join('\n');
+
+    const prompt = `
+PAGE CONTEXT DATA (live data from the ${pageContext} dashboard):
+${JSON.stringify(contextData, null, 2)}
+
+CONVERSATION HISTORY:
+${historyStr}
+
+CURRENT QUESTION:
+${query}
+
+INSTRUCTIONS:
+1. Answer the question using the provided page context data.
+2. Be specific — cite numbers, names, ticket IDs, or engineer aliases when relevant.
+3. If the data doesn't contain the answer, say so clearly.
+4. Format your response with markdown (headers, bold, lists) for readability.
+5. Be concise but thorough.
+`;
+
+    return await streamCompletion(systemPrompt, prompt, onChunk, { temperature: 0.4 });
+}
+
+/**
  * Stream a draft reply — calls onChunk as tokens arrive
  */
 export async function streamDraftReply(email, contextStr, quipContext, userIntent, onChunk) {

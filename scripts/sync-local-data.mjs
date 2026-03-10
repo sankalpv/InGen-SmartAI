@@ -1,4 +1,4 @@
-code#!/usr/bin/env node
+#!/usr/bin/env node
 /**
  * Sync local data from Outlook — runs as ESM module
  * Called by local-store.js via child process to avoid ESM/CJS conflicts

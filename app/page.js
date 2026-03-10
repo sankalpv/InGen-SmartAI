@@ -26,7 +26,7 @@ import StreamingBriefing from '@/components/StreamingBriefing'; // Phase 3: Chat
 const PAGE_SIZE = 20;
 
 function EmailPriorityLanes({ emails }) {
-    const [emailDateRange, setEmailDateRange] = useState(1); // Default: today (1 day)
+    const [emailDateRange, setEmailDateRange] = useState(3); // Default: today + last 2 days (3 days)
     const [currentPage, setCurrentPage] = useState(1);
 
     // Filter emails by date range
@@ -49,6 +49,7 @@ function EmailPriorityLanes({ emails }) {
 
     const dateRangeOptions = [
         { value: 1, label: 'Today' },
+        { value: 3, label: '3 days' },
         { value: 7, label: '7 days' },
         { value: 14, label: '14 days' },
         { value: 30, label: '30 days' },
@@ -407,24 +408,25 @@ export default function Dashboard() {
 
     const actionSlack = slackMessages.filter(m => m.needsResponse || m.actionItem);
 
-    // Filter to today only for consistent stat display
-    const todayStart = new Date(new Date().toDateString());
-    const todayEnd = new Date(todayStart);
+    // Filter to last 3 days (today + 2 previous days) for stats and default view
+    const threeDaysAgo = new Date(new Date().toDateString());
+    threeDaysAgo.setDate(threeDaysAgo.getDate() - 2);
+    const todayEnd = new Date(new Date().toDateString());
     todayEnd.setDate(todayEnd.getDate() + 1);
 
-    const todayEmails = receivedEmails.filter(e => {
+    const recentEmails = receivedEmails.filter(e => {
         const d = new Date(e.date || e.received || e.receivedDateTime);
-        return d >= todayStart && d < todayEnd;
+        return d >= threeDaysAgo && d < todayEnd;
     });
-    const todayUrgent = todayEmails.filter(e => (e.aiCategory || '').toLowerCase() === 'respond_now');
-    const todayMeetings = meetings.filter(m => {
+    const recentUrgent = recentEmails.filter(e => (e.aiCategory || '').toLowerCase() === 'respond_now');
+    const recentMeetings = meetings.filter(m => {
         const d = new Date(m.startTime || m.start || m.date);
-        return d >= todayStart && d < todayEnd;
+        return d >= threeDaysAgo && d < todayEnd;
     });
 
     const tabs = [
-        { id: 'emails', label: 'Email Triage', icon: Mail, count: todayEmails.length },
-        { id: 'meetings', label: 'Meeting Prep', icon: Calendar, count: todayMeetings.length },
+        { id: 'emails', label: 'Email Triage', icon: Mail, count: recentEmails.length },
+        { id: 'meetings', label: 'Meeting Prep', icon: Calendar, count: recentMeetings.length },
     ];
 
     // XKCD comic state for loading screen
@@ -537,8 +539,8 @@ export default function Dashboard() {
                         <Inbox size={22} />
                     </div>
                     <div>
-                        <div className="stat-value">{todayEmails.length}</div>
-                        <div className="stat-label">Today&apos;s Emails</div>
+                        <div className="stat-value">{recentEmails.length}</div>
+                        <div className="stat-label">Last 3 Days Emails</div>
                     </div>
                 </div>
                 <div className="stat-card animate-in">
@@ -546,7 +548,7 @@ export default function Dashboard() {
                         <AlertTriangle size={22} />
                     </div>
                     <div>
-                        <div className="stat-value">{todayUrgent.length}</div>
+                        <div className="stat-value">{recentUrgent.length}</div>
                         <div className="stat-label">Urgent</div>
                     </div>
                 </div>
@@ -555,8 +557,8 @@ export default function Dashboard() {
                         <Calendar size={22} />
                     </div>
                     <div>
-                        <div className="stat-value">{todayMeetings.length}</div>
-                        <div className="stat-label">Meetings Today</div>
+                        <div className="stat-value">{recentMeetings.length}</div>
+                        <div className="stat-label">Last 3 Days Meetings</div>
                     </div>
                 </div>
             </div>
