@@ -197,17 +197,6 @@ export default function GoalBoard({ goals, names }) {
                 @keyframes pulse{0%,100%{transform:scale(1)}50%{transform:scale(1.25)}}
             `}</style>
 
-            {/* Stats */}
-            <div style={{ display: 'flex', gap: '12px', marginBottom: '24px', flexWrap: 'wrap' }}>
-                {stats.map((s, i) => (
-                    <div key={s.l} style={{ borderRadius: '14px', padding: '14px 24px', textAlign: 'center', minWidth: '90px', background: s.bg, border: `1px solid ${s.b}`, cursor: 'default', transition: 'all 0.3s cubic-bezier(0.4,0,0.2,1)', animation: `fadeUp 0.4s ${i * 0.06}s both` }}
-                        onMouseEnter={e => { e.currentTarget.style.transform = 'translateY(-3px) scale(1.05)'; e.currentTarget.style.boxShadow = '0 8px 24px rgba(0,0,0,0.3)'; }}
-                        onMouseLeave={e => { e.currentTarget.style.transform = ''; e.currentTarget.style.boxShadow = ''; }}>
-                        <div style={{ fontSize: '28px', fontWeight: 800, color: s.c, lineHeight: 1 }}>{s.v}</div>
-                        <div style={{ fontSize: '10px', color: 'rgba(255,255,255,0.4)', textTransform: 'uppercase', letterSpacing: '0.8px', marginTop: '6px', fontWeight: 600 }}>{s.l}</div>
-                    </div>
-                ))}
-            </div>
 
             {/* View Switcher */}
             <div style={{ display: 'flex', gap: '4px', background: 'rgba(0,0,0,0.4)', padding: '4px', borderRadius: '14px', border: '1px solid rgba(255,255,255,0.06)', marginBottom: '24px' }}>

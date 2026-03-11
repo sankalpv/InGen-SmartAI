@@ -15,8 +15,14 @@ function getHeatColor(val, max) {
 
 function HeatmapTooltip({ data, position }) {
     if (!data) return null;
+    // Flip tooltip above cursor if near bottom/right of viewport
+    const tipH = 120, tipW = 230;
+    const vH = typeof window !== 'undefined' ? window.innerHeight : 800;
+    const vW = typeof window !== 'undefined' ? window.innerWidth : 1200;
+    const top = position.y + tipH > vH - 200 ? position.y - tipH : position.y - 20;
+    const left = position.x + tipW + 16 > vW ? position.x - tipW : position.x + 8;
     return (
-        <div style={{ position: 'fixed', left: position.x + 16, top: position.y - 10, background: 'rgba(15,15,25,0.95)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '10px', padding: '10px 14px', fontSize: '12px', color: '#e2e8f0', pointerEvents: 'none', zIndex: 100, boxShadow: '0 8px 24px rgba(0,0,0,0.5)', maxWidth: '220px' }}>
+        <div style={{ position: 'fixed', left, top, background: 'rgba(15,15,25,0.95)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '10px', padding: '10px 14px', fontSize: '12px', color: '#e2e8f0', pointerEvents: 'none', zIndex: 100, boxShadow: '0 8px 24px rgba(0,0,0,0.5)', maxWidth: '220px' }}>
             <div style={{ fontWeight: 700, color: '#60a5fa', marginBottom: '4px' }}>{data.name}</div>
             <div style={{ color: 'rgba(255,255,255,0.4)', fontSize: '10px', marginBottom: '6px' }}>{data.alias} · {data.week}</div>
             <div style={{ display: 'flex', gap: '12px' }}>
@@ -66,15 +72,15 @@ function Heatmap({ heatmapData, metric, onMetricChange, onEngineerClick }) {
                 @keyframes cellPop{from{opacity:0;transform:scale(0)}to{opacity:1;transform:scale(1)}}
             `}</style>
             {/* Metric toggle */}
-            <div style={{ display: 'flex', gap: '4px', marginBottom: '12px', marginLeft: '120px' }}>
+            <div style={{ display: 'flex', gap: '4px', marginBottom: '12px', marginLeft: '160px' }}>
                 {[{ id: 'created', l: 'CRs Created', c: '#0a84ff' }, { id: 'reviewed', l: 'CRs Reviewed', c: '#30d158' }, { id: 'total', l: 'Total', c: '#a78bfa' }].map(m => (
-                    <button key={m.id} onClick={() => onMetricChange(m.id)} style={{ padding: '4px 12px', borderRadius: '6px', border: 'none', fontSize: '11px', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', background: metric === m.id ? `${m.c}20` : 'transparent', color: metric === m.id ? m.c : 'rgba(255,255,255,0.3)', transition: 'all 0.2s' }}>{m.l}</button>
+                    <button key={m.id} onClick={() => onMetricChange(m.id)} style={{ padding: '5px 14px', borderRadius: '6px', border: 'none', fontSize: '12px', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', background: metric === m.id ? `${m.c}20` : 'transparent', color: metric === m.id ? m.c : 'rgba(255,255,255,0.3)', transition: 'all 0.2s' }}>{m.l}</button>
                 ))}
             </div>
 
             {/* Week labels */}
-            <div style={{ display: 'flex', marginLeft: '120px', marginBottom: '4px' }}>
-                {weeks.map(w => <div key={w} style={{ width: '16px', textAlign: 'center', fontSize: '8px', color: 'rgba(255,255,255,0.15)' }}>{w.replace('W', '')}</div>)}
+            <div style={{ display: 'flex', marginLeft: '160px', marginBottom: '6px' }}>
+                {weeks.map(w => <div key={w} style={{ width: '26px', textAlign: 'center', fontSize: '10px', color: 'rgba(255,255,255,0.2)' }}>{w.replace('W', '')}</div>)}
             </div>
 
             {/* Rows */}
@@ -83,8 +89,8 @@ function Heatmap({ heatmapData, metric, onMetricChange, onEngineerClick }) {
                     const vals = e.weeks.map(w => metric === 'created' ? w.crsCreated : metric === 'reviewed' ? w.crsReviewed : w.crsCreated + w.crsReviewed);
                     const sparkMax = Math.max(...vals, 1);
                     return (
-                        <div key={e.alias} style={{ display: 'flex', alignItems: 'center', gap: 0, marginBottom: '2px' }}>
-                            <div onClick={() => onEngineerClick?.(e.alias)} style={{ width: '120px', fontSize: '11px', color: 'rgba(255,255,255,0.5)', textAlign: 'right', paddingRight: '10px', flexShrink: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', cursor: 'pointer', transition: 'color 0.2s' }}
+                        <div key={e.alias} style={{ display: 'flex', alignItems: 'center', gap: 0, marginBottom: '3px' }}>
+                            <div onClick={() => onEngineerClick?.(e.alias)} style={{ width: '160px', fontSize: '13px', color: 'rgba(255,255,255,0.5)', textAlign: 'right', paddingRight: '12px', flexShrink: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', cursor: 'pointer', transition: 'color 0.2s' }}
                                 onMouseEnter={ev => ev.currentTarget.style.color = '#60a5fa'}
                                 onMouseLeave={ev => ev.currentTarget.style.color = 'rgba(255,255,255,0.5)'}>
                                 {e.name}
@@ -92,7 +98,7 @@ function Heatmap({ heatmapData, metric, onMetricChange, onEngineerClick }) {
                             {e.weeks.map((w, wi) => {
                                 const v = metric === 'created' ? w.crsCreated : metric === 'reviewed' ? w.crsReviewed : w.crsCreated + w.crsReviewed;
                                 return (
-                                    <div key={wi} style={{ width: '14px', height: '14px', borderRadius: '3px', margin: '1px', background: getHeatColor(v, maxVal), transition: 'all 0.2s', cursor: 'pointer', animation: `cellPop 0.15s ${(ei * weeks.length + wi) * 0.005}s both` }}
+                                    <div key={wi} style={{ width: '22px', height: '22px', borderRadius: '4px', margin: '2px', background: getHeatColor(v, maxVal), transition: 'all 0.2s', cursor: 'pointer', animation: `cellPop 0.15s ${(ei * weeks.length + wi) * 0.005}s both` }}
                                         onMouseEnter={ev => { setTooltip({ name: e.name, alias: e.alias, week: w.weekLabel || weeks[wi], created: w.crsCreated, reviewed: w.crsReviewed }); setTipPos({ x: ev.clientX, y: ev.clientY }); }}
                                         onMouseMove={ev => setTipPos({ x: ev.clientX, y: ev.clientY })}
                                         onMouseLeave={() => setTooltip(null)}
@@ -100,9 +106,9 @@ function Heatmap({ heatmapData, metric, onMetricChange, onEngineerClick }) {
                                 );
                             })}
                             {/* Mini sparkline */}
-                            <div style={{ display: 'flex', gap: '1px', alignItems: 'flex-end', height: '14px', marginLeft: '8px' }}>
+                            <div style={{ display: 'flex', gap: '2px', alignItems: 'flex-end', height: '32px', marginLeft: '14px' }}>
                                 {vals.map((v, si) => (
-                                    <div key={si} style={{ width: '3px', height: `${Math.max(2, (v / sparkMax) * 14)}px`, borderRadius: '1px', background: si === vals.length - 1 ? 'rgba(48,209,88,0.7)' : 'rgba(10,132,255,0.4)' }} />
+                                    <div key={si} style={{ width: '6px', height: `${Math.max(4, (v / sparkMax) * 32)}px`, borderRadius: '2px', background: si === vals.length - 1 ? 'rgba(48,209,88,0.7)' : 'rgba(10,132,255,0.4)' }} />
                                 ))}
                             </div>
                         </div>
@@ -111,10 +117,10 @@ function Heatmap({ heatmapData, metric, onMetricChange, onEngineerClick }) {
             </div>
 
             {/* Legend */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginTop: '12px', marginLeft: '120px', fontSize: '10px', color: 'rgba(255,255,255,0.25)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '16px', marginLeft: '160px', fontSize: '11px', color: 'rgba(255,255,255,0.3)' }}>
                 <span>Less</span>
                 {['rgba(255,255,255,0.03)', 'rgba(48,209,88,0.15)', 'rgba(48,209,88,0.35)', 'rgba(48,209,88,0.6)', 'rgba(48,209,88,0.9)'].map((c, i) => (
-                    <div key={i} style={{ width: '12px', height: '12px', borderRadius: '2px', background: c }} />
+                    <div key={i} style={{ width: '16px', height: '16px', borderRadius: '3px', background: c }} />
                 ))}
                 <span>More</span>
             </div>

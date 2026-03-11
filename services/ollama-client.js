@@ -3,7 +3,20 @@
  * Handles both LLM generation and embeddings
  */
 
+const fs = require('fs');
+const path = require('path');
 const logger = require('./logger').child('Ollama');
+
+const SETTINGS_PATH = path.join(process.cwd(), 'config', 'settings.json');
+
+function getAiTemperature() {
+    try {
+        const settings = JSON.parse(fs.readFileSync(SETTINGS_PATH, 'utf8'));
+        const temp = parseFloat(settings.aiTemperature);
+        if (!isNaN(temp) && temp >= 0 && temp <= 2) return temp;
+    } catch (e) { /* ignore */ }
+    return 0.25; // Default: low temperature for factual grounding
+}
 
 class OllamaClient {
   constructor() {
@@ -19,9 +32,10 @@ class OllamaClient {
    * Generate text completion using LLM
    */
   async generate(prompt, options = {}) {
+    const configTemp = getAiTemperature();
     const {
       system = '',
-      temperature = 0.3,
+      temperature = configTemp,
       maxTokens = 2000,
       format = null, // 'json' for structured output
       stream = false

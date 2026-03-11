@@ -464,6 +464,118 @@ async function fetchOrgCodeActivityBatched(aliases, startDate, endDate) {
     return results;
 }
 
+// ─── CR Detail Enrichment ───
+
+/**
+ * Enrich CR details by fetching full titles, descriptions, and comments from code.amazon.com.
+ * Fetches ALL unique CRs in batches of 10 via ReadInternalWebsites.
+ * @param {Object} results - Map of alias -> { cr_details: [...] }
+ * @returns {Object} enriched results (mutated in place)
+ */
+async function enrichCrDetailsFromCode(results) {
+    const mcpClient = require('./mcp-client');
+
+    // Collect all unique CR IDs across all engineers
+    const allCrIds = new Set();
+    for (const alias of Object.keys(results)) {
+        for (const cr of (results[alias].cr_details || [])) {
+            if (cr.id) allCrIds.add(cr.id);
+        }
+    }
+
+    if (allCrIds.size === 0) return results;
+
+    const crIds = Array.from(allCrIds);
+    logger.info(`Enriching ${crIds.length} CRs with titles + comments from code.amazon.com...`);
+
+    const enrichedMap = {}; // crId -> { title, description, comments, packages, status, category }
+    const CR_BATCH = 10;
+
+    for (let i = 0; i < crIds.length; i += CR_BATCH) {
+        const batch = crIds.slice(i, i + CR_BATCH);
+        const urls = batch.map(id => `https://code.amazon.com/reviews/${id}?include-all-comments=true`);
+
+        try {
+            const result = await mcpClient.callTool('builder-mcp', 'ReadInternalWebsites', {
+                inputs: urls,
+                concurrencyLimit: CR_BATCH
+            });
+            const contentItems = result?.content;
+            if (Array.isArray(contentItems)) {
+                for (let idx = 0; idx < contentItems.length && idx < batch.length; idx++) {
+                    const crId = batch[idx];
+                    try {
+                        const raw = contentItems[idx]?.text || contentItems[idx]?.content || '';
+                        const textStr = typeof raw === 'string' ? raw : JSON.stringify(raw);
+                        const parsed = typeof raw === 'object' ? raw : JSON.parse(textStr);
+                        const content = parsed?.content || parsed;
+
+                        const revSummary = content?.revisionSummary || {};
+                        const crRevision = content?.revisionDetails?.revision?.cr_revision || {};
+
+                        // Title & description
+                        const title = revSummary.summary || crRevision.summary || '';
+                        const description = crRevision.description || '';
+
+                        // Packages
+                        const packages = (crRevision.packages || []).map(p => p?.package?.name || p?.name).filter(Boolean);
+
+                        // Comments — from allComments array (top-level, flat)
+                        // Filter out bot comments (CoverlayWorker, GoodCop, etc.)
+                        const botAuthors = new Set(['CoverlayWorker', 'GoodCop', 'Amazon Q Scanner', 'SecurityCodeScanner']);
+                        const allComments = (content?.allComments || [])
+                            .filter(c => !botAuthors.has(c.author) && c.content && c.content.length > 5)
+                            .map(c => ({
+                                author: c.author || 'unknown',
+                                message: (c.content || '').substring(0, 500),
+                                location: c.location || 'TOP',
+                                date: c.created_at || '',
+                            }));
+
+                        enrichedMap[crId] = {
+                            title: title.substring(0, 300),
+                            description: description.substring(0, 500),
+                            comments: allComments.slice(0, 10),
+                            packages,
+                            status: revSummary.status || '',
+                            category: revSummary.category || '',
+                            author: revSummary.author?.entity_id?.id || '',
+                        };
+                    } catch (e) {
+                        logger.debug(`Failed to parse CR ${crId}: ${e.message}`);
+                    }
+                }
+            }
+        } catch (e) {
+            logger.warn(`CR enrichment batch failed at offset ${i}: ${e.message}`);
+        }
+
+        if (i + CR_BATCH < crIds.length) await new Promise(r => setTimeout(r, 300));
+    }
+
+    // Merge enriched data back into results
+    let enrichedCount = 0;
+    for (const alias of Object.keys(results)) {
+        for (const cr of (results[alias].cr_details || [])) {
+            const enriched = enrichedMap[cr.id];
+            if (enriched) {
+                cr.title = enriched.title;
+                cr.description = enriched.description;
+                cr.comments = enriched.comments;
+                cr.packages = enriched.packages;
+                cr.status = enriched.status;
+                cr.category = enriched.category;
+                cr.crAuthor = enriched.author;
+                if (enriched.title) cr.snippet = enriched.title;
+                enrichedCount++;
+            }
+        }
+    }
+
+    logger.info(`CR enrichment complete: ${enrichedCount} CR entries enriched from ${Object.keys(enrichedMap).length} unique CRs`);
+    return results;
+}
+
 // ─── Backfill & Incremental Sync ───
 
 /**
@@ -562,6 +674,14 @@ async function backfillYear(year = new Date().getFullYear(), onProgress = null) 
 
         // Batched fetch — 3 MCP calls for ALL engineers
         const batchedResults = await fetchOrgCodeActivityBatched(aliases, dateRange.start, dateRange.end);
+
+        // Enrich CRs with full titles, descriptions, and comments
+        backfillState.currentPhase = 'enriching-crs';
+        try {
+            await enrichCrDetailsFromCode(batchedResults);
+        } catch (e) {
+            logger.warn(`CR enrichment failed for ${weekId}, storing basic data: ${e.message}`);
+        }
 
         // Store results in SQLite
         backfillState.currentPhase = 'storing';
@@ -933,6 +1053,30 @@ async function fetchOrgMetrics(weekId = null) {
 
     logger.info(`Org metrics fetch complete: ${fetchedCount} engineers, ${errorCount} errors`);
 
+    // Post-fetch: Enrich CR details with full titles + comments from code.amazon.com
+    // Read all cr_details from the just-stored data, enrich, then update SQLite
+    try {
+        const storedRows = await dbAll(
+            `SELECT alias, cr_details_json FROM eng_metrics_weekly WHERE week_id = ?`,
+            [currentWeekId]
+        );
+        const enrichInput = {};
+        for (const row of storedRows) {
+            enrichInput[row.alias] = { cr_details: JSON.parse(row.cr_details_json || '[]') };
+        }
+        await enrichCrDetailsFromCode(enrichInput);
+        // Write enriched data back to SQLite
+        for (const alias of Object.keys(enrichInput)) {
+            await dbRun(
+                `UPDATE eng_metrics_weekly SET cr_details_json = ? WHERE alias = ? AND week_id = ?`,
+                [JSON.stringify(enrichInput[alias].cr_details), alias, currentWeekId]
+            );
+        }
+        logger.info('CR enrichment stored in SQLite for current week');
+    } catch (e) {
+        logger.warn('Post-fetch CR enrichment failed (non-blocking):', e.message);
+    }
+
     return {
         weekId: currentWeekId,
         dateRange,
@@ -1092,6 +1236,7 @@ async function getOrgDashboard(weekId = null) {
                 turnaroundDisplay: `${e.avg_turnaround_hours.toFixed(1)}h`,
                 staleCrs: e.stale_crs,
                 packages: JSON.parse(e.packages_json || '[]'),
+                crDetails: JSON.parse(e.cr_details_json || '[]'),
                 // Trend fields
                 prevCrsCreated,
                 prevCrsReviewed,

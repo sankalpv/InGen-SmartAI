@@ -56,11 +56,24 @@ function filterMeetingsToToday(meetings) {
 const OLLAMA_MODEL = process.env.LLM_MODEL || process.env.OLLAMA_MODEL || 'qwen3:latest';
 const OLLAMA_BASE_URL = process.env.OLLAMA_BASE_URL || 'http://127.0.0.1:11434';
 
+function getAiTemperature() {
+    try {
+        const settingsPath = path.join(process.cwd(), 'config', 'settings.json');
+        if (fs.existsSync(settingsPath)) {
+            const settings = JSON.parse(fs.readFileSync(settingsPath, 'utf8'));
+            const temp = parseFloat(settings.aiTemperature);
+            if (!isNaN(temp) && temp >= 0 && temp <= 2) return temp;
+        }
+    } catch (e) { /* ignore */ }
+    return 0.25;
+}
+
 /**
  * Stream a completion from Ollama — calls onChunk for each token
  */
 export async function streamCompletion(systemPrompt, userPrompt, onChunk, options = {}) {
-    const { temperature = 0.3, jsonMode = false } = options;
+    const configTemp = getAiTemperature();
+    const { temperature = configTemp, jsonMode = false } = options;
 
     const body = {
         model: OLLAMA_MODEL.trim(),
@@ -292,6 +305,20 @@ INSTRUCTIONS:
 4. Format your response with markdown (headers, bold, lists) for readability.
 5. Be concise but thorough.
 `;
+
+    // For key pages, use Bedrock Opus if available
+    const bedrockPages = ['eng-metrics', 'ticket-health', 'my-team'];
+    if (bedrockPages.includes(pageContext)) {
+        try {
+            const bedrockClient = require('./bedrock-client');
+            if (bedrockClient.isAvailable()) {
+                const fullPrompt = `${systemPrompt}\n\n${prompt}`;
+                return await bedrockClient.streamGenerate(fullPrompt, onChunk, { maxTokens: 4096 });
+            }
+        } catch (e) {
+            logger.warn(`Bedrock failed for ${pageContext} chat, falling back to Ollama:`, e.message);
+        }
+    }
 
     return await streamCompletion(systemPrompt, prompt, onChunk, { temperature: 0.4 });
 }

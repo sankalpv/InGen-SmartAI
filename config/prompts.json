@@ -36,5 +36,6 @@
     },
     "weeklyRetro": {
         "promptTemplate": "I need a \"Weekly Retrospective\" for my productivity based on this data:\n{{DATA_SUMMARY}}\n\nTask:\n1. Analyze how I spent my time (Heavy on meetings? Deep work?).\n2. Highlight key themes from the meeting topics and email subjects.\n3. Give 1 specific recommendation for next week to improve balance.\n\nOutput Format (Markdown):\n**Weekly Vibe:** (1 sentence summary, e.g., \"Meeting Heavy\", \"Focused Execution\")\n**Time Analysis:** (2-3 sentences on where time went)\n**Key Themes:** (Bullet points of projects/topics)\n**Recommendation:** (One actionable tip)\n\nKeep it encouraging but analytical."
-    }
+    },
+    "wbrPrep": {}
 }

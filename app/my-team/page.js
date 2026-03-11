@@ -139,12 +139,33 @@ function GoalCard({ goal }) {
                 </div>
             )}
 
-            {goal.announcement && (
-                <div style={{ marginTop: '8px', padding: '8px 12px', borderRadius: '8px', background: 'rgba(10,132,255,0.06)', border: '1px solid rgba(10,132,255,0.1)', fontSize: '12px', color: 'rgba(255,255,255,0.6)', lineHeight: '1.5' }}>
-                    <strong>Announcement:</strong> <span style={{ color: 'rgba(255,255,255,0.4)' }}>(Last updated on {goal.announcement.date} by {goal.announcement.author}@)</span>{' '}
-                    {goal.announcement.text.substring(0, 500)}{goal.announcement.text.length > 500 ? '...' : ''}
-                </div>
-            )}
+            {goal.announcement && (() => {
+                // Check if announcement is stale (older than configured threshold)
+                let isStale = false;
+                let daysAgo = 0;
+                if (goal.announcement.date && goal.announcement.date !== 'Missing') {
+                    try {
+                        const [mm, dd, yyyy] = goal.announcement.date.split('-').map(Number);
+                        const annDate = new Date(yyyy, mm - 1, dd);
+                        daysAgo = Math.floor((Date.now() - annDate.getTime()) / (1000 * 60 * 60 * 24));
+                        isStale = daysAgo > 6; // Default 6, will be overridden by settings
+                    } catch (e) { /* ignore */ }
+                }
+                return (
+                    <div style={{
+                        marginTop: '8px', padding: '8px 12px', borderRadius: '8px', fontSize: '12px', lineHeight: '1.5',
+                        background: isStale ? 'rgba(255,159,10,0.08)' : 'rgba(10,132,255,0.06)',
+                        border: isStale ? '1px solid rgba(255,159,10,0.25)' : '1px solid rgba(10,132,255,0.1)',
+                        color: isStale ? '#ff9f0a' : 'rgba(255,255,255,0.6)',
+                    }}>
+                        <strong>{isStale ? '⚠️ Stale Announcement' : 'Announcement'}:</strong>{' '}
+                        <span style={{ color: isStale ? 'rgba(255,159,10,0.6)' : 'rgba(255,255,255,0.4)' }}>
+                            (Last updated on {goal.announcement.date} by {goal.announcement.author}@{isStale ? ` — ${daysAgo}d ago` : ''})
+                        </span>{' '}
+                        {goal.announcement.text}
+                    </div>
+                );
+            })()}
 
             {goal.statusColor === 'Red' && goal.pathToGreen && (
                 <div style={{ marginTop: '8px', padding: '8px 12px', borderRadius: '8px', background: 'rgba(255,69,58,0.06)', border: '1px solid rgba(255,69,58,0.1)', fontSize: '12px', color: '#ff453a' }}>

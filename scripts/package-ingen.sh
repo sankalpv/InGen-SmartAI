@@ -1,11 +1,12 @@
 #!/bin/bash
 # ╔══════════════════════════════════════════════════════════════╗
-# ║              InGen Distribution Packager                     ║
+# ║              InGen Distribution Packager (v2.0)              ║
 # ║     Creates a clean .tar.gz ready to share via Slack         ║
 # ╚══════════════════════════════════════════════════════════════╝
 
 CYAN='\033[0;36m'
 GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
 BOLD='\033[1m'
 NC='\033[0m'
 
@@ -19,7 +20,34 @@ echo ""
 
 cd "$PROJECT_DIR"
 
-# Create the archive, excluding dev/user-specific files
+# ── Clean settings.json for distribution ──
+# Reset user-specific values to template placeholders
+SETTINGS="$PROJECT_DIR/config/settings.json"
+if [[ -f "$SETTINGS" ]] && command -v node &>/dev/null; then
+    # Save current settings, create a clean copy for packaging
+    cp "$SETTINGS" "/tmp/ingen-settings-backup-$$.json"
+
+    node -e "
+const fs = require('fs');
+const f = '$SETTINGS';
+const d = JSON.parse(fs.readFileSync(f, 'utf8'));
+// Reset user-specific fields to defaults
+d.outlookCalendarId = '';
+d.phonetoolAlias = '';
+d.logUploadUrl = '';
+// Reset MCP paths to generic toolbox paths
+if (d.mcpServers) {
+    if (d.mcpServers['amzn-mcp']) d.mcpServers['amzn-mcp'].command = '\$HOME/.toolbox/bin/amzn-mcp';
+    if (d.mcpServers['builder-mcp']) d.mcpServers['builder-mcp'].command = '\$HOME/.toolbox/bin/builder-mcp';
+}
+fs.writeFileSync(f, JSON.stringify(d, null, 2) + '\n');
+" 2>/dev/null
+
+    echo -e "  ${GREEN}✅${NC} Cleaned settings.json for distribution"
+    SETTINGS_CLEANED=true
+fi
+
+# ── Create the archive ──
 tar czf "$OUTPUT_FILE" \
     --exclude=node_modules \
     --exclude=.next \
@@ -29,13 +57,27 @@ tar czf "$OUTPUT_FILE" \
     --exclude=smartai.log \
     --exclude=.env.local \
     --exclude='*.db' \
+    --exclude='*.db-shm' \
+    --exclude='*.db-wal' \
     --exclude=meetings_raw.json \
     --exclude=meetings_7days_raw.json \
+    --exclude=brain \
+    --exclude=scripts/demo-audio \
+    --exclude=scripts/demo-output \
+    --exclude='.ingen-install-progress' \
     -C "$(dirname "$PROJECT_DIR")" \
     "$(basename "$PROJECT_DIR")"
 
+# ── Restore original settings ──
+if [[ "$SETTINGS_CLEANED" == "true" ]] && [[ -f "/tmp/ingen-settings-backup-$$.json" ]]; then
+    cp "/tmp/ingen-settings-backup-$$.json" "$SETTINGS"
+    rm -f "/tmp/ingen-settings-backup-$$.json"
+    echo -e "  ${GREEN}✅${NC} Restored your local settings.json"
+fi
+
 SIZE=$(du -h "$OUTPUT_FILE" | cut -f1)
 
+echo ""
 echo -e "${GREEN}✅ Package created: ${CYAN}$OUTPUT_FILE${NC} (${SIZE})"
 echo ""
 echo -e "${BOLD}Share this file on Slack with these instructions:${NC}"
@@ -55,6 +97,10 @@ echo -e "     ${CYAN}bash */scripts/install-ingen.sh${NC}"
 echo -e "  3. Double-click 'InGen' on your Desktop"
 echo ""
 echo -e "Requires: macOS + Microsoft Outlook."
-echo -e "The installer handles everything else automatically."
+echo -e "The installer handles everything else automatically"
+echo -e "(Node.js, Ollama, AI models, MCP tools)."
+echo -e ""
+echo -e "Features resume — if install fails, re-run and it"
+echo -e "picks up where it left off."
 echo -e "────────────────────────────────────────────────────"
 echo ""

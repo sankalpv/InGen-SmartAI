@@ -1,14 +1,10 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { useSession, signIn, signOut } from 'next-auth/react';
-import { Cloud, Cpu, ExternalLink, CheckCircle2, LogOut, User, FileText, Sun, Moon, Monitor } from 'lucide-react';
+import { Cloud, Cpu, ExternalLink, CheckCircle2, User, FileText, Sun, Moon } from 'lucide-react';
 import { useTheme } from '@/components/ThemeProvider';
 
 export default function SettingsPage() {
-    const { data: session, status } = useSession();
-    const isGoogleConnected = !!session?.user;
-    
     // Theme
     const { theme, toggleTheme } = useTheme();
 
@@ -22,6 +18,11 @@ export default function SettingsPage() {
     const [thresholdLoading, setThresholdLoading] = useState(true);
     const [thresholdSaving, setThresholdSaving] = useState(false);
     const [thresholdMessage, setThresholdMessage] = useState('');
+
+    // AI Temperature state
+    const [aiTemperature, setAiTemperature] = useState(0.25);
+    const [aiTempSaving, setAiTempSaving] = useState(false);
+    const [aiTempMessage, setAiTempMessage] = useState('');
     
     // Quip settings state
     const [quipSettings, setQuipSettings] = useState({
@@ -33,12 +34,28 @@ export default function SettingsPage() {
     const [quipLoading, setQuipLoading] = useState(true);
     const [quipSaving, setQuipSaving] = useState(false);
     const [quipMessage, setQuipMessage] = useState('');
+
+    // WBR/Team Goals settings state
+    const [wbrSettings, setWbrSettings] = useState({
+        roomId: '', folderId: '', goalPrefix: '', title: ''
+    });
+    const [wbrLoading, setWbrLoading] = useState(true);
+    const [wbrSaving, setWbrSaving] = useState(false);
+    const [wbrMessage, setWbrMessage] = useState('');
+
+    // Org sync state
+    const [orgStatus, setOrgStatus] = useState(null);
+    const [orgSyncing, setOrgSyncing] = useState(false);
+    const [orgMessage, setOrgMessage] = useState('');
     
     // Load settings on mount
     useEffect(() => {
         fetchQuipSettings();
         fetchConfidenceThreshold();
+        fetchAiTemperature();
         fetchPhonetoolAlias();
+        fetchWbrSettings();
+        fetchOrgStatus();
     }, []);
 
     async function fetchPhonetoolAlias() {
@@ -115,6 +132,40 @@ export default function SettingsPage() {
         }
     }
     
+    async function fetchAiTemperature() {
+        try {
+            const res = await fetch('/api/settings/config');
+            const data = await res.json();
+            if (data.aiTemperature !== undefined) {
+                setAiTemperature(data.aiTemperature);
+            }
+        } catch (error) {
+            console.error('Failed to load AI temperature:', error);
+        }
+    }
+
+    async function saveAiTemperature() {
+        setAiTempSaving(true);
+        setAiTempMessage('');
+        try {
+            const res = await fetch('/api/settings/config', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ aiTemperature })
+            });
+            if (res.ok) {
+                setAiTempMessage('✅ AI temperature saved');
+                setTimeout(() => setAiTempMessage(''), 3000);
+            } else {
+                setAiTempMessage('❌ Failed to save temperature');
+            }
+        } catch (error) {
+            setAiTempMessage('❌ Failed to save temperature');
+        } finally {
+            setAiTempSaving(false);
+        }
+    }
+
     async function fetchQuipSettings() {
         try {
             const res = await fetch('/api/settings/quip');
@@ -155,62 +206,87 @@ export default function SettingsPage() {
         }
     }
 
-    const handleGoogleConnect = () => {
-        signIn('google', { callbackUrl: '/settings' });
-    };
+    async function fetchWbrSettings() {
+        try {
+            const res = await fetch('/api/settings/config');
+            const data = await res.json();
+            if (data.wbr) {
+                setWbrSettings({
+                    roomId: data.wbr.roomId || '',
+                    folderId: data.wbr.folderId || '',
+                    goalPrefix: data.wbr.goalPrefix || '',
+                    title: data.wbr.title || '',
+                    staleAnnouncementDays: data.wbr.staleAnnouncementDays || 6
+                });
+            }
+        } catch (error) {
+            console.error('Failed to load WBR settings:', error);
+        } finally {
+            setWbrLoading(false);
+        }
+    }
 
-    const handleGoogleDisconnect = () => {
-        signOut({ callbackUrl: '/settings' });
-    };
+    async function saveWbrSettings() {
+        setWbrSaving(true);
+        setWbrMessage('');
+        try {
+            const res = await fetch('/api/settings/config', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ wbr: wbrSettings })
+            });
+            if (res.ok) {
+                setWbrMessage('✅ Team Goals settings saved');
+                setTimeout(() => setWbrMessage(''), 5000);
+            } else {
+                setWbrMessage('❌ Failed to save settings');
+            }
+        } catch (error) {
+            setWbrMessage('❌ Failed to save settings');
+        } finally {
+            setWbrSaving(false);
+        }
+    }
+
+    async function fetchOrgStatus() {
+        try {
+            const res = await fetch('/api/team?view=org-status');
+            const data = await res.json();
+            if (data.data) setOrgStatus(data.data);
+        } catch (error) {
+            console.error('Failed to load org status:', error);
+        }
+    }
+
+    async function syncOrgTree() {
+        setOrgSyncing(true);
+        setOrgMessage('');
+        try {
+            const res = await fetch('/api/team?view=org-sync');
+            const data = await res.json();
+            if (data.data?.memberCount > 0) {
+                setOrgMessage(`✅ Org tree synced: ${data.data.memberCount} people`);
+                setOrgStatus(data.data);
+                setTimeout(() => setOrgMessage(''), 5000);
+            } else {
+                setOrgMessage('⚠️ Sync completed but no members found. Check VPN + Midway.');
+            }
+        } catch (error) {
+            setOrgMessage(`❌ Sync failed: ${error.message}. Ensure VPN + Midway are active.`);
+        } finally {
+            setOrgSyncing(false);
+        }
+    }
 
     const integrations = [
         {
-            id: 'gmail',
-            name: 'Gmail & Google Calendar',
-            description: isGoogleConnected
-                ? `Connected as ${session.user.email}`
-                : 'Connect your Google account to monitor emails and Calendar',
-            icon: '📧',
-            bgColor: 'rgba(234, 67, 53, 0.1)',
-            scopes: ['Gmail API', 'Google Calendar API'],
-            connected: isGoogleConnected,
-            onConnect: handleGoogleConnect,
-            onDisconnect: handleGoogleDisconnect,
-        },
-        {
             id: 'outlook',
             name: 'Microsoft Outlook',
-            description: 'Connect your Outlook account for emails and calendar via Microsoft Graph',
+            description: 'Connected via local Outlook integration',
             icon: '📬',
             bgColor: 'rgba(0, 120, 212, 0.1)',
             scopes: ['Mail.Read', 'Calendars.Read'],
-            connected: false,
-            onConnect: () => { },
-            disabled: true,
-        },
-        {
-            id: 'slack',
-            name: 'Slack',
-            description: 'Connect your Slack workspace to monitor DMs and channel mentions',
-            icon: '💬',
-            bgColor: 'rgba(74, 21, 75, 0.1)',
-            scopes: ['channels:history', 'im:history', 'users:read'],
-            connected: false,
-            onConnect: () => { },
-            disabled: true,
-        },
-        {
-            id: 'openai',
-            name: 'AI Engine (OpenAI)',
-            description: process.env.NEXT_PUBLIC_OPENAI_CONFIGURED === 'true'
-                ? 'AI engine active — GPT-4o'
-                : 'Using mock AI responses (no API key configured)',
-            icon: '🧠',
-            bgColor: 'rgba(16, 163, 127, 0.1)',
-            scopes: ['GPT-4o', 'Chat Completions API'],
-            connected: false,
-            onConnect: () => { },
-            disabled: true,
+            connected: true,
         },
     ];
 
@@ -255,33 +331,6 @@ export default function SettingsPage() {
                 </div>
             </div>
 
-            {/* User Profile Card */}
-            {isGoogleConnected && (
-                <div className="settings-card" style={{ marginBottom: 24, borderColor: 'rgba(52, 211, 153, 0.3)' }}>
-                    <div className="settings-card-info">
-                        <div className="settings-card-icon" style={{ background: 'rgba(52, 211, 153, 0.1)' }}>
-                            {session.user.image ? (
-                                <img
-                                    src={session.user.image}
-                                    alt=""
-                                    style={{ width: 44, height: 44, borderRadius: 'var(--radius-md)' }}
-                                />
-                            ) : (
-                                <User size={22} />
-                            )}
-                        </div>
-                        <div className="settings-card-text">
-                            <h3>{session.user.name || 'Connected User'}</h3>
-                            <p>Signed in with Google · {session.user.email}</p>
-                        </div>
-                    </div>
-                    <button className="btn btn-secondary" onClick={handleGoogleDisconnect}>
-                        <LogOut size={14} />
-                        Sign Out
-                    </button>
-                </div>
-            )}
-
             <div className="settings-section">
                 <div className="settings-section-title">
                     <Cloud size={20} />
@@ -322,7 +371,6 @@ export default function SettingsPage() {
                         {integration.connected ? (
                             <button
                                 className="btn btn-secondary"
-                                onClick={integration.onDisconnect}
                                 style={{ minWidth: 120 }}
                             >
                                 <CheckCircle2 size={14} style={{ color: 'var(--accent-green)' }} />
@@ -527,6 +575,223 @@ export default function SettingsPage() {
                         {aliasMessage}
                     </div>
                 )}
+
+                {/* Org Sync */}
+                <div className="settings-card" style={{ marginTop: '16px' }}>
+                    <div className="settings-card-info">
+                        <div className="settings-card-icon" style={{ background: 'rgba(34, 211, 238, 0.1)' }}>
+                            🏢
+                        </div>
+                        <div className="settings-card-text">
+                            <h3>Org Hierarchy</h3>
+                            <p>
+                                {orgStatus?.populated
+                                    ? `${orgStatus.memberCount} people synced (root: ${orgStatus.rootAlias})${orgStatus.lastFetched ? ` · Last: ${new Date(orgStatus.lastFetched).toLocaleDateString()}` : ''}`
+                                    : 'Not synced yet. Requires VPN + Midway.'}
+                            </p>
+                        </div>
+                    </div>
+                    <button
+                        className="btn btn-secondary"
+                        onClick={syncOrgTree}
+                        disabled={orgSyncing || !phonetoolAlias}
+                        style={{ minWidth: 140 }}
+                    >
+                        {orgSyncing ? '⏳ Syncing...' : '🔄 Sync Org Tree'}
+                    </button>
+                </div>
+
+                {orgMessage && (
+                    <div style={{
+                        padding: '12px',
+                        marginTop: '12px',
+                        borderRadius: '8px',
+                        background: orgMessage.includes('✅') ? 'rgba(34, 197, 94, 0.1)' : orgMessage.includes('⚠️') ? 'rgba(251, 191, 36, 0.1)' : 'rgba(239, 68, 68, 0.1)',
+                        border: `1px solid ${orgMessage.includes('✅') ? 'rgba(34, 197, 94, 0.3)' : orgMessage.includes('⚠️') ? 'rgba(251, 191, 36, 0.3)' : 'rgba(239, 68, 68, 0.3)'}`,
+                        fontSize: '0.9rem',
+                        textAlign: 'center'
+                    }}>
+                        {orgMessage}
+                    </div>
+                )}
+            </div>
+
+            {/* WBR / Team Goals Section */}
+            <div className="settings-section">
+                <div className="settings-section-title">
+                    <FileText size={20} />
+                    Team Goals (WBR)
+                </div>
+
+                <div className="settings-card">
+                    <div className="settings-card-info">
+                        <div className="settings-card-icon" style={{ background: 'rgba(124, 58, 237, 0.1)' }}>
+                            🎯
+                        </div>
+                        <div className="settings-card-text">
+                            <h3>SIM Goals Folder</h3>
+                            <p>Configure the Taskei/SIM folder containing your team&apos;s goals for the Team Health dashboard.</p>
+                            <div style={{ marginTop: '12px' }}>
+                                <h3 style={{ fontSize: '0.95rem', marginBottom: '6px' }}>Paste Taskei URL</h3>
+                                <div style={{ display: 'flex', gap: '8px' }}>
+                                    <input
+                                        type="text"
+                                        placeholder="https://taskei.amazon.dev/rooms/.../tasks?f=folder%3A..."
+                                        id="wbr-url-input"
+                                        style={{
+                                            flex: 1, padding: '8px 12px', borderRadius: '6px',
+                                            border: '1px solid var(--glass-border)', background: 'var(--bg-secondary)',
+                                            color: 'var(--text-primary)', fontSize: '0.85rem'
+                                        }}
+                                    />
+                                    <button
+                                        className="btn btn-secondary"
+                                        style={{ whiteSpace: 'nowrap' }}
+                                        onClick={() => {
+                                            const input = document.getElementById('wbr-url-input')?.value || '';
+                                            const roomMatch = input.match(/rooms\/([0-9a-f-]{36})/i);
+                                            const folderQs = input.match(/folder(?:%3A|:)([0-9a-f-]{36})/i);
+                                            const folderPath = input.match(/folders\/([0-9a-f-]{36})/i);
+                                            const newSettings = { ...wbrSettings };
+                                            if (roomMatch) newSettings.roomId = roomMatch[1];
+                                            if (folderQs) newSettings.folderId = folderQs[1];
+                                            else if (folderPath) newSettings.folderId = folderPath[1];
+                                            setWbrSettings(newSettings);
+                                            setWbrMessage(
+                                                (newSettings.roomId && newSettings.folderId)
+                                                    ? '✅ Room ID and Folder ID extracted from URL'
+                                                    : '⚠️ Could not parse both IDs. Fill in manually below.'
+                                            );
+                                            setTimeout(() => setWbrMessage(''), 4000);
+                                        }}
+                                    >
+                                        🔗 Parse URL
+                                    </button>
+                                </div>
+                                <span style={{ fontSize: '0.7rem', color: 'var(--text-tertiary)', marginTop: '4px', display: 'block' }}>
+                                    Also accepts: issues.amazon.com/folders/... (folder only — add room below)
+                                </span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div className="settings-card" style={{ display: 'flex', gap: '16px', flexWrap: 'wrap' }}>
+                    <div style={{ flex: '1 1 45%', minWidth: '200px' }}>
+                        <h3 style={{ fontSize: '0.95rem', marginBottom: '8px' }}>SIM Folder ID</h3>
+                        <input
+                            type="text"
+                            value={wbrSettings.folderId}
+                            onChange={(e) => setWbrSettings({ ...wbrSettings, folderId: e.target.value })}
+                            disabled={wbrLoading}
+                            placeholder="ab02443f-f7a8-4fec-..."
+                            style={{
+                                width: '100%', padding: '8px 12px', borderRadius: '6px',
+                                border: '1px solid var(--glass-border)', background: 'var(--bg-secondary)',
+                                color: 'var(--text-primary)', fontSize: '0.85rem', fontFamily: 'monospace'
+                            }}
+                        />
+                        <span style={{ fontSize: '0.7rem', color: 'var(--text-tertiary)', marginTop: '4px', display: 'block' }}>
+                            From: issues.amazon.com/folders/{'<ID>'}
+                        </span>
+                    </div>
+                    <div style={{ flex: '1 1 45%', minWidth: '200px' }}>
+                        <h3 style={{ fontSize: '0.95rem', marginBottom: '8px' }}>Taskei Room ID</h3>
+                        <input
+                            type="text"
+                            value={wbrSettings.roomId}
+                            onChange={(e) => setWbrSettings({ ...wbrSettings, roomId: e.target.value })}
+                            disabled={wbrLoading}
+                            placeholder="2c8f0ce4-0d0d-4ff9-..."
+                            style={{
+                                width: '100%', padding: '8px 12px', borderRadius: '6px',
+                                border: '1px solid var(--glass-border)', background: 'var(--bg-secondary)',
+                                color: 'var(--text-primary)', fontSize: '0.85rem', fontFamily: 'monospace'
+                            }}
+                        />
+                        <span style={{ fontSize: '0.7rem', color: 'var(--text-tertiary)', marginTop: '4px', display: 'block' }}>
+                            From: taskei.amazon.dev/rooms/{'<ID>'}
+                        </span>
+                    </div>
+                </div>
+
+                <div className="settings-card" style={{ display: 'flex', gap: '16px', flexWrap: 'wrap' }}>
+                    <div style={{ flex: '1 1 30%', minWidth: '150px' }}>
+                        <h3 style={{ fontSize: '0.95rem', marginBottom: '8px' }}>Goal Prefix (optional)</h3>
+                        <input
+                            type="text"
+                            value={wbrSettings.goalPrefix}
+                            onChange={(e) => setWbrSettings({ ...wbrSettings, goalPrefix: e.target.value })}
+                            disabled={wbrLoading}
+                            placeholder="e.g. CPP2026Goal"
+                            style={{
+                                width: '100%', padding: '8px 12px', borderRadius: '6px',
+                                border: '1px solid var(--glass-border)', background: 'var(--bg-secondary)',
+                                color: 'var(--text-primary)', fontSize: '0.9rem'
+                            }}
+                        />
+                        <span style={{ fontSize: '0.7rem', color: 'var(--text-tertiary)', marginTop: '4px', display: 'block' }}>
+                            Fallback if folder listing fails
+                        </span>
+                    </div>
+                    <div style={{ flex: '2 1 60%', minWidth: '200px' }}>
+                        <h3 style={{ fontSize: '0.95rem', marginBottom: '8px' }}>Stale Announcement (days)</h3>
+                        <input
+                            type="number"
+                            min="1"
+                            max="30"
+                            value={wbrSettings.staleAnnouncementDays || 6}
+                            onChange={(e) => setWbrSettings({ ...wbrSettings, staleAnnouncementDays: parseInt(e.target.value) || 6 })}
+                            disabled={wbrLoading}
+                            style={{
+                                width: '100%', padding: '8px 12px', borderRadius: '6px',
+                                border: '1px solid var(--glass-border)', background: 'var(--bg-secondary)',
+                                color: 'var(--text-primary)', fontSize: '0.9rem'
+                            }}
+                        />
+                        <span style={{ fontSize: '0.7rem', color: 'var(--text-tertiary)', marginTop: '4px', display: 'block' }}>
+                            Goals with announcements older than this are highlighted as stale
+                        </span>
+                    </div>
+                    <div style={{ flex: '2 1 60%', minWidth: '200px' }}>
+                        <h3 style={{ fontSize: '0.95rem', marginBottom: '8px' }}>Dashboard Title</h3>
+                        <input
+                            type="text"
+                            value={wbrSettings.title}
+                            onChange={(e) => setWbrSettings({ ...wbrSettings, title: e.target.value })}
+                            disabled={wbrLoading}
+                            placeholder="e.g. My Team - 2026 Goals"
+                            style={{
+                                width: '100%', padding: '8px 12px', borderRadius: '6px',
+                                border: '1px solid var(--glass-border)', background: 'var(--bg-secondary)',
+                                color: 'var(--text-primary)', fontSize: '0.9rem'
+                            }}
+                        />
+                    </div>
+                </div>
+
+                <button
+                    className="btn btn-primary"
+                    onClick={saveWbrSettings}
+                    disabled={wbrSaving || wbrLoading}
+                    style={{ width: '100%', marginTop: '8px' }}
+                >
+                    {wbrSaving ? 'Saving...' : 'Save Team Goals Settings'}
+                </button>
+
+                {wbrMessage && (
+                    <div style={{
+                        padding: '12px',
+                        marginTop: '12px',
+                        borderRadius: '8px',
+                        background: wbrMessage.includes('✅') ? 'rgba(34, 197, 94, 0.1)' : 'rgba(239, 68, 68, 0.1)',
+                        border: `1px solid ${wbrMessage.includes('✅') ? 'rgba(34, 197, 94, 0.3)' : 'rgba(239, 68, 68, 0.3)'}`,
+                        fontSize: '0.9rem',
+                        textAlign: 'center'
+                    }}>
+                        {wbrMessage}
+                    </div>
+                )}
             </div>
 
             <div className="settings-section">
@@ -600,71 +865,74 @@ export default function SettingsPage() {
                         {thresholdMessage}
                     </div>
                 )}
-            </div>
 
-            <div className="settings-section">
-                <div className="settings-section-title">
-                    <Cpu size={20} />
-                    AI Preferences
-                </div>
-
-                <div className="settings-card">
+                {/* AI Temperature */}
+                <div className="settings-card" style={{ marginTop: '16px' }}>
                     <div className="settings-card-info">
-                        <div className="settings-card-icon" style={{ background: 'rgba(168, 85, 247, 0.1)' }}>
-                            ✨
+                        <div className="settings-card-icon" style={{ background: 'rgba(255, 159, 10, 0.1)' }}>
+                            🌡️
                         </div>
                         <div className="settings-card-text">
-                            <h3>AI Analysis Mode</h3>
-                            <p>Currently using: Mock data (no API key configured)</p>
+                            <h3>AI Temperature</h3>
+                            <p>Controls AI creativity vs factual precision. Lower = more factual &amp; deterministic, higher = more creative. Recommended: 0.1–0.3 for data-driven reports.</p>
+                            <div style={{ marginTop: '16px', display: 'flex', alignItems: 'center', gap: '16px' }}>
+                                <input
+                                    type="range"
+                                    min="0"
+                                    max="1"
+                                    step="0.05"
+                                    value={aiTemperature}
+                                    onChange={(e) => setAiTemperature(parseFloat(e.target.value))}
+                                    style={{ flex: 1, cursor: 'pointer' }}
+                                />
+                                <span style={{
+                                    fontSize: '18px',
+                                    fontWeight: '600',
+                                    color: aiTemperature <= 0.3 ? 'var(--accent-green)' : aiTemperature <= 0.6 ? 'var(--accent-purple)' : '#ff9f0a',
+                                    minWidth: '60px',
+                                    textAlign: 'right'
+                                }}>
+                                    {aiTemperature.toFixed(2)}
+                                </span>
+                            </div>
+                            <div style={{
+                                marginTop: '12px',
+                                display: 'flex',
+                                justifyContent: 'space-between',
+                                fontSize: '11px',
+                                color: 'var(--text-tertiary)'
+                            }}>
+                                <span>🎯 Factual / Precise</span>
+                                <span>🎨 Creative / Varied</span>
+                            </div>
                         </div>
                     </div>
-                    <span className="priority-badge medium">Mock Mode</span>
                 </div>
 
-                <div className="settings-card">
-                    <div className="settings-card-info">
-                        <div className="settings-card-icon" style={{ background: 'rgba(79, 140, 255, 0.1)' }}>
-                            📊
-                        </div>
-                        <div className="settings-card-text">
-                            <h3>Data Source</h3>
-                            <p>{isGoogleConnected
-                                ? 'Using live data from Google (set USE_MOCK_DATA=false to activate)'
-                                : 'Connect Google account to enable live data'
-                            }</p>
-                        </div>
+                <button
+                    className="btn btn-primary"
+                    onClick={saveAiTemperature}
+                    disabled={aiTempSaving}
+                    style={{ width: '100%', marginTop: '8px' }}
+                >
+                    {aiTempSaving ? 'Saving...' : 'Save AI Temperature'}
+                </button>
+
+                {aiTempMessage && (
+                    <div style={{
+                        padding: '12px',
+                        marginTop: '12px',
+                        borderRadius: '8px',
+                        background: aiTempMessage.includes('✅') ? 'rgba(34, 197, 94, 0.1)' : 'rgba(239, 68, 68, 0.1)',
+                        border: `1px solid ${aiTempMessage.includes('✅') ? 'rgba(34, 197, 94, 0.3)' : 'rgba(239, 68, 68, 0.3)'}`,
+                        fontSize: '0.9rem',
+                        textAlign: 'center'
+                    }}>
+                        {aiTempMessage}
                     </div>
-                    <span className={`priority-badge ${isGoogleConnected ? 'high' : 'low'}`}>
-                        {isGoogleConnected ? 'Ready' : 'Mock Only'}
-                    </span>
-                </div>
+                )}
             </div>
 
-            <div className="ai-briefing" style={{ marginTop: 32 }}>
-                <div className="ai-briefing-header">
-                    <div className="ai-badge">
-                        <span className="sparkle">💡</span>
-                        {isGoogleConnected ? 'Next Steps' : 'Getting Started'}
-                    </div>
-                </div>
-                <p className="ai-briefing-text" style={{ fontSize: '0.9rem' }}>
-                    {isGoogleConnected ? (
-                        <>
-                            Google account connected! To see your real emails and calendar: set{' '}
-                            <code style={{ padding: '2px 6px', borderRadius: 4, background: 'var(--bg-tertiary)', fontSize: '0.8rem' }}>
-                                USE_MOCK_DATA=false
-                            </code>{' '}
-                            in your <code style={{ padding: '2px 6px', borderRadius: 4, background: 'var(--bg-tertiary)', fontSize: '0.8rem' }}>.env.local</code> file and restart the dev server.
-                        </>
-                    ) : (
-                        <>
-                            SmartAI is running with <strong>mock data</strong>. Click{' '}
-                            <strong>Connect</strong> on Gmail to sign in with your Google account and start
-                            seeing real data.
-                        </>
-                    )}
-                </p>
-            </div>
         </div>
     );
 }

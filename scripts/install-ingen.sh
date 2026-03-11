@@ -1,577 +1,776 @@
 #!/bin/bash
 # ╔══════════════════════════════════════════════════════════════╗
-# ║                    InGen Installer for macOS                 ║
+# ║              InGen Installer for macOS (v2.0)                ║
 # ║         Local AI-Powered Productivity Dashboard              ║
+# ║                                                              ║
+# ║  Features: Resume support, disk space check, MCP tooling,   ║
+# ║  Node-based JSON config, post-install health verification    ║
 # ╚══════════════════════════════════════════════════════════════╝
-
 set -e
 
-# Configuration
+# ─── Configuration ───
 INSTALL_DIR="$HOME/InGen"
 REPO_URL="https://github.com/sankalpv/InGen-SmartAI.git"
 DESKTOP_SHORTCUT="$HOME/Desktop/InGen.command"
 LLM_MODEL="qwen3:latest"
 EMBEDDING_MODEL="qwen3-embedding"
+PROGRESS_FILE="$HOME/.ingen-install-progress"
+TOTAL_STEPS=13
 
-# Colors
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-BLUE='\033[0;34m'
-PURPLE='\033[0;35m'
-CYAN='\033[0;36m'
-NC='\033[0m' # No Color
-BOLD='\033[1m'
+# ─── Colors ───
+RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'
+BLUE='\033[0;34m'; PURPLE='\033[0;35m'; CYAN='\033[0;36m'
+NC='\033[0m'; BOLD='\033[1m'; DIM='\033[2m'
+
+# ─── Utility Functions ───
 
 print_header() {
     echo ""
     echo -e "${PURPLE}╔══════════════════════════════════════════════════════════════╗${NC}"
-    echo -e "${PURPLE}║${NC}  ${BOLD}🧬 InGen — AI Productivity Dashboard${NC}                       ${PURPLE}║${NC}"
+    echo -e "${PURPLE}║${NC}  ${BOLD}🧬 InGen — AI Productivity Dashboard Installer${NC}             ${PURPLE}║${NC}"
     echo -e "${PURPLE}║${NC}  ${CYAN}Local-first • Privacy-first • Zero cloud${NC}                    ${PURPLE}║${NC}"
+    echo -e "${PURPLE}║${NC}  ${DIM}v2.0 — with resume support & MCP tooling${NC}                    ${PURPLE}║${NC}"
     echo -e "${PURPLE}╚══════════════════════════════════════════════════════════════╝${NC}"
     echo ""
+    if [[ -f "$PROGRESS_FILE" ]]; then
+        local completed
+        completed=$(wc -l < "$PROGRESS_FILE" | tr -d ' ')
+        echo -e "  ${YELLOW}⏩ Resuming installation (${completed} steps already completed)${NC}"
+        echo -e "  ${DIM}Delete ${PROGRESS_FILE} to start fresh${NC}"
+        echo ""
+    fi
 }
 
 print_step() {
-    echo -e "${BLUE}[$1/$TOTAL_STEPS]${NC} $2"
+    echo ""
+    echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo -e "${BLUE}  [$1/${TOTAL_STEPS}]${NC} ${BOLD}$2${NC}"
+    echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
 }
 
-print_ok() {
-    echo -e "  ${GREEN}✅ $1${NC}"
+print_ok()   { echo -e "  ${GREEN}✅ $1${NC}"; }
+print_warn() { echo -e "  ${YELLOW}⚠️  $1${NC}"; }
+print_fail() { echo -e "  ${RED}❌ $1${NC}"; }
+print_info() { echo -e "  ${CYAN}ℹ️  $1${NC}"; }
+
+# Resume support: mark a step as done
+step_done() {
+    echo "$1" >> "$PROGRESS_FILE"
 }
 
-print_warn() {
-    echo -e "  ${YELLOW}⚠️  $1${NC}"
+# Resume support: check if step was already completed
+is_step_done() {
+    [[ -f "$PROGRESS_FILE" ]] && grep -qx "$1" "$PROGRESS_FILE" 2>/dev/null
 }
 
-print_fail() {
-    echo -e "  ${RED}❌ $1${NC}"
+# Clean up progress file after successful install
+clear_progress() {
+    rm -f "$PROGRESS_FILE"
 }
 
-print_info() {
-    echo -e "  ${CYAN}ℹ️  $1${NC}"
+# Edit JSON config using Node.js (no Python dependency)
+node_json_set() {
+    local file="$1" key="$2" value="$3"
+    node -e "
+const fs = require('fs');
+const f = '$file';
+const d = JSON.parse(fs.readFileSync(f, 'utf8'));
+const keys = '$key'.split('.');
+let obj = d;
+for (let i = 0; i < keys.length - 1; i++) {
+    if (!obj[keys[i]]) obj[keys[i]] = {};
+    obj = obj[keys[i]];
+}
+try { obj[keys[keys.length-1]] = JSON.parse('$value'); }
+catch { obj[keys[keys.length-1]] = '$value'; }
+fs.writeFileSync(f, JSON.stringify(d, null, 2) + '\n');
+" 2>/dev/null
 }
 
-TOTAL_STEPS=10
+# ─── Step Functions ───
 
-print_header
+step_01_system_check() {
+    if is_step_done "step_01"; then print_step 1 "System Check ✅ (cached)"; return; fi
+    print_step 1 "Checking system requirements"
 
-# ─── Step 1: Check macOS ───
-print_step 1 "Checking system requirements..."
-
-if [[ "$(uname)" != "Darwin" ]]; then
-    print_fail "This installer is for macOS only."
-    exit 1
-fi
-print_ok "macOS $(sw_vers -productVersion) detected"
-
-# Check for Apple Silicon vs Intel
-ARCH=$(uname -m)
-if [[ "$ARCH" == "arm64" ]]; then
-    print_ok "Apple Silicon (M-series) detected"
-else
-    print_ok "Intel Mac detected"
-fi
-
-# ─── Step 2: Check Build Tools ───
-print_step 2 "Checking build tools..."
-
-# Xcode Command Line Tools (needed for native C++ modules)
-if ! xcode-select -p &>/dev/null; then
-    print_warn "Xcode Command Line Tools not found. Installing..."
-    print_info "A system dialog may appear — click 'Install' and wait."
-    xcode-select --install 2>/dev/null
-    # Wait for installation
-    until xcode-select -p &>/dev/null; do
-        sleep 5
-    done
-    print_ok "Xcode Command Line Tools installed"
-else
-    print_ok "Xcode Command Line Tools found"
-fi
-
-# Python setuptools (needed by node-gyp for native modules, removed in Python 3.12+)
-if python3 -c "import distutils" &>/dev/null 2>&1; then
-    print_ok "Python build tools available"
-else
-    print_warn "Python distutils missing (Python 3.12+). Installing setuptools..."
-    # Try multiple methods — Homebrew Python 3.12+ marks as "externally managed"
-    pip3 install setuptools --break-system-packages 2>/dev/null \
-        || python3 -m pip install setuptools --break-system-packages 2>/dev/null \
-        || brew install python-setuptools 2>/dev/null \
-        || pip3 install setuptools 2>/dev/null \
-        || true
-    if python3 -c "import setuptools" &>/dev/null 2>&1; then
-        print_ok "Python setuptools installed"
-    else
-        print_fail "setuptools install failed. Run manually: pip3 install setuptools --break-system-packages"
+    # Must be macOS
+    if [[ "$(uname)" != "Darwin" ]]; then
+        print_fail "This installer is for macOS only."
         exit 1
     fi
-fi
+    print_ok "macOS $(sw_vers -productVersion)"
 
-# ─── Step 3: Check/Install Homebrew ───
-print_step 3 "Checking Homebrew..."
-
-if ! command -v brew &>/dev/null; then
-    print_warn "Homebrew not found. Installing..."
-    /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
-    
-    # Add brew to PATH for Apple Silicon
+    # Architecture
+    ARCH=$(uname -m)
     if [[ "$ARCH" == "arm64" ]]; then
-        eval "$(/opt/homebrew/bin/brew shellenv)"
-        echo 'eval "$(/opt/homebrew/bin/brew shellenv)"' >> ~/.zprofile
-    fi
-    print_ok "Homebrew installed"
-else
-    print_ok "Homebrew found"
-fi
-
-# ─── Step 4: Check/Install Node.js ───
-print_step 4 "Checking Node.js..."
-
-# Helper: detect how Node was installed
-detect_node_source() {
-    local node_path
-    node_path=$(which node 2>/dev/null)
-    if [[ -z "$node_path" ]]; then
-        echo "none"
-    elif [[ "$node_path" == *".nvm/"* ]]; then
-        echo "nvm"
-    elif [[ "$node_path" == "/opt/homebrew/"* ]] || [[ "$node_path" == "/usr/local/Cellar/"* ]] || (brew list node &>/dev/null 2>&1); then
-        echo "brew"
-    elif [[ "$node_path" == "/usr/local/bin/node" ]] && [[ -d "/usr/local/include/node" ]]; then
-        echo "pkg"
+        print_ok "Apple Silicon (M-series)"
     else
-        echo "unknown"
+        print_ok "Intel Mac"
     fi
+
+    # Disk space check (~15 GB needed: 10 GB models + 3 GB node_modules + 2 GB buffer)
+    local free_gb
+    free_gb=$(df -g "$HOME" | awk 'NR==2 {print $4}')
+    if [[ "$free_gb" -lt 15 ]]; then
+        print_warn "Low disk space: ${free_gb} GB free (15 GB recommended)"
+        print_info "AI models need ~10 GB + ~3 GB for dependencies"
+        read -p "  Continue anyway? [y/N]: " DISK_CONTINUE
+        if [[ "$DISK_CONTINUE" != "y" && "$DISK_CONTINUE" != "Y" ]]; then
+            echo "  Install cancelled. Free up disk space and try again."
+            exit 1
+        fi
+    else
+        print_ok "Disk space: ${free_gb} GB free"
+    fi
+
+    # Check Outlook is installed
+    if [[ -d "/Applications/Microsoft Outlook.app" ]]; then
+        print_ok "Microsoft Outlook installed"
+    else
+        print_warn "Microsoft Outlook not found in /Applications"
+        print_info "InGen reads local Outlook data. Install Outlook for full functionality."
+    fi
+
+    step_done "step_01"
 }
 
-# Helper: load nvm if available but not in current shell
-load_nvm_if_available() {
-    if [[ -z "$NVM_DIR" ]]; then
-        export NVM_DIR="$HOME/.nvm"
-    fi
-    if [[ -s "$NVM_DIR/nvm.sh" ]]; then
-        source "$NVM_DIR/nvm.sh"
-        return 0
-    fi
-    return 1
-}
+step_02_xcode_tools() {
+    if is_step_done "step_02"; then print_step 2 "Xcode CLI Tools ✅ (cached)"; return; fi
+    print_step 2 "Checking build tools"
 
-upgrade_node() {
-    local source
-    source=$(detect_node_source)
-    print_info "Node.js installed via: $source"
-
-    case "$source" in
-        brew)
-            print_info "Upgrading Node.js via Homebrew..."
-            brew upgrade node 2>/dev/null || brew install node@22 2>/dev/null
-            # If node@22 was installed as a keg, link it
-            brew link --overwrite node@22 2>/dev/null || brew link --overwrite node 2>/dev/null || true
-            ;;
-        nvm)
-            print_info "Upgrading Node.js via nvm..."
-            load_nvm_if_available
-            nvm install 22 2>/dev/null && nvm use 22 2>/dev/null && nvm alias default 22 2>/dev/null
-            ;;
-        pkg)
-            print_info "Node.js was installed via .pkg installer. Installing fresh via Homebrew..."
-            # Homebrew's node will take precedence on PATH after install
-            brew install node 2>/dev/null
-            # If brew node exists but old pkg node shadows it, force link
-            brew link --overwrite node 2>/dev/null || true
-            ;;
-        none)
-            # Check if nvm is available but no node is active
-            if load_nvm_if_available && command -v nvm &>/dev/null; then
-                print_info "nvm detected but no Node active. Installing Node 22 via nvm..."
-                nvm install 22 && nvm use 22 && nvm alias default 22
-            else
-                print_info "Installing Node.js via Homebrew..."
-                brew install node
+    if ! xcode-select -p &>/dev/null; then
+        print_warn "Xcode Command Line Tools not found. Installing..."
+        print_info "A system dialog may appear — click 'Install' and wait."
+        xcode-select --install 2>/dev/null || true
+        # Wait for installation (up to 10 minutes)
+        local waited=0
+        while ! xcode-select -p &>/dev/null; do
+            sleep 10
+            waited=$((waited + 10))
+            if [[ $waited -gt 600 ]]; then
+                print_fail "Xcode CLI Tools install timed out. Please install manually and re-run."
+                exit 1
             fi
-            ;;
-        *)
-            # Unknown source — try Homebrew install as override
-            print_info "Unknown Node.js source ($source). Installing via Homebrew..."
-            brew install node 2>/dev/null
-            brew link --overwrite node 2>/dev/null || true
-            ;;
-    esac
+        done
+        print_ok "Xcode Command Line Tools installed"
+    else
+        print_ok "Xcode Command Line Tools found"
+    fi
+
+    # Python setuptools (needed by node-gyp for hnswlib-node)
+    if python3 -c "import distutils" &>/dev/null 2>&1 || python3 -c "import setuptools" &>/dev/null 2>&1; then
+        print_ok "Python build tools available"
+    else
+        print_info "Installing Python setuptools (needed for native modules)..."
+        pip3 install setuptools --break-system-packages 2>/dev/null \
+            || python3 -m pip install setuptools --break-system-packages 2>/dev/null \
+            || brew install python-setuptools 2>/dev/null \
+            || true
+        if python3 -c "import setuptools" &>/dev/null 2>&1; then
+            print_ok "Python setuptools installed"
+        else
+            print_warn "setuptools install failed — native module builds may fail"
+            print_info "Try manually: pip3 install setuptools --break-system-packages"
+        fi
+    fi
+
+    step_done "step_02"
 }
 
-if ! command -v node &>/dev/null; then
-    print_warn "Node.js not found."
-    upgrade_node
-fi
+step_03_homebrew() {
+    if is_step_done "step_03"; then print_step 3 "Homebrew ✅ (cached)"; return; fi
+    print_step 3 "Checking Homebrew"
 
-# Verify Node.js version (must be >= 20)
-NODE_VERSION=$(node -v 2>/dev/null | sed 's/v//' | cut -d. -f1)
-if [[ -z "$NODE_VERSION" ]] || [[ "$NODE_VERSION" -lt 20 ]]; then
-    print_warn "Node.js v${NODE_VERSION:-??} is too old (need 20+). Upgrading..."
-    upgrade_node
-    
-    # Refresh PATH in case brew/nvm changed it
-    hash -r 2>/dev/null
-    if [[ -s "$HOME/.nvm/nvm.sh" ]]; then
-        source "$HOME/.nvm/nvm.sh" 2>/dev/null
+    if ! command -v brew &>/dev/null; then
+        print_warn "Homebrew not found. Installing..."
+        /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+        # Add brew to PATH for Apple Silicon
+        if [[ "$(uname -m)" == "arm64" ]]; then
+            eval "$(/opt/homebrew/bin/brew shellenv)"
+            echo 'eval "$(/opt/homebrew/bin/brew shellenv)"' >> "$HOME/.zprofile"
+        fi
+        print_ok "Homebrew installed"
+    else
+        print_ok "Homebrew $(brew --version | head -1 | awk '{print $2}')"
     fi
-    
-    # Re-check after upgrade
-    NODE_VERSION=$(node -v 2>/dev/null | sed 's/v//' | cut -d. -f1)
-    if [[ -z "$NODE_VERSION" ]] || [[ "$NODE_VERSION" -lt 20 ]]; then
-        print_fail "Node.js upgrade failed. Current: $(node -v 2>/dev/null || echo 'not found')"
-        echo ""
-        print_info "Please install Node.js 20+ manually using ONE of these methods:"
-        echo ""
-        echo -e "    ${CYAN}Method 1 (Homebrew):${NC}"
-        echo -e "      brew install node"
-        echo ""
-        echo -e "    ${CYAN}Method 2 (nvm):${NC}"
-        echo -e "      curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.1/install.sh | bash"
-        echo -e "      source ~/.zshrc"
-        echo -e "      nvm install 22"
-        echo ""
-        echo -e "    ${CYAN}Method 3 (Direct download):${NC}"
-        echo -e "      Visit https://nodejs.org and download v22+"
-        echo ""
-        print_info "Then re-run this installer: bash scripts/install-ingen.sh"
-        exit 1
+
+    step_done "step_03"
+}
+
+step_04_nodejs() {
+    if is_step_done "step_04"; then print_step 4 "Node.js ✅ (cached)"; return; fi
+    print_step 4 "Checking Node.js"
+
+    local need_install=false
+
+    if ! command -v node &>/dev/null; then
+        need_install=true
+        print_warn "Node.js not found"
+    else
+        local node_major
+        node_major=$(node -v 2>/dev/null | sed 's/v//' | cut -d. -f1)
+        if [[ -z "$node_major" ]] || [[ "$node_major" -lt 20 ]]; then
+            need_install=true
+            print_warn "Node.js v${node_major:-??} is too old (need 20+)"
+        fi
     fi
-fi
-print_ok "Node.js $(node -v)"
 
-# ─── Step 5: Check/Install Ollama ───
-print_step 5 "Checking Ollama (local AI engine)..."
+    if [[ "$need_install" == "true" ]]; then
+        print_info "Installing Node.js via Homebrew..."
+        brew install node 2>/dev/null || brew upgrade node 2>/dev/null || true
+        brew link --overwrite node 2>/dev/null || true
+        hash -r 2>/dev/null
 
-if ! command -v ollama &>/dev/null; then
-    print_warn "Ollama not found. Installing..."
-    brew install ollama
-    print_ok "Ollama installed"
-    
-    # Start Ollama service
-    print_info "Starting Ollama service..."
-    ollama serve &>/dev/null &
-    sleep 3
-else
-    print_ok "Ollama found"
-    
-    # Ensure Ollama is running
+        # Verify
+        local node_major
+        node_major=$(node -v 2>/dev/null | sed 's/v//' | cut -d. -f1)
+        if [[ -z "$node_major" ]] || [[ "$node_major" -lt 20 ]]; then
+            print_fail "Node.js install failed. Current: $(node -v 2>/dev/null || echo 'not found')"
+            echo ""
+            print_info "Install manually: brew install node"
+            print_info "Or download from: https://nodejs.org"
+            print_info "Then re-run this installer."
+            exit 1
+        fi
+    fi
+
+    print_ok "Node.js $(node -v) / npm $(npm -v)"
+    step_done "step_04"
+}
+step_05_ollama() {
+    if is_step_done "step_05"; then print_step 5 "Ollama ✅ (cached)"; return; fi
+    print_step 5 "Checking Ollama (local AI engine)"
+
+    if ! command -v ollama &>/dev/null; then
+        print_warn "Ollama not found. Installing..."
+        brew install ollama
+        print_ok "Ollama installed"
+    else
+        print_ok "Ollama found ($(ollama --version 2>/dev/null || echo 'unknown version'))"
+    fi
+
+    # Ensure Ollama service is running
     if ! curl -s http://127.0.0.1:11434/api/tags &>/dev/null; then
         print_info "Starting Ollama service..."
         ollama serve &>/dev/null &
-        sleep 3
+        # Wait up to 30 seconds for it to come up
+        local waited=0
+        while ! curl -s http://127.0.0.1:11434/api/tags &>/dev/null; do
+            sleep 2
+            waited=$((waited + 2))
+            if [[ $waited -gt 30 ]]; then
+                print_fail "Ollama failed to start within 30 seconds"
+                print_info "Try manually: ollama serve"
+                print_info "Then re-run this installer."
+                exit 1
+            fi
+        done
+        print_ok "Ollama service started"
+    else
+        print_ok "Ollama service running"
     fi
-fi
 
-# ─── Step 6: Pull AI Models ───
-print_step 6 "Downloading AI models (this may take 5-10 minutes on first install)..."
+    step_done "step_05"
+}
 
-# Check if models already exist
-if ollama list 2>/dev/null | grep -q "$LLM_MODEL"; then
-    print_ok "LLM model ($LLM_MODEL) already downloaded"
-else
-    print_info "Pulling $LLM_MODEL (~5.2 GB)..."
-    ollama pull "$LLM_MODEL"
-    print_ok "$LLM_MODEL downloaded"
-fi
+step_06_ai_models() {
+    if is_step_done "step_06"; then print_step 6 "AI Models ✅ (cached)"; return; fi
+    print_step 6 "Downloading AI models"
+    print_info "This may take 5-10 minutes on first install (~10 GB total)"
 
-if ollama list 2>/dev/null | grep -q "$EMBEDDING_MODEL"; then
-    print_ok "Embedding model ($EMBEDDING_MODEL) already downloaded"
-else
-    print_info "Pulling $EMBEDDING_MODEL (~4.7 GB)..."
-    ollama pull "$EMBEDDING_MODEL"
-    print_ok "$EMBEDDING_MODEL downloaded"
-fi
+    # LLM model
+    if ollama list 2>/dev/null | grep -q "$LLM_MODEL"; then
+        print_ok "LLM model ($LLM_MODEL) already downloaded"
+    else
+        echo ""
+        print_info "Pulling $LLM_MODEL (~5.2 GB)..."
+        ollama pull "$LLM_MODEL"
+        print_ok "$LLM_MODEL downloaded"
+    fi
 
-# ─── Step 7: Install InGen ───
-print_step 7 "Installing InGen..."
+    # Embedding model
+    if ollama list 2>/dev/null | grep -q "$EMBEDDING_MODEL"; then
+        print_ok "Embedding model ($EMBEDDING_MODEL) already downloaded"
+    else
+        echo ""
+        print_info "Pulling $EMBEDDING_MODEL (~4.7 GB)..."
+        ollama pull "$EMBEDDING_MODEL"
+        print_ok "$EMBEDDING_MODEL downloaded"
+    fi
 
-# Detect if we're running from inside the source directory (zip distribution)
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-SOURCE_DIR="$(dirname "$SCRIPT_DIR")"
+    step_done "step_06"
+}
 
-if [[ -f "$SOURCE_DIR/package.json" ]] && grep -q "smartai" "$SOURCE_DIR/package.json" 2>/dev/null; then
-    # Running from inside the extracted zip — copy to install dir
-    if [[ "$SOURCE_DIR" != "$INSTALL_DIR" ]]; then
-        if [[ -d "$INSTALL_DIR" ]]; then
-            print_info "Existing installation found. Updating files..."
-            # Preserve user data
-            [[ -d "$INSTALL_DIR/data" ]] && cp -r "$INSTALL_DIR/data" /tmp/ingen-data-backup 2>/dev/null
-            [[ -f "$INSTALL_DIR/.env.local" ]] && cp "$INSTALL_DIR/.env.local" /tmp/ingen-env-backup 2>/dev/null
-            [[ -f "$INSTALL_DIR/sync_state.json" ]] && cp "$INSTALL_DIR/sync_state.json" /tmp/ingen-sync-backup 2>/dev/null
-            rm -rf "$INSTALL_DIR"
+step_07_mcp_tooling() {
+    if is_step_done "step_07"; then print_step 7 "MCP Tooling ✅ (cached)"; return; fi
+    print_step 7 "Checking Amazon MCP tools"
+    print_info "MCP tools enable Phonetool, code.amazon.com, Taskei, and Quip"
+
+    local mcp_ok=true
+
+    # Check for toolbox
+    if command -v toolbox &>/dev/null || [[ -x "$HOME/.toolbox/bin/toolbox" ]]; then
+        print_ok "Amazon Toolbox installed"
+    else
+        print_warn "Amazon Toolbox not found"
+        print_info "Install: ${CYAN}curl -s https://gist.githubusercontent.com/nicktrav/6831bc6a5ac5e5e17e1b45b83689143f/raw | bash${NC}"
+        print_info "Or visit: https://w.amazon.com/bin/view/AmazonToolbox"
+        mcp_ok=false
+    fi
+
+    # Check for amzn-mcp
+    if command -v amzn-mcp &>/dev/null || [[ -x "$HOME/.toolbox/bin/amzn-mcp" ]]; then
+        print_ok "amzn-mcp available"
+    else
+        print_warn "amzn-mcp not found"
+        if [[ -x "$HOME/.toolbox/bin/toolbox" ]] || command -v toolbox &>/dev/null; then
+            print_info "Installing amzn-mcp via toolbox..."
+            toolbox install amzn-mcp 2>/dev/null && print_ok "amzn-mcp installed" || print_warn "amzn-mcp install failed"
+        else
+            print_info "Install toolbox first, then: toolbox install amzn-mcp"
         fi
-        print_info "Copying to $INSTALL_DIR..."
-        cp -r "$SOURCE_DIR" "$INSTALL_DIR"
-        # Restore user data
-        [[ -d /tmp/ingen-data-backup ]] && cp -r /tmp/ingen-data-backup "$INSTALL_DIR/data" && rm -rf /tmp/ingen-data-backup
-        [[ -f /tmp/ingen-env-backup ]] && cp /tmp/ingen-env-backup "$INSTALL_DIR/.env.local" && rm -f /tmp/ingen-env-backup
-        [[ -f /tmp/ingen-sync-backup ]] && cp /tmp/ingen-sync-backup "$INSTALL_DIR/sync_state.json" && rm -f /tmp/ingen-sync-backup
+        mcp_ok=false
+    fi
+
+    # Check for builder-mcp
+    if command -v builder-mcp &>/dev/null || [[ -x "$HOME/.toolbox/bin/builder-mcp" ]]; then
+        print_ok "builder-mcp available"
     else
-        print_ok "Already installed at $INSTALL_DIR"
+        print_warn "builder-mcp not found"
+        if [[ -x "$HOME/.toolbox/bin/toolbox" ]] || command -v toolbox &>/dev/null; then
+            print_info "Installing builder-mcp via toolbox..."
+            toolbox install builder-mcp 2>/dev/null && print_ok "builder-mcp installed" || print_warn "builder-mcp install failed"
+        else
+            print_info "Install toolbox first, then: toolbox install builder-mcp"
+        fi
+        mcp_ok=false
     fi
-    cd "$INSTALL_DIR"
-elif [[ -d "$INSTALL_DIR" ]]; then
-    print_info "Existing installation found."
-    cd "$INSTALL_DIR"
-    # Try git pull if it's a git repo
-    if [[ -d ".git" ]]; then
-        git pull --rebase 2>/dev/null || true
+
+    if [[ "$mcp_ok" == "false" ]]; then
+        print_warn "Some MCP tools missing — Team Health, Code Metrics, and Ticket Health may not work"
+        print_info "These features require VPN + Midway auth. You can set them up later."
     fi
-else
-    # No source dir detected, no existing install — try git clone as fallback
-    if command -v git &>/dev/null && [[ -n "$REPO_URL" ]]; then
-        print_info "Cloning from repository..."
-        git clone "$REPO_URL" "$INSTALL_DIR"
+
+    # Update MCP paths in settings.json if tools are found
+    local amzn_path="" builder_path=""
+    if [[ -x "$HOME/.toolbox/bin/amzn-mcp" ]]; then
+        amzn_path="$HOME/.toolbox/bin/amzn-mcp"
+    elif command -v amzn-mcp &>/dev/null; then
+        amzn_path="$(which amzn-mcp)"
+    fi
+    if [[ -x "$HOME/.toolbox/bin/builder-mcp" ]]; then
+        builder_path="$HOME/.toolbox/bin/builder-mcp"
+    elif command -v builder-mcp &>/dev/null; then
+        builder_path="$(which builder-mcp)"
+    fi
+
+    # Save paths for step_09 to use
+    export MCP_AMZN_PATH="$amzn_path"
+    export MCP_BUILDER_PATH="$builder_path"
+
+    step_done "step_07"
+}
+step_08_install_app() {
+    if is_step_done "step_08"; then print_step 8 "Install App ✅ (cached)"; return; fi
+    print_step 8 "Installing InGen"
+
+    # Detect source: running from inside extracted archive vs fresh install
+    SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    SOURCE_DIR="$(dirname "$SCRIPT_DIR")"
+
+    if [[ -f "$SOURCE_DIR/package.json" ]] && grep -q "smartai" "$SOURCE_DIR/package.json" 2>/dev/null; then
+        # Running from inside the extracted zip/tar — copy to install dir
+        if [[ "$SOURCE_DIR" != "$INSTALL_DIR" ]]; then
+            if [[ -d "$INSTALL_DIR" ]]; then
+                print_info "Existing installation found. Preserving user data..."
+                # Backup user data
+                local backup_dir="/tmp/ingen-backup-$$"
+                mkdir -p "$backup_dir"
+                [[ -d "$INSTALL_DIR/data" ]] && cp -r "$INSTALL_DIR/data" "$backup_dir/data" 2>/dev/null || true
+                [[ -f "$INSTALL_DIR/.env.local" ]] && cp "$INSTALL_DIR/.env.local" "$backup_dir/.env.local" 2>/dev/null || true
+                [[ -f "$INSTALL_DIR/sync_state.json" ]] && cp "$INSTALL_DIR/sync_state.json" "$backup_dir/sync_state.json" 2>/dev/null || true
+                [[ -f "$INSTALL_DIR/config/settings.json" ]] && cp "$INSTALL_DIR/config/settings.json" "$backup_dir/settings.json" 2>/dev/null || true
+                rm -rf "$INSTALL_DIR"
+            fi
+
+            print_info "Copying to $INSTALL_DIR..."
+            cp -r "$SOURCE_DIR" "$INSTALL_DIR"
+
+            # Restore user data
+            if [[ -d "/tmp/ingen-backup-$$" ]]; then
+                [[ -d "/tmp/ingen-backup-$$/data" ]] && cp -r "/tmp/ingen-backup-$$/data" "$INSTALL_DIR/data"
+                [[ -f "/tmp/ingen-backup-$$/.env.local" ]] && cp "/tmp/ingen-backup-$$/.env.local" "$INSTALL_DIR/.env.local"
+                [[ -f "/tmp/ingen-backup-$$/sync_state.json" ]] && cp "/tmp/ingen-backup-$$/sync_state.json" "$INSTALL_DIR/sync_state.json"
+                [[ -f "/tmp/ingen-backup-$$/settings.json" ]] && cp "/tmp/ingen-backup-$$/settings.json" "$INSTALL_DIR/config/settings.json"
+                rm -rf "/tmp/ingen-backup-$$"
+                print_ok "User data preserved"
+            fi
+        else
+            print_ok "Already at $INSTALL_DIR"
+        fi
         cd "$INSTALL_DIR"
+    elif [[ -d "$INSTALL_DIR" ]]; then
+        print_info "Existing installation found at $INSTALL_DIR"
+        cd "$INSTALL_DIR"
+        if [[ -d ".git" ]]; then
+            print_info "Pulling latest code..."
+            git pull --rebase 2>/dev/null || true
+        fi
     else
-        print_fail "No InGen source found. Download InGen.tar.gz first and extract it."
-        print_info "Then run: bash scripts/install-ingen.sh"
-        exit 1
+        # No source, no existing — git clone
+        if command -v git &>/dev/null && [[ -n "$REPO_URL" ]]; then
+            print_info "Cloning from $REPO_URL..."
+            git clone "$REPO_URL" "$INSTALL_DIR"
+            cd "$INSTALL_DIR"
+        else
+            print_fail "No InGen source found."
+            print_info "Download InGen.tar.gz first, then run: bash scripts/install-ingen.sh"
+            exit 1
+        fi
     fi
-fi
 
-# Install dependencies
-print_info "Installing Node.js dependencies (this may take 1-2 minutes)..."
-npm install
-# Rebuild native modules (hnswlib-node needs compilation)
-print_info "Building native modules..."
-npm rebuild 2>/dev/null || true
+    # Install Node.js dependencies
+    print_info "Installing dependencies (this may take 1-2 minutes)..."
+    npm install 2>&1 | tail -5
 
-print_ok "InGen installed at $INSTALL_DIR"
+    # Rebuild native modules
+    print_info "Building native modules (hnswlib-node, sqlite3)..."
+    npm rebuild 2>&1 | tail -3 || true
 
-# ─── Step 8: Configure ───
-print_step 8 "Configuring InGen..."
+    # Create data directory
+    mkdir -p "$INSTALL_DIR/data"
 
-# Create .env.local if it doesn't exist
-if [[ ! -f "$INSTALL_DIR/.env.local" ]]; then
-    AUTH_SECRET=$(openssl rand -base64 32)
-    cat > "$INSTALL_DIR/.env.local" << EOF
+    print_ok "InGen installed at $INSTALL_DIR"
+    step_done "step_08"
+}
+
+step_09_configure() {
+    if is_step_done "step_09"; then print_step 9 "Configure ✅ (cached)"; return; fi
+    print_step 9 "Configuring InGen"
+
+    local SETTINGS="$INSTALL_DIR/config/settings.json"
+
+    # ── .env.local ──
+    if [[ ! -f "$INSTALL_DIR/.env.local" ]]; then
+        local AUTH_SECRET
+        AUTH_SECRET=$(openssl rand -base64 32)
+        cat > "$INSTALL_DIR/.env.local" << EOF
 # InGen Configuration (auto-generated by installer)
 LLM_MODEL=$LLM_MODEL
 EMBEDDING_MODEL=$EMBEDDING_MODEL
 EMBEDDING_DIMENSIONS=4096
 OLLAMA_BASE_URL=http://127.0.0.1:11434
 OLLAMA_MODEL=$LLM_MODEL
-
-# Required by next-auth library (even though we don't use OAuth)
 AUTH_SECRET=$AUTH_SECRET
 NEXTAUTH_SECRET=$AUTH_SECRET
-
 LOG_LEVEL=INFO
 MCP_ENABLED=true
 EOF
-    print_ok "Created .env.local"
-else
-    print_ok ".env.local already exists (preserved)"
-fi
+        print_ok "Created .env.local"
+    else
+        print_ok ".env.local already exists (preserved)"
+    fi
 
-# Create data directory
-mkdir -p "$INSTALL_DIR/data"
+    # ── MCP Paths ──
+    if [[ -n "$MCP_AMZN_PATH" ]]; then
+        node_json_set "$SETTINGS" "mcpServers.amzn-mcp.command" "\"$MCP_AMZN_PATH\""
+        print_ok "amzn-mcp path: $MCP_AMZN_PATH"
+    fi
+    if [[ -n "$MCP_BUILDER_PATH" ]]; then
+        node_json_set "$SETTINGS" "mcpServers.builder-mcp.command" "\"$MCP_BUILDER_PATH\""
+        print_ok "builder-mcp path: $MCP_BUILDER_PATH"
+    fi
 
-echo ""
-echo -e "  ${BOLD}📅 Calendar Selection${NC}"
+    # ── Calendar Selection ──
+    echo ""
+    echo -e "  ${BOLD}📅 Calendar Selection${NC}"
 
-# Try to detect available Outlook calendars
-CALENDAR_JSON=""
-if command -v node &>/dev/null; then
+    local CALENDAR_JSON=""
     CALENDAR_JSON=$(cd "$INSTALL_DIR" && node -e "
 const {getCalendarList} = require('./services/outlook-local');
 getCalendarList().then(cals => {
-    if (cals && cals.length > 0) {
-        console.log(JSON.stringify(cals));
-    } else {
-        console.log('[]');
-    }
+    console.log(JSON.stringify(cals && cals.length > 0 ? cals : []));
 }).catch(() => console.log('[]'));
 " 2>/dev/null || echo "[]")
-fi
 
-if [[ -n "$CALENDAR_JSON" ]] && [[ "$CALENDAR_JSON" != "[]" ]] && command -v python3 &>/dev/null; then
-    # Parse and display calendars
-    CALENDAR_COUNT=$(echo "$CALENDAR_JSON" | python3 -c "import sys,json; print(len(json.load(sys.stdin)))" 2>/dev/null || echo "0")
-    
-    if [[ "$CALENDAR_COUNT" -gt "0" ]]; then
-        echo ""
-        echo -e "  Available Outlook calendars:"
-        echo "$CALENDAR_JSON" | python3 -c "
-import sys, json
-cals = json.load(sys.stdin)
-for i, cal in enumerate(cals):
-    default = ' ← default' if cal.get('isDefault') else ''
-    print(f\"    {i+1}. {cal.get('name', 'Unknown')} (ID: {cal.get('id', '?')}){default}\")
+    if [[ -n "$CALENDAR_JSON" ]] && [[ "$CALENDAR_JSON" != "[]" ]]; then
+        local cal_count
+        cal_count=$(echo "$CALENDAR_JSON" | node -e "
+const d=JSON.parse(require('fs').readFileSync('/dev/stdin','utf8'));
+console.log(d.length);
+" 2>/dev/null || echo "0")
+
+        if [[ "$cal_count" -gt "0" ]]; then
+            echo ""
+            echo "  Available Outlook calendars:"
+            echo "$CALENDAR_JSON" | node -e "
+const d=JSON.parse(require('fs').readFileSync('/dev/stdin','utf8'));
+d.forEach((c,i) => {
+    const def = c.isDefault ? ' ← default' : '';
+    console.log('    ' + (i+1) + '. ' + (c.name||'Unknown') + ' (ID: ' + c.id + ')' + def);
+});
 " 2>/dev/null
-        echo ""
-        read -p "  Enter the number (1-${CALENDAR_COUNT}) or calendar ID [1]: " CAL_CHOICE
-        CAL_CHOICE=${CAL_CHOICE:-1}
-        
-        SELECTED_CAL_ID=$(echo "$CALENDAR_JSON" | python3 -c "
-import sys, json
-cals = json.load(sys.stdin)
-choice = '$CAL_CHOICE'
+            echo ""
+            read -p "  Enter number (1-${cal_count}) or calendar ID [1]: " CAL_CHOICE
+            CAL_CHOICE=${CAL_CHOICE:-1}
 
-# First check if input matches a calendar ID directly
-for cal in cals:
-    if str(cal.get('id', '')) == choice:
-        print(choice)
-        sys.exit(0)
-
-# Otherwise treat as list number (1-based)
-try:
-    idx = int(choice) - 1
-    if 0 <= idx < len(cals):
-        print(cals[idx].get('id', ''))
-    else:
-        print(cals[0].get('id', ''))
-except:
-    print(cals[0].get('id', ''))
+            local selected_id
+            selected_id=$(echo "$CALENDAR_JSON" | node -e "
+const d=JSON.parse(require('fs').readFileSync('/dev/stdin','utf8'));
+const c='$CAL_CHOICE';
+const byId=d.find(x=>String(x.id)===c);
+if(byId){console.log(byId.id)}
+else{const i=parseInt(c)-1;console.log(i>=0&&i<d.length?d[i].id:d[0].id)}
 " 2>/dev/null)
-        
-        if [[ -n "$SELECTED_CAL_ID" ]]; then
-            python3 -c "
-import json
-with open('$INSTALL_DIR/config/settings.json', 'r') as f:
-    s = json.load(f)
-s['outlookCalendarId'] = '$SELECTED_CAL_ID'
-with open('$INSTALL_DIR/config/settings.json', 'w') as f:
-    json.dump(s, f, indent=2)
-" 2>/dev/null
-            print_ok "Calendar ID set to: $SELECTED_CAL_ID"
+
+            if [[ -n "$selected_id" ]]; then
+                node_json_set "$SETTINGS" "outlookCalendarId" "\"$selected_id\""
+                print_ok "Calendar ID set to: $selected_id"
+            fi
+        else
+            print_warn "No calendars detected (Outlook may not be running)"
+            print_info "Set later in Settings or config/settings.json"
         fi
     else
         print_warn "Could not detect calendars (Outlook may not be running)"
-        print_info "You can set it later in Settings or config/settings.json"
+        print_info "Set later: open ~/InGen/config/settings.json → outlookCalendarId"
     fi
-else
-    print_warn "Could not detect calendars (Outlook may not be running)"
-    print_info "You can set it later: open ~/InGen/config/settings.json and set outlookCalendarId"
-fi
 
-# Phonetool alias
-echo ""
-echo -e "  ${BOLD}👤 Phonetool Alias${NC}"
-CURRENT_USER=$(whoami)
-echo ""
-read -p "  Enter your Amazon alias [$CURRENT_USER]: " USER_ALIAS
-USER_ALIAS=${USER_ALIAS:-$CURRENT_USER}
+    # ── Phonetool Alias ──
+    echo ""
+    echo -e "  ${BOLD}👤 Amazon Alias${NC}"
+    local CURRENT_USER
+    CURRENT_USER=$(whoami)
+    echo ""
+    read -p "  Enter your Amazon alias [$CURRENT_USER]: " USER_ALIAS
+    USER_ALIAS=${USER_ALIAS:-$CURRENT_USER}
 
-if [[ -n "$USER_ALIAS" ]] && command -v python3 &>/dev/null; then
-    python3 -c "
-import json
-try:
-    with open('$INSTALL_DIR/config/settings.json', 'r') as f:
-        s = json.load(f)
-    s['phonetoolAlias'] = '$USER_ALIAS'
-    with open('$INSTALL_DIR/config/settings.json', 'w') as f:
-        json.dump(s, f, indent=2)
-except: pass
-" 2>/dev/null
-fi
-print_ok "Phonetool alias: $USER_ALIAS"
+    node_json_set "$SETTINGS" "phonetoolAlias" "\"$USER_ALIAS\""
+    print_ok "Alias: $USER_ALIAS"
+    export INGEN_ALIAS="$USER_ALIAS"
 
-# Fetch org tree for this alias (saves to SQLite)
-echo ""
-echo -e "  ${BOLD}🏢 Fetching Org Tree${NC}"
-print_info "Fetching your org hierarchy from Phonetool (may take 30-60 seconds)..."
-if command -v node &>/dev/null && [[ -f "$INSTALL_DIR/services/org-store.js" ]]; then
+    # ── Quip Token ──
+    echo ""
+    echo -e "  ${BOLD}📄 Quip Integration (optional)${NC}"
+    echo -e "  InGen reads Quip docs linked in emails for richer AI briefings."
+    echo -e "  Get token at: ${CYAN}https://quip-amazon.com/dev/token${NC}"
+    echo ""
+    read -p "  Enter Quip API token (or Enter to skip): " QUIP_TOKEN
+
+    if [[ -n "$QUIP_TOKEN" ]]; then
+        mkdir -p "$HOME/.amazon-internal-mcp-server"
+        echo "QUIP_API_TOKEN=$QUIP_TOKEN" > "$HOME/.amazon-internal-mcp-server/.env"
+        node_json_set "$SETTINGS" "quip.enabled" "true"
+        print_ok "Quip token saved"
+    else
+        node_json_set "$SETTINGS" "quip.enabled" "false"
+        print_info "Skipped — enable later in Settings"
+    fi
+
+    # ── AWS Bedrock API Key (optional — for Claude Sonnet on Team Health, Code Metrics, WBR Prep) ──
+    echo ""
+    echo -e "  ${BOLD}🤖 AWS Bedrock API Key (optional)${NC}"
+    echo -e "  Enables Claude Sonnet 4 for higher-quality AI-generated reports on"
+    echo -e "  Team Health, Code Metrics, Ticket Health, and WBR Prep pages."
+    echo -e "  Without this, InGen uses the local Ollama model (qwen3)."
+    echo -e "  Get your ABSK key from: ${CYAN}Bedrock API Keys console${NC}"
+    echo ""
+    read -p "  Enter Bedrock ABSK API Key (or Enter to skip): " BEDROCK_KEY
+
+    if [[ -n "$BEDROCK_KEY" ]]; then
+        echo "AWS_BEARER_TOKEN_BEDROCK=$BEDROCK_KEY" >> "$INSTALL_DIR/.env.local"
+        print_ok "Bedrock API key saved to .env.local"
+    else
+        print_info "Skipped — InGen will use local Ollama for all AI. Add later in .env.local."
+    fi
+
+    # ── SIM Goals Folder (WBR / Team Health) ──
+    echo ""
+    echo -e "  ${BOLD}🎯 SIM Goals Folder — Team Health (optional)${NC}"
+    echo -e "  InGen tracks your team's goals from a SIM/Taskei folder."
+    echo -e "  Paste the Taskei URL that shows your goals."
+    echo -e "  Example: ${CYAN}https://taskei.amazon.dev/rooms/.../tasks?f=folder%3A...${NC}"
+    echo -e "  Or: ${CYAN}https://issues.amazon.com/folders/...${NC}"
+    echo ""
+    read -p "  Taskei/SIM goals URL (Enter to skip): " SIM_URL_INPUT
+
+    if [[ -n "$SIM_URL_INPUT" ]]; then
+        # Parse both roomId and folderId from the URL
+        local PARSED_IDS
+        PARSED_IDS=$(echo "$SIM_URL_INPUT" | node -e "
+const input = require('fs').readFileSync('/dev/stdin','utf8').trim();
+let roomId = '', folderId = '';
+// Taskei URL: /rooms/{roomId}/tasks?f=folder%3A{folderId}...
+const roomMatch = input.match(/rooms\/([0-9a-f-]{36})/i);
+if (roomMatch) roomId = roomMatch[1];
+// folder in query string: folder%3A{folderId} or folder:{folderId}
+const folderQs = input.match(/folder(?:%3A|:)([0-9a-f-]{36})/i);
+if (folderQs) folderId = folderQs[1];
+// issues.amazon.com/folders/{folderId}
+if (!folderId) { const folderPath = input.match(/folders\/([0-9a-f-]{36})/i); if (folderPath) folderId = folderPath[1]; }
+// Raw UUID
+if (!folderId && !roomId) { const raw = input.match(/^([0-9a-f-]{36})$/i); if (raw) folderId = raw[1]; }
+console.log(JSON.stringify({roomId, folderId}));
+" 2>/dev/null || echo '{"roomId":"","folderId":""}')
+
+        local FOLDER_ID ROOM_ID
+        FOLDER_ID=$(echo "$PARSED_IDS" | node -e "console.log(JSON.parse(require('fs').readFileSync('/dev/stdin','utf8')).folderId)" 2>/dev/null)
+        ROOM_ID=$(echo "$PARSED_IDS" | node -e "console.log(JSON.parse(require('fs').readFileSync('/dev/stdin','utf8')).roomId)" 2>/dev/null)
+
+        if [[ -n "$FOLDER_ID" ]]; then
+            node_json_set "$SETTINGS" "wbr.folderId" "\"$FOLDER_ID\""
+            print_ok "SIM folder ID: $FOLDER_ID"
+        else
+            print_warn "Could not parse folder ID from URL"
+        fi
+
+        if [[ -n "$ROOM_ID" ]]; then
+            node_json_set "$SETTINGS" "wbr.roomId" "\"$ROOM_ID\""
+            print_ok "Taskei Room ID: $ROOM_ID"
+        else
+            # Only ask separately if room wasn't in the URL
+            echo ""
+            echo -e "  Room ID not found in URL. Paste the Room ID or full Taskei URL:"
+            read -p "  Taskei Room ID (Enter to skip): " ROOM_INPUT
+            if [[ -n "$ROOM_INPUT" ]]; then
+                ROOM_ID=$(echo "$ROOM_INPUT" | node -e "
+const i=require('fs').readFileSync('/dev/stdin','utf8').trim();
+const m=i.match(/rooms\/([0-9a-f-]{36})/i)||i.match(/^([0-9a-f-]{36})$/i);
+console.log(m?m[1]:'');
+" 2>/dev/null)
+                if [[ -n "$ROOM_ID" ]]; then
+                    node_json_set "$SETTINGS" "wbr.roomId" "\"$ROOM_ID\""
+                    print_ok "Taskei Room ID: $ROOM_ID"
+                fi
+            fi
+        fi
+
+        # Ask for WBR title
+        echo ""
+        read -p "  WBR dashboard title (Enter for default): " WBR_TITLE
+        if [[ -n "$WBR_TITLE" ]]; then
+            node_json_set "$SETTINGS" "wbr.title" "\"$WBR_TITLE\""
+            print_ok "WBR title: $WBR_TITLE"
+        fi
+    else
+        print_info "Skipped — configure later in Settings → Team Goals"
+    fi
+
+    print_ok "Configuration complete"
+    step_done "step_09"
+}
+
+step_10_org_tree() {
+    if is_step_done "step_10"; then print_step 10 "Org Tree ✅ (cached)"; return; fi
+    print_step 10 "Fetching org tree"
+
+    local alias="${INGEN_ALIAS:-$(whoami)}"
+    print_info "Fetching org hierarchy for '$alias' from Phonetool..."
+    print_info "This may take 30-60 seconds (requires VPN + Midway)"
+
     cd "$INSTALL_DIR"
-    ORG_RESULT=$(node -e "
+    local org_result
+    org_result=$(node -e "
 const orgStore = require('./services/org-store');
-async function main() {
+(async () => {
     try {
-        const count = await orgStore.populateFromPhoneTool('$USER_ALIAS');
-        console.log(JSON.stringify({success: true, count}));
+        const count = await orgStore.populateFromPhoneTool('$alias');
+        console.log(JSON.stringify({ok:true,count}));
     } catch(e) {
-        console.log(JSON.stringify({success: false, error: e.message}));
+        console.log(JSON.stringify({ok:false,error:e.message}));
     }
     process.exit(0);
+})();
+" 2>/dev/null || echo '{"ok":false,"error":"script failed"}')
+
+    local org_ok org_count
+    org_ok=$(echo "$org_result" | node -e "const d=JSON.parse(require('fs').readFileSync('/dev/stdin','utf8'));console.log(d.ok?'true':'false')" 2>/dev/null || echo "false")
+    org_count=$(echo "$org_result" | node -e "const d=JSON.parse(require('fs').readFileSync('/dev/stdin','utf8'));console.log(d.count||0)" 2>/dev/null || echo "0")
+
+    if [[ "$org_ok" == "true" && "$org_count" -gt "0" ]]; then
+        print_ok "Org tree saved: $org_count people (data/org.db)"
+    else
+        print_warn "Could not fetch org tree (VPN/Midway may be needed)"
+        print_info "You can fetch later from Settings → Team Settings → Fetch Team"
+    fi
+
+    step_done "step_10"
 }
-main();
-" 2>/dev/null || echo '{"success":false,"error":"script failed"}')
-    
-    ORG_COUNT=$(echo "$ORG_RESULT" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('count',0))" 2>/dev/null || echo "0")
-    ORG_OK=$(echo "$ORG_RESULT" | python3 -c "import sys,json; d=json.load(sys.stdin); print('true' if d.get('success') else 'false')" 2>/dev/null || echo "false")
-    
-    if [[ "$ORG_OK" == "true" && "$ORG_COUNT" -gt "0" ]]; then
-        print_ok "Org tree saved: $ORG_COUNT people found in your org (stored in data/org.db)"
+step_11_verify() {
+    if is_step_done "step_11"; then print_step 11 "Verify ✅ (cached)"; return; fi
+    print_step 11 "Verifying installation"
+
+    cd "$INSTALL_DIR"
+    local all_ok=true
+
+    # node_modules
+    if [[ -d "$INSTALL_DIR/node_modules" ]]; then
+        print_ok "node_modules installed"
     else
-        print_warn "Could not fetch org tree (VPN/Midway may be needed). You can fetch later from Settings."
+        print_fail "node_modules missing — run: cd ~/InGen && npm install"
+        all_ok=false
     fi
-else
-    print_warn "Skipped org tree fetch (dependencies not ready). Will fetch on first app load."
-fi
 
-# Quip API Token
-echo ""
-echo -e "  ${BOLD}📄 Quip Document Integration (optional)${NC}"
-echo -e "  InGen can read Quip docs linked in your emails."
-echo -e "  Get your token at: ${CYAN}https://quip-amazon.com/dev/token${NC}"
-echo ""
-read -p "  Enter Quip API token (or press Enter to skip): " QUIP_TOKEN
-
-if [[ -n "$QUIP_TOKEN" ]]; then
-    mkdir -p "$HOME/.amazon-internal-mcp-server"
-    echo "QUIP_API_TOKEN=$QUIP_TOKEN" > "$HOME/.amazon-internal-mcp-server/.env"
-    print_ok "Quip token saved"
-else
-    print_info "Skipped — you can add it later in Settings"
-    # Disable Quip in settings since no token
-    if command -v python3 &>/dev/null; then
-        python3 -c "
-import json
-try:
-    with open('$INSTALL_DIR/config/settings.json', 'r') as f:
-        s = json.load(f)
-    s.setdefault('quip', {})['enabled'] = False
-    with open('$INSTALL_DIR/config/settings.json', 'w') as f:
-        json.dump(s, f, indent=2)
-except: pass
-" 2>/dev/null
-    fi
-fi
-
-echo ""
-print_ok "Configuration complete"
-
-# ─── Step 9: Verify Installation ───
-print_step 9 "Verifying installation..."
-
-# Verify node_modules exists
-if [[ ! -d "$INSTALL_DIR/node_modules" ]]; then
-    print_fail "node_modules missing — npm install failed"
-    print_info "Try running manually: cd ~/InGen && npm install"
-    exit 1
-fi
-print_ok "node_modules installed"
-
-# Verify hnswlib-node native module
-if node -e "require('hnswlib-node')" 2>/dev/null; then
-    print_ok "hnswlib-node native module built"
-else
-    print_warn "hnswlib-node not built — trying npm rebuild..."
-    npm rebuild hnswlib-node 2>&1 | tail -3
+    # hnswlib-node native module
     if node -e "require('hnswlib-node')" 2>/dev/null; then
-        print_ok "hnswlib-node rebuilt successfully"
+        print_ok "hnswlib-node native module"
     else
-        print_warn "hnswlib-node build failed — vector search may not work"
-        print_info "The app will still run but RAG features may be limited"
+        print_warn "hnswlib-node not built — trying rebuild..."
+        npm rebuild hnswlib-node 2>&1 | tail -3
+        if node -e "require('hnswlib-node')" 2>/dev/null; then
+            print_ok "hnswlib-node rebuilt successfully"
+        else
+            print_warn "hnswlib-node build failed — RAG features may be limited"
+        fi
     fi
-fi
 
-# Verify sqlite3
-if node -e "require('sqlite3')" 2>/dev/null; then
-    print_ok "sqlite3 native module built"
-else
-    print_warn "sqlite3 not built — trying npm rebuild..."
-    npm rebuild sqlite3 2>&1 | tail -3
-fi
+    # sqlite3 native module
+    if node -e "require('sqlite3')" 2>/dev/null; then
+        print_ok "sqlite3 native module"
+    else
+        print_warn "sqlite3 not built — trying rebuild..."
+        npm rebuild sqlite3 2>&1 | tail -3
+        if node -e "require('sqlite3')" 2>/dev/null; then
+            print_ok "sqlite3 rebuilt successfully"
+        else
+            print_warn "sqlite3 build failed — metrics and issues may not work"
+        fi
+    fi
 
-# ─── Step 10: Create Desktop Shortcut ───
-print_step 10 "Creating Desktop shortcut..."
+    # Run startup checks
+    print_info "Running startup health checks..."
+    node -e "
+const { runAll } = require('./services/startup-checks');
+runAll().then(r => {
+    const passed = r.results.filter(x => x.ok).length;
+    const total = r.results.length;
+    console.log(JSON.stringify({passed, total, critical: r.hasCriticalFailure}));
+}).catch(() => console.log('{\"passed\":0,\"total\":0,\"critical\":true}'));
+" 2>/dev/null | node -e "
+const d = JSON.parse(require('fs').readFileSync('/dev/stdin','utf8'));
+if (d.critical) process.stdout.write('CRITICAL');
+else process.stdout.write(d.passed + '/' + d.total);
+" 2>/dev/null | read -r check_result || true
 
-cat > "$DESKTOP_SHORTCUT" << 'LAUNCHER'
+    if [[ "$check_result" == "CRITICAL" ]]; then
+        print_warn "Some startup checks have critical issues (see above)"
+    else
+        print_ok "Startup checks: ${check_result:-OK}"
+    fi
+
+    # Config files
+    [[ -f "$INSTALL_DIR/config/settings.json" ]] && print_ok "config/settings.json" || print_warn "config/settings.json missing"
+    [[ -f "$INSTALL_DIR/config/prompts.json" ]] && print_ok "config/prompts.json" || print_warn "config/prompts.json missing"
+    [[ -f "$INSTALL_DIR/.env.local" ]] && print_ok ".env.local" || print_warn ".env.local missing"
+
+    step_done "step_11"
+}
+
+step_12_desktop_shortcut() {
+    if is_step_done "step_12"; then print_step 12 "Desktop Shortcut ✅ (cached)"; return; fi
+    print_step 12 "Creating Desktop shortcut"
+
+    cat > "$DESKTOP_SHORTCUT" << 'LAUNCHER'
 #!/bin/bash
 # InGen — AI Productivity Dashboard
 cd "$HOME/InGen"
@@ -583,7 +782,7 @@ echo ""
 if ! curl -s http://127.0.0.1:11434/api/tags &>/dev/null; then
     echo "Starting Ollama..."
     ollama serve &>/dev/null &
-    sleep 2
+    sleep 3
 fi
 
 # Launch InGen
@@ -593,30 +792,65 @@ node launcher.js
 read -p "Press Enter to close..."
 LAUNCHER
 
-chmod +x "$DESKTOP_SHORTCUT"
-print_ok "Created Desktop shortcut: InGen.command"
+    chmod +x "$DESKTOP_SHORTCUT"
+    print_ok "Desktop shortcut: ~/Desktop/InGen.command"
 
-# ─── Done ───
-echo ""
-echo -e "${GREEN}╔══════════════════════════════════════════════════════════════╗${NC}"
-echo -e "${GREEN}║${NC}  ${BOLD}✨ InGen installed successfully!${NC}                            ${GREEN}║${NC}"
-echo -e "${GREEN}╚══════════════════════════════════════════════════════════════╝${NC}"
-echo ""
-echo -e "  ${BOLD}To start InGen:${NC}"
-echo -e "    • Double-click ${CYAN}InGen${NC} on your Desktop"
-echo -e "    • Or run: ${CYAN}cd ~/InGen && node launcher.js${NC}"
-echo ""
-echo -e "  ${BOLD}Then open:${NC} ${CYAN}http://localhost:3000${NC}"
-echo ""
-echo -e "  ${BOLD}To update later:${NC} ${CYAN}~/InGen/scripts/update-ingen.sh${NC}"
-echo -e "  ${BOLD}To uninstall:${NC}   ${CYAN}~/InGen/scripts/uninstall-ingen.sh${NC}"
-echo ""
+    step_done "step_12"
+}
 
-# Offer to start now
-read -p "Start InGen now? [Y/n]: " START_NOW
-if [[ "$START_NOW" != "n" && "$START_NOW" != "N" ]]; then
+step_13_post_install() {
+    print_step 13 "Installation complete!"
+
     echo ""
-    echo "🧬 Starting InGen..."
-    cd "$INSTALL_DIR"
-    node launcher.js
-fi
+    echo -e "${GREEN}╔══════════════════════════════════════════════════════════════╗${NC}"
+    echo -e "${GREEN}║${NC}  ${BOLD}✨ InGen installed successfully!${NC}                            ${GREEN}║${NC}"
+    echo -e "${GREEN}╚══════════════════════════════════════════════════════════════╝${NC}"
+    echo ""
+    echo -e "  ${BOLD}Quick Start:${NC}"
+    echo -e "    • Double-click ${CYAN}InGen${NC} on your Desktop"
+    echo -e "    • Or run: ${CYAN}cd ~/InGen && node launcher.js${NC}"
+    echo -e "    • Then open: ${CYAN}http://localhost:3000${NC}"
+    echo ""
+    echo -e "  ${BOLD}Manage:${NC}"
+    echo -e "    Update:    ${CYAN}~/InGen/scripts/update-ingen.sh${NC}"
+    echo -e "    Uninstall: ${CYAN}~/InGen/scripts/uninstall-ingen.sh${NC}"
+    echo ""
+    echo -e "  ${BOLD}Features requiring VPN + Midway:${NC}"
+    echo -e "    • Team Health (WBR goals from Taskei)"
+    echo -e "    • Code Metrics (CRs from code.amazon.com)"
+    echo -e "    • Ticket Health (SIM-T resolver groups)"
+    echo -e "    • Org tree / Phonetool"
+    echo ""
+
+    # Offer to start
+    read -p "  Start InGen now? [Y/n]: " START_NOW
+    if [[ "$START_NOW" != "n" && "$START_NOW" != "N" ]]; then
+        echo ""
+        echo "  🧬 Starting InGen..."
+        echo "  Dashboard will be at: http://localhost:3000"
+        echo ""
+        cd "$INSTALL_DIR"
+        node launcher.js
+    fi
+}
+
+# ─── Main ───
+main() {
+    print_header
+    step_01_system_check
+    step_02_xcode_tools
+    step_03_homebrew
+    step_04_nodejs
+    step_05_ollama
+    step_06_ai_models
+    step_07_mcp_tooling
+    step_08_install_app
+    step_09_configure
+    step_10_org_tree
+    step_11_verify
+    step_12_desktop_shortcut
+    step_13_post_install
+    clear_progress
+}
+
+main "$@"

@@ -15,6 +15,7 @@ import {
     Network,
     Code2,
     ClipboardList,
+    FileText,
     Sun,
     Moon,
     PanelLeftClose,
@@ -46,6 +47,7 @@ export default function Sidebar() {
         { href: '/my-team', label: 'Team Health', icon: Network },
         { href: '/eng-metrics', label: 'Code Metrics', icon: Code2 },
         { href: '/ticket-health', label: 'Ticket Health', icon: ClipboardList },
+        { href: '/wbr-prep', label: 'WBR Prep', icon: FileText },
         { href: '/insights/analytics', label: 'Insights', icon: BarChart2 },
         { href: '/settings', label: 'Settings', icon: Settings },
     ];

@@ -53,12 +53,44 @@ export async function GET(request) {
 
             case 'org-sync': {
                 // Force re-fetch org tree from Phonetool and save to SQLite
-                const rootAlias = phonetool.getAlias();
+                let rootAlias = phonetool.getAlias();
                 if (!rootAlias) {
                     return NextResponse.json({ error: 'No Phonetool alias configured.' }, { status: 400 });
                 }
+
+                // If the configured user is NOT a manager, automatically use their manager's alias
+                // so the page shows their team's code metrics instead of empty data
+                let resolvedViaManager = false;
+                try {
+                    const tree = await phonetool.fetchOrgTree(rootAlias, 1);
+                    if (tree && (!tree.reports || tree.reports.length === 0)) {
+                        // User is an IC — look up their manager from phonetool page
+                        const mcpClient = require('../../../services/mcp-client');
+                        const ptResult = await mcpClient.callTool('builder-mcp', 'ReadInternalWebsites', {
+                            inputs: [`https://phonetool.amazon.com/users/${rootAlias}`]
+                        });
+                        const ptText = ptResult?.content?.map(c => c.text || '').join('') || '';
+                        // Parse manager alias from phonetool page (format: "Manager: Name (alias)")
+                        const mgrMatch = ptText.match(/Manager[:\s]+[^(]*\(([a-z0-9]+)\)/i)
+                            || ptText.match(/Reports to[:\s]+[^(]*\(([a-z0-9]+)\)/i)
+                            || ptText.match(/manager.*?\/users\/([a-z0-9]+)/i);
+                        if (mgrMatch && mgrMatch[1]) {
+                            rootAlias = mgrMatch[1];
+                            resolvedViaManager = true;
+                        }
+                    }
+                } catch (e) {
+                    // If lookup fails, proceed with original alias
+                }
+
                 const count = await orgStore.populateFromPhoneTool(rootAlias);
-                data = { rootAlias, memberCount: count, lastFetched: new Date().toISOString() };
+                data = {
+                    rootAlias,
+                    memberCount: count,
+                    lastFetched: new Date().toISOString(),
+                    resolvedViaManager,
+                    originalAlias: resolvedViaManager ? phonetool.getAlias() : undefined,
+                };
                 break;
             }
 
@@ -166,28 +198,42 @@ Write a summary with these sections:
 3. **Positive Signals** (bullet points showing progress)
 4. **Recommended Actions** (2-3 specific, actionable items)
 
-Be specific. Use goal IDs. Quote numbers. Do not be generic.`;
+Be specific. Use goal IDs. Quote numbers. Do not be generic.
+CRITICAL: Be completely grounded in facts — every claim must reference specific data from above. Do NOT hallucinate or infer beyond the provided data. If uncertain, say so.`;
 
+                // Use Bedrock Opus if available, otherwise fall back to Ollama
+                const bedrockClient = require('../../../services/bedrock-client');
                 const ollamaStream = require('../../../services/ollama-client');
                 const stream = new ReadableStream({
                     async start(controller) {
                         try {
-                            const response = await fetch('http://127.0.0.1:11434/api/generate', {
-                                method: 'POST',
-                                headers: { 'Content-Type': 'application/json' },
-                                body: JSON.stringify({ model: ollamaStream.getConfig().llmModel, prompt: promptStream, stream: true, think: false }),
-                            });
-                            const reader = response.body.getReader();
-                            const decoder = new TextDecoder();
-                            while (true) {
-                                const { done, value } = await reader.read();
-                                if (done) break;
-                                const chunk = decoder.decode(value, { stream: true });
-                                for (const line of chunk.split('\n').filter(Boolean)) {
-                                    try {
-                                        const json = JSON.parse(line);
-                                        if (json.response) controller.enqueue(new TextEncoder().encode(json.response));
-                                    } catch(e) {}
+                            if (bedrockClient.isAvailable()) {
+                                // Bedrock Opus streaming
+                                await bedrockClient.streamGenerate(promptStream, (chunk) => {
+                                    controller.enqueue(new TextEncoder().encode(chunk));
+                                }, {
+                                    system: 'You are an expert engineering manager writing a data-driven WBR goal health summary. Be factual. Cite goal IDs and numbers.',
+                                    maxTokens: 8192,
+                                });
+                            } else {
+                                // Ollama fallback
+                                const response = await fetch('http://127.0.0.1:11434/api/generate', {
+                                    method: 'POST',
+                                    headers: { 'Content-Type': 'application/json' },
+                                    body: JSON.stringify({ model: ollamaStream.getConfig().llmModel, prompt: promptStream, stream: true, think: false }),
+                                });
+                                const reader = response.body.getReader();
+                                const decoder = new TextDecoder();
+                                while (true) {
+                                    const { done, value } = await reader.read();
+                                    if (done) break;
+                                    const chunk = decoder.decode(value, { stream: true });
+                                    for (const line of chunk.split('\n').filter(Boolean)) {
+                                        try {
+                                            const json = JSON.parse(line);
+                                            if (json.response) controller.enqueue(new TextEncoder().encode(json.response));
+                                        } catch(e) {}
+                                    }
                                 }
                             }
                         } catch(e) {

@@ -250,52 +250,227 @@ async function generateWbrReport(forceRefresh = false) {
 
     const config = getWbrConfig();
     if (!config.roomId || !config.folderId) {
-        throw new Error('WBR config missing roomId/folderId in config/settings.json');
+        throw new Error('WBR config missing roomId/folderId in config/settings.json. Go to Settings to configure.');
     }
 
     logger.info('Generating WBR report...');
 
-    // Step 1 & 2: Enumerate goals by ID pattern (CPP2026Goal-1 through CPP2026Goal-50)
-    // This ensures we find ALL goals regardless of which folder/sub-folder they're in
-    const prefix = config.goalPrefix || 'CPP2026Goal';
-    const maxGoalNum = 50; // generous upper bound
-    const goalIds = [];
-    for (let n = 1; n <= maxGoalNum; n++) goalIds.push(`${prefix}-${n}`);
-    
-    logger.info(`Enumerating ${goalIds.length} potential goal IDs (${prefix}-1 to ${prefix}-${maxGoalNum})...`);
-    
-    const goals = [];
-    const batchSize = 5;
-    for (let i = 0; i < goalIds.length; i += batchSize) {
-        const batch = goalIds.slice(i, i + batchSize);
-        const batchResults = await Promise.all(
-            batch.map(async (goalId) => {
-                try {
-                    const result = await mcpClient.callTool('builder-mcp', 'TaskeiGetTask', {
-                        taskId: goalId,
-                        includeCustomAttributes: true,
-                        commentLimit: 1
-                    });
-                    const text = result.content?.map(c => c.text || '').join('') || '{}';
-                    const data = JSON.parse(text);
-                    if (data.task) {
-                        return parseGoal(data.task);
-                    }
-                    return null;
-                } catch (e) {
-                    // Goal doesn't exist — skip silently
-                    return null;
+    // Step 1: List all goals in the SIM folder using TaskeiListTasks
+    // Fetches ALL statuses (Open + Closed) with pagination support
+    logger.info(`Listing tasks in folder ${config.folderId} (room: ${config.roomId})...`);
+    let goalIds = [];
+    try {
+        let hasMore = true;
+        let afterCursor = undefined;
+        while (hasMore) {
+            const listParams = {
+                roomId: config.roomId,
+                folderId: config.folderId,
+                status: 'ALL',
+                pagination: { maxResults: 100 }
+            };
+            if (afterCursor) listParams.pagination.after = afterCursor;
+
+            const listResult = await mcpClient.callTool('builder-mcp', 'TaskeiListTasks', listParams);
+            const listText = listResult.content?.map(c => c.text || '').join('') || '{}';
+            const listData = JSON.parse(listText);
+            const tasks = listData.tasks || [];
+            const newIds = tasks.map(t => t.shortId).filter(Boolean);
+            goalIds.push(...newIds);
+
+            // Check for pagination
+            const pageInfo = listData.pageInfo || {};
+            hasMore = pageInfo.hasNextPage === true && pageInfo.endCursor;
+            afterCursor = pageInfo.endCursor;
+            if (hasMore) logger.info(`TaskeiListTasks page returned ${newIds.length} goals, fetching next page...`);
+        }
+        logger.info(`TaskeiListTasks returned ${goalIds.length} goals total (all statuses)`);
+
+        // If TaskeiListTasks returned 0 results, fall back to prefix enumeration
+        if (goalIds.length === 0) {
+            const prefix = config.goalPrefix || 'Goal';
+            const maxGoalNum = 50;
+            logger.warn(`TaskeiListTasks returned 0 goals — falling back to prefix enumeration (${prefix}-1 to ${prefix}-${maxGoalNum})`);
+            for (let n = 1; n <= maxGoalNum; n++) goalIds.push(`${prefix}-${n}`);
+        }
+
+        // Gap-fill: TaskeiListTasks can intermittently drop tasks from results.
+        // Enumerate all IDs from 1..max+5 and add any missing ones for direct fetch.
+        const prefix = config.goalPrefix || 'Goal';
+        const goalNums = goalIds.map(id => {
+            const m = id.match(/-(\d+)$/);
+            return m ? parseInt(m[1], 10) : 0;
+        }).filter(n => n > 0);
+        const maxNum = Math.max(...goalNums, 0);
+        if (maxNum > 0) {
+            const existingSet = new Set(goalIds);
+            const gapIds = [];
+            for (let n = 1; n <= maxNum + 5; n++) {
+                const candidateId = `${prefix}-${n}`;
+                if (!existingSet.has(candidateId)) {
+                    gapIds.push(candidateId);
                 }
-            })
-        );
-        const found = batchResults.filter(Boolean);
-        goals.push(...found);
-        if (found.length > 0) {
-            logger.info(`Batch ${Math.floor(i/batchSize)+1}: found ${found.length} goals (total: ${goals.length})`);
+            }
+            if (gapIds.length > 0) {
+                logger.info(`Gap-fill: ${gapIds.length} potential missing IDs detected (${gapIds.join(', ')}). Will attempt direct fetch.`);
+                goalIds.push(...gapIds);
+            }
+        }
+    } catch (e) {
+        // Fallback: use goalPrefix enumeration if TaskeiListTasks fails
+        logger.warn(`TaskeiListTasks failed: ${e.message}. Falling back to prefix enumeration.`);
+        const prefix = config.goalPrefix || 'Goal';
+        const maxGoalNum = 50;
+        for (let n = 1; n <= maxGoalNum; n++) goalIds.push(`${prefix}-${n}`);
+        logger.info(`Fallback: enumerating ${goalIds.length} potential goal IDs (${prefix}-1 to ${prefix}-${maxGoalNum})`);
+    }
+
+    // Step 2: Fetch full details for each goal (custom attributes, subtasks, comments)
+    // Helper: fetch a single goal with parsing
+    async function fetchGoalDetail(goalId) {
+        const result = await mcpClient.callTool('builder-mcp', 'TaskeiGetTask', {
+            taskId: goalId,
+            includeCustomAttributes: true,
+            commentLimit: 1
+        });
+        const text = result.content?.map(c => c.text || '').join('') || '{}';
+        const data = JSON.parse(text);
+        if (data.task) return parseGoal(data.task);
+        if (data.error) throw new Error(`MCP error: ${data.error}`);
+        return null;
+    }
+
+    // Fetch goals sequentially (1 at a time) — most reliable for Taskei rate limits
+    const goals = [];
+    const failedIds = [];
+    for (let i = 0; i < goalIds.length; i++) {
+        const goalId = goalIds[i];
+        try {
+            const result = await fetchGoalDetail(goalId);
+            if (result) { goals.push(result); }
+            else { failedIds.push(goalId); }
+        } catch (e) {
+            failedIds.push(goalId);
+            if (e.message?.includes('Throttl')) {
+                logger.warn(`Goal ${goalId}: throttled, waiting 3s...`);
+                await new Promise(r => setTimeout(r, 3000));
+            }
+        }
+        // Log progress every 10 goals
+        if ((i + 1) % 10 === 0 || i === goalIds.length - 1) {
+            logger.info(`Progress: ${goals.length}/${i + 1} loaded (${goalIds.length - i - 1} remaining, ${failedIds.length} failed)`);
+        }
+        // Rate limit: 1s between each call
+        if (i < goalIds.length - 1) await new Promise(r => setTimeout(r, 1000));
+    }
+
+    // Retry pass: wait 5s then retry failed goals one at a time
+    if (failedIds.length > 0) {
+        // Separate real failures from gap-fill speculative IDs
+        const maxLoadedNum = Math.max(...goals.map(g => parseInt(g.id.match(/-(\d+)$/)?.[1] || '0')), 0);
+        const realFailed = failedIds.filter(id => {
+            const num = parseInt(id.match(/-(\d+)$/)?.[1] || '0');
+            return num <= maxLoadedNum;
+        });
+        const gapFillFailed = failedIds.filter(id => !realFailed.includes(id));
+        
+        if (gapFillFailed.length > 0) {
+            logger.info(`Gap-fill: ${gapFillFailed.length} speculative IDs don't exist (expected): ${gapFillFailed.join(', ')}`);
+        }
+        
+        if (realFailed.length > 0) {
+            logger.info(`Waiting 5s before retrying ${realFailed.length} failed goals...`);
+            await new Promise(r => setTimeout(r, 5000));
+            const stillFailed = [];
+            for (const goalId of realFailed) {
+                try {
+                    const result = await fetchGoalDetail(goalId);
+                    if (result) {
+                        goals.push(result);
+                        logger.info(`Retry OK: ${goalId} (total: ${goals.length})`);
+                    } else {
+                        stillFailed.push(goalId);
+                    }
+                } catch (e) {
+                    stillFailed.push(goalId);
+                    if (e.message?.includes('Throttl')) {
+                        await new Promise(r => setTimeout(r, 3000));
+                    }
+                }
+                await new Promise(r => setTimeout(r, 1500));
+            }
+            if (stillFailed.length > 0) {
+                logger.warn(`${stillFailed.length} goals could not be loaded after retry: ${stillFailed.join(', ')}`);
+            }
         }
     }
     
-    logger.info(`Goal enumeration complete: ${goals.length} goals found out of ${maxGoalNum} checked`);
+    logger.info(`WBR goal loading complete: ${goals.length}/${goalIds.length} goals with full details`);
+
+    // Step 2.5: Fetch latest announcements (comments) from combinedThread via ReadInternalWebsites
+    // TaskeiGetTask doesn't reliably return comments; the combinedThread from the web page does.
+    logger.info(`Fetching latest announcements for ${goals.length} goals via ReadInternalWebsites...`);
+    const ANNOUNCEMENT_BATCH_SIZE = 10;
+    for (let batchStart = 0; batchStart < goals.length; batchStart += ANNOUNCEMENT_BATCH_SIZE) {
+        const batch = goals.slice(batchStart, batchStart + ANNOUNCEMENT_BATCH_SIZE);
+        const urls = batch.map(g => `https://taskei.amazon.dev/tasks/${g.id}`);
+        try {
+            const batchResult = await mcpClient.callTool('builder-mcp', 'ReadInternalWebsites', {
+                inputs: urls,
+                concurrencyLimit: ANNOUNCEMENT_BATCH_SIZE
+            });
+            const content = batchResult?.content;
+            if (Array.isArray(content)) {
+                for (const item of content) {
+                    try {
+                        let outer = null;
+                        if (item?.text) { try { outer = JSON.parse(item.text); } catch(e) {} }
+                        else if (typeof item === 'string') { try { outer = JSON.parse(item); } catch(e) {} }
+                        else { outer = item; }
+                        if (!outer) continue;
+                        const innerItems = outer?.content || [outer];
+                        const arr = Array.isArray(innerItems) ? innerItems : [innerItems];
+                        for (const inner of arr) {
+                            if (inner?.combinedThread?.items) {
+                                // Find the goal this thread belongs to by matching issue shortId
+                                const issueId = inner?.issue?.shortId || '';
+                                const threadItems = inner.combinedThread.items;
+                                // Get the latest comment from the thread
+                                const latestComment = threadItems.find(ti => ti.payload?.type === 'COMMENT');
+                                if (latestComment && latestComment.payload?.comment) {
+                                    const comment = latestComment.payload.comment;
+                                    // Find the matching goal and update its announcement
+                                    const matchingGoal = goals.find(g => {
+                                        // Match by shortId in issue, or by checking if any goal ID appears in the thread's issue
+                                        if (issueId && g.id === issueId) return true;
+                                        // Also match by issue title as fallback
+                                        if (inner?.issue?.title && g.title === inner.issue.title) return true;
+                                        return false;
+                                    });
+                                    if (matchingGoal) {
+                                        matchingGoal.announcement = {
+                                            text: comment.message || '',
+                                            date: formatDate(comment.createDate || comment.lastUpdatedDate),
+                                            author: comment.author?.name || comment.submitter?.name || 'unknown'
+                                        };
+                                    }
+                                }
+                            }
+                        }
+                    } catch (e) { /* skip parse errors */ }
+                }
+            }
+            logger.info(`Announcements batch ${Math.floor(batchStart / ANNOUNCEMENT_BATCH_SIZE) + 1}/${Math.ceil(goals.length / ANNOUNCEMENT_BATCH_SIZE)} processed`);
+        } catch (e) {
+            logger.warn(`Announcement batch fetch failed at offset ${batchStart}: ${e.message}`);
+        }
+        // Small delay between batches
+        if (batchStart + ANNOUNCEMENT_BATCH_SIZE < goals.length) {
+            await new Promise(r => setTimeout(r, 500));
+        }
+    }
+    const announcementCount = goals.filter(g => g.announcement?.text && !g.announcement.text.includes('In 2026')).length;
+    logger.info(`Announcements loaded: ${announcementCount}/${goals.length} goals have latest team updates`);
 
     // Step 3: Organize into sections
     const weekNum = getWeekNumber();

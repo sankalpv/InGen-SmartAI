@@ -16,7 +16,16 @@ function getSystemPrompt() {
 }
 
 // Helper: Generate Completion via Ollama (local AI only)
-async function generateCompletion(systemPrompt, userPrompt, jsonMode = true, temperature = 0.7) {
+async function generateCompletion(systemPrompt, userPrompt, jsonMode = true, temperature = null) {
+    // Use configured temperature from settings.json if not explicitly provided
+    if (temperature === null) {
+        try {
+            const fs = require('fs');
+            const path = require('path');
+            const settings = JSON.parse(fs.readFileSync(path.join(process.cwd(), 'config', 'settings.json'), 'utf8'));
+            temperature = parseFloat(settings.aiTemperature) || 0.25;
+        } catch (e) { temperature = 0.25; }
+    }
     try {
         logger.info(`Using Ollama model: '${OLLAMA_MODEL}' at ${OLLAMA_BASE_URL}`);
 

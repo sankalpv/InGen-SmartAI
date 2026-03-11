@@ -23,12 +23,16 @@ tar xzf ~/Downloads/InGen.tar.gz
 bash */scripts/install-ingen.sh
 ```
 
-The installer automatically handles:
+The installer (v2.0) automatically handles:
+- ✅ Disk space check (15 GB recommended)
+- ✅ Xcode Command Line Tools
 - ✅ Homebrew (if needed)
 - ✅ Node.js 20+ (if needed)
 - ✅ Ollama AI engine (if needed)
 - ✅ AI models (~10 GB one-time download)
+- ✅ MCP tooling (`amzn-mcp`, `builder-mcp` via Amazon Toolbox)
 - ✅ Desktop shortcut
+- ✅ **Resume support** — if install fails, re-run and it picks up where it left off
 
 ### Launch
 
@@ -130,14 +134,16 @@ AI-generated meeting prep insights, email priority alerts, and weekly reports de
 Weekly Business Review dashboard showing goal status across your org. Features:
 
 - **Dynamic WBR title** — Shows "Classification and Policy Platform - 2026 Goals and Projects Status" with current week and date range
-- **AI Goal Health Summary** — Ollama-powered executive summary with goal classification (On Track, Needs Attention, Completed, Stale)
+- **AI Goal Health Summary** — Bedrock-powered (Claude Sonnet) executive summary with Ollama fallback; goal classification (On Track, Needs Attention, Completed, Stale)
 - **Status color cards** — Green/Yellow/Red/Total at a glance
 - **ECD tracking** — Missed ECDs, upcoming ECDs (3-day warning), ECD drift detection with slipped/pulled-in comparison
 - **Deep scan** — On-demand recursive scan (depth-3) for missed ECDs in child/grandchild tasks
 - **Goal sections** — Goals organized by workflow status (Started, Blocked, In Planning, etc.)
 - **Child task expansion** — Drill down into subtasks with recursive expand
+- **Stale announcement detection** — Announcements older than threshold (default 6 days) highlighted amber with ⚠️
+- **Smart goal discovery** — TaskeiListTasks with pagination + gap-fill (replaces prefix enumeration), sequential fetch with throttle handling and retry
 
-**Data flow:** Taskei (SIM) via `builder-mcp` → `wbr-report.js` (goal parsing + ECD snapshots) → React dashboard
+**Data flow:** Taskei (SIM) via `builder-mcp` (`TaskeiListTasks` + `TaskeiGetTask`) → `wbr-report.js` (goal parsing + ECD snapshots) → React dashboard
 
 ### 📊 Engineering Metrics (Code Metrics)
 Per-engineer code review dashboard powered by `code.amazon.com` via `builder-mcp`. Features:
@@ -151,9 +157,11 @@ Per-engineer code review dashboard powered by `code.amazon.com` via `builder-mcp
 - **Year-to-date trend** — Full year line chart with 4-week rolling average
 - **Stale CR alerts** — Org-wide count of CRs open >5 days
 - **Engineer drill-down** — Slide-out panel with 12-week history and recent CRs
-- **Backfill** — One-click backfill for historical weekly data (52-week retention)
+- **CR detail enrichment** — Full titles, descriptions, and human comments fetched from code.amazon.com (bot comments filtered out)
+- **Heatmap visualization** — Larger cells, wider engineer names, bigger sparklines with smart tooltip positioning
+- **Backfill** — One-click backfill for historical weekly data (52-week retention) with CR enrichment pass
 
-**Data flow:** Org roster (Phonetool → `org-store.js`) → per-engineer code search (`builder-mcp` → `ReadInternalWebsites`) → SQLite weekly snapshots (`data/eng-metrics.db`) → React dashboard
+**Data flow:** Org roster (Phonetool → `org-store.js`) → per-engineer code search (`builder-mcp` → `ReadInternalWebsites`) → CR enrichment (titles + comments) → SQLite weekly snapshots (`data/eng-metrics.db`) → React dashboard
 
 ### 🎫 Ticket Health
 Resolver group ticket dashboard showing open/aging/SLA status across your teams. Features:
@@ -192,7 +200,7 @@ All processing happens locally. No data leaves your machine.
 | Component | Technology |
 |---|---|
 | Frontend | Next.js 16, React 19, Liquid Glass UI |
-| AI/LLM | Ollama (qwen3:latest, 8.2B params) |
+| AI/LLM | Ollama (qwen3:latest, 8.2B params); optional Amazon Bedrock (Claude Sonnet) for WBR summaries + key page chats |
 | Embeddings | qwen3-embedding (4096 dimensions) |
 | Vector DB | hnswlib-node (local, in-process) |
 | Data Bridge | AppleScript/JXA → local JSON cache |
@@ -212,8 +220,9 @@ All processing happens locally. No data leaves your machine.
 | `/my-team` | Team Health | WBR goal status with AI summary |
 | `/eng-metrics` | Code Metrics | Per-engineer CR dashboard |
 | `/ticket-health` | Ticket Health | Resolver group ticket dashboard |
+| `/wbr-prep` | WBR Prep | Weekly Business Review preparation document |
 | `/insights/analytics` | Insights | Proactive AI insight analytics |
-| `/settings` | Settings | Calendar, alias, Quip, theme, AI preferences |
+| `/settings` | Settings | Calendar, alias, Quip, WBR config, org sync, AI temperature, Bedrock, theme |
 
 ---
 
@@ -229,17 +238,22 @@ All processing happens locally. No data leaves your machine.
 ~/InGen/scripts/uninstall-ingen.sh
 ```
 
-The uninstaller:
+The updater (v2.0):
+- Pulls latest code, rebuilds native modules
+- Updates MCP tooling (`amzn-mcp`, `builder-mcp`) via Toolbox
+- Clears Next.js cache and stale databases
+
+The uninstaller (v2.0):
 - Prompts before deleting anything
-- Removes `~/InGen/` and Desktop shortcut
-- Does NOT remove Node.js, Ollama, or AI models
+- Removes `~/InGen/`, Desktop shortcut, and install progress file
+- Does NOT remove Node.js, Ollama, AI models, MCP tools, or Quip token
 - Tells you how to reclaim disk space (~10 GB for models)
 
 ### Rebuild Distribution Package (for developers)
 ```bash
 bash scripts/package-ingen.sh
 ```
-Creates `~/Desktop/InGen.tar.gz` (< 3 MB) ready to share via Slack.
+Creates `~/Desktop/InGen.tar.gz` (< 3 MB) ready to share via Slack. The packager (v2.0) auto-cleans `settings.json` of user-specific values before archiving, then restores your local settings.
 
 ---
 
@@ -274,8 +288,8 @@ Creates `~/Desktop/InGen.tar.gz` (< 3 MB) ready to share via Slack.
 
 ## Privacy & Security
 
-- **100% local** — No data ever leaves your MacBook
-- **No cloud APIs** — All AI runs locally via Ollama
+- **Local-first** — All core AI runs locally via Ollama; email and calendar data never leave your MacBook
+- **Optional Bedrock** — If configured, WBR summaries and key page chats use Amazon Bedrock (Claude Sonnet) over your corporate AWS credentials. No data is sent to third parties.
 - **No accounts** — No sign-ups, no subscriptions
 - **No telemetry** — Zero tracking or analytics
 - **Your data stays yours** — Emails, calendar, and AI responses are stored only in `~/InGen/data/`
