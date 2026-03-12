@@ -101,6 +101,14 @@ class VectorStore {
             return;
         }
 
+        // Filter out calendar noise — these have tiny bodies and pollute search results
+        const subjectLower = (email.subject || '').toLowerCase();
+        const calendarNoise = ['accepted:', 'declined:', 'canceled:', 'cancelled:', 'tentative:'];
+        if (calendarNoise.some(prefix => subjectLower.startsWith(prefix))) {
+            logger.info(`Skipping calendar noise: ${email.subject}`);
+            return;
+        }
+
         let textToEmbed = `Subject: ${email.subject}\nFrom: ${email.sender}\nDate: ${email.received}\n\n${email.body}`;
 
         // qwen3-embedding supports 8k tokens (~30k chars) - no need to truncate as aggressively
@@ -184,14 +192,17 @@ class VectorStore {
         }
         if (!this.loaded) await this.init();
 
-        const { filter = {}, limit = 3, maxDistance = Infinity } = options;
+        // Default distance threshold for qwen3-embedding 4096d (L2 space)
+        // Typical relevant matches: 10-30, borderline: 30-50, irrelevant: >50
+        const DEFAULT_MAX_DISTANCE = 45;
+        const { filter = {}, limit = 3, maxDistance = DEFAULT_MAX_DISTANCE } = options;
 
         try {
             // Search with larger k to account for filtering
             const searchK = Math.min(limit * 10, 100);
             const result = this.index.searchKnn(vector, searchK);
 
-            // Apply filters and distance threshold
+            // Apply filters, distance threshold, and compute similarity score
             const hits = result.neighbors
                 .map((id, index) => ({
                     id,
@@ -199,8 +210,14 @@ class VectorStore {
                     distance: result.distances[index]
                 }))
                 .filter(hit => {
-                    // Apply distance threshold
+                    if (!hit.metadata) return false;
+
+                    // Apply distance threshold — reject garbage matches
                     if (hit.distance > maxDistance) return false;
+
+                    // Filter out calendar noise from results (Accepted/Declined/etc.)
+                    const subj = (hit.metadata.subject || '').toLowerCase();
+                    if (['accepted:', 'declined:', 'canceled:', 'cancelled:', 'tentative:'].some(p => subj.startsWith(p))) return false;
 
                     // Apply metadata filters
                     for (const [key, value] of Object.entries(filter)) {
@@ -210,10 +227,20 @@ class VectorStore {
                     return true;
                 })
                 .slice(0, limit)
-                .map(hit => ({
-                    ...hit.metadata,
-                    distance: hit.distance
-                }));
+                .map(hit => {
+                    // Convert L2 distance to 0-1 similarity score
+                    // Lower distance = higher similarity. Score = 1 / (1 + distance/10)
+                    const similarity = 1 / (1 + hit.distance / 10);
+                    return {
+                        ...hit.metadata,
+                        distance: hit.distance,
+                        similarity: parseFloat(similarity.toFixed(3))
+                    };
+                });
+
+            if (hits.length > 0) {
+                logger.info(`Search returned ${hits.length} results (distances: ${hits.map(h => h.distance.toFixed(1)).join(', ')})`);
+            }
 
             return hits;
         } catch (e) {
