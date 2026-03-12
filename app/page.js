@@ -269,7 +269,7 @@ export default function Dashboard() {
 
         try {
             // PHASE 1: Fast initial load (20 emails + calendar) - target <3s
-            const emailUrl = currentSource === 'outlook' ? '/api/outlook-local?count=20' : '/api/emails';
+            const emailUrl = currentSource === 'outlook' ? '/api/outlook-local?count=200' : '/api/emails';
 
             const [emailRes, calendarRes] = await Promise.allSettled([
                 fetch(emailUrl),
@@ -300,11 +300,7 @@ export default function Dashboard() {
             setIsLoading(false);
 
             // PHASE 2: Background lazy loading (non-blocking)
-            // Fetch more emails for date range filtering
-            fetch(currentSource === 'outlook' ? '/api/outlook-local?count=100' : '/api/emails')
-                .then(r => r.json())
-                .then(data => { if (!data.error && data.emails) setEmails(data.emails); })
-                .catch(() => { });
+            // Note: Phase 1 now requests full cache (count=200), so no need for a second email fetch
 
             // Slack — fire and forget
             fetch('/api/slack')

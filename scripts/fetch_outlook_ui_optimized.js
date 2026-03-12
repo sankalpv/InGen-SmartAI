@@ -17,11 +17,11 @@ function run(argv) {
     const messages = [];
     
     try {
-        // Fetch from INBOX (received emails)
+        // Fetch from INBOX (received emails) — 75% of quota goes to inbox
         const inbox = account.inbox();
         const inboxMsgs = inbox.messages;
-        const inboxLimit = Math.floor(limit / 2); // Split between inbox and sent
-        const inboxOffset = Math.floor(offset / 2);
+        const inboxLimit = Math.floor(limit * 0.75);
+        const inboxOffset = Math.floor(offset * 0.75);
 
         for (let i = inboxOffset; i < inboxOffset + inboxLimit; i++) {
             try {
@@ -61,11 +61,11 @@ function run(argv) {
             }
         }
 
-        // Fetch from SENT ITEMS (sent emails)
+        // Fetch from SENT ITEMS (sent emails) — 25% of quota
         const sentItems = account.sentItems();
         const sentMsgs = sentItems.messages;
         const sentLimit = limit - messages.length; // Use remaining quota
-        const sentOffset = Math.floor(offset / 2);
+        const sentOffset = Math.floor(offset * 0.25);
 
         for (let i = sentOffset; i < sentOffset + sentLimit; i++) {
             try {

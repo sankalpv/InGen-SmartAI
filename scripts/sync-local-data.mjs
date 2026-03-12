@@ -53,10 +53,19 @@ try {
 try {
     const firstBatch = await fetchOutlookEmails(BATCH_SIZE);
     if (isValidEmailData(firstBatch)) {
-        allEmails = firstBatch; // Replace with fresh first batch
+        // Merge new emails into existing cache (never shrink the cache during sync)
+        const existingIds = new Set(allEmails.map(e => e.id));
+        const newFromBatch = firstBatch.filter(e => !existingIds.has(e.id));
+        // Update existing emails with fresh data, prepend truly new ones
+        const freshIds = new Set(firstBatch.map(e => e.id));
+        const updatedExisting = allEmails.map(e => {
+            const fresh = firstBatch.find(f => f.id === e.id);
+            return fresh || e;
+        });
+        allEmails = [...newFromBatch, ...updatedExisting].slice(0, TARGET_EMAILS);
         writeStore(emailsFile, allEmails);
         result.emails = allEmails.length;
-        console.error(`[Sync] First batch: ${firstBatch.length} emails cached`);
+        console.error(`[Sync] First batch: ${firstBatch.length} fetched, ${newFromBatch.length} new, total: ${allEmails.length}`);
         
         // Fetch additional batches using offset (JXA script supports it)
         // Fix 5: Import execSync once outside the loop
