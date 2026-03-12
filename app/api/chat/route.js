@@ -65,13 +65,86 @@ async function streamChat(query, history, pageContext) {
         }
     }
 
-    // Targeted query or fallback: use RAG vector search
+    // Targeted query: use RAG vector search + keyword fallback + calendar
     if (contextDocs.length === 0) {
+        // Step 1: RAG vector search (semantic similarity)
         try {
             const { default: vectorStore } = await import('@/services/vector-store.js');
             contextDocs = await vectorStore.search(query, 5);
+            console.log(`[Chat] RAG returned ${contextDocs.length} results`);
         } catch (e) {
             console.error('Chat vector search failed:', e);
+        }
+
+        // Step 2: Keyword search on full email cache (catches names, exact terms RAG misses)
+        try {
+            const fs = await import('fs');
+            const path = await import('path');
+            const emailsPath = path.default.join(process.cwd(), 'data', 'emails.json');
+            if (fs.default.existsSync(emailsPath)) {
+                const raw = JSON.parse(fs.default.readFileSync(emailsPath, 'utf8'));
+                const allEmails = (raw.data || []).filter(e => !e.isSent && e.folder !== 'Sent Items');
+                
+                // Extract keywords (words > 3 chars, skip stop words)
+                const stopWords = new Set(['what', 'about', 'with', 'from', 'that', 'this', 'have', 'been', 'they', 'their', 'does', 'said', 'tell']);
+                const queryWords = query.toLowerCase().split(/\s+/).filter(w => w.length > 3 && !stopWords.has(w));
+                
+                if (queryWords.length > 0) {
+                    const keywordHits = allEmails.filter(e => {
+                        const text = `${e.subject || ''} ${e.from?.name || ''} ${e.snippet || ''}`.toLowerCase();
+                        return queryWords.some(w => text.includes(w));
+                    }).slice(0, 10).map(e => ({
+                        id: e.id,
+                        subject: e.subject || '(No Subject)',
+                        sender: e.from?.name || e.from?.email || 'Unknown',
+                        received: e.date,
+                        snippet: (e.snippet || e.body || '').substring(0, 300),
+                        similarity: 0.8,
+                        source: 'keyword-search'
+                    }));
+
+                    // Merge: dedup by subject, keyword hits first for name/term queries
+                    const existingSubjects = new Set(contextDocs.map(d => (d.subject || '').toLowerCase()));
+                    const newHits = keywordHits.filter(h => !existingSubjects.has((h.subject || '').toLowerCase()));
+                    contextDocs = [...contextDocs, ...newHits].slice(0, 10);
+                    if (newHits.length > 0) console.log(`[Chat] Keyword search added ${newHits.length} results`);
+                }
+            }
+        } catch (e) {
+            console.error('Keyword search failed:', e.message);
+        }
+
+        // Step 3: Calendar search (find meetings matching query terms)
+        try {
+            const fs = await import('fs');
+            const path = await import('path');
+            const calPath = path.default.join(process.cwd(), 'data', 'calendar.json');
+            if (fs.default.existsSync(calPath)) {
+                const raw = JSON.parse(fs.default.readFileSync(calPath, 'utf8'));
+                const events = raw.data || [];
+                const queryLower = query.toLowerCase();
+                const queryWords = queryLower.split(/\s+/).filter(w => w.length > 3);
+                
+                const calHits = events.filter(e => {
+                    const title = (e.title || '').toLowerCase();
+                    return queryWords.some(w => title.includes(w));
+                }).slice(0, 5).map(e => ({
+                    id: `cal-${e.id}`,
+                    subject: `📅 ${e.title}`,
+                    sender: 'Calendar',
+                    received: e.startTime,
+                    snippet: `Meeting: ${e.title} on ${new Date(e.startTime).toLocaleString()} (${e.location || 'No location'})`,
+                    similarity: 0.9,
+                    source: 'calendar'
+                }));
+
+                if (calHits.length > 0) {
+                    contextDocs = [...contextDocs, ...calHits];
+                    console.log(`[Chat] Calendar search added ${calHits.length} meeting results`);
+                }
+            }
+        } catch (e) {
+            console.error('Calendar search failed:', e.message);
         }
     }
 
