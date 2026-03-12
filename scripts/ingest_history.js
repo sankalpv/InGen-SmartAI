@@ -14,7 +14,7 @@ async function fetchFromFolder(folderName, limit) {
         const command = `osascript "${scriptPath}" "${folderName}" ${limit}`;
         console.log(`Executing: ${command}`);
 
-        const { stdout, stderr } = await execAsync(command);
+        const { stdout, stderr } = await execAsync(command, { maxBuffer: 50 * 1024 * 1024 });
 
         if (stderr) {
             console.warn('Script Stderr:', stderr);
