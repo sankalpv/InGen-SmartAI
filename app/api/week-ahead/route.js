@@ -80,11 +80,8 @@ export async function GET(request) {
 
             const dayMeetings = meetings.filter(m => {
                 const mDate = new Date(m.startTime);
-                // For today, only show meetings that haven't ended yet
-                if (i === 0) {
-                    const mEnd = new Date(m.endTime);
-                    return mDate >= dayStart && mDate < dayEnd && mEnd > now;
-                }
+                // Show ALL meetings for every day (including ended ones for today)
+                // Data integrity > cleverness — users expect to see their full day
                 return mDate >= dayStart && mDate < dayEnd;
             });
 
