@@ -1,0 +1,379 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>InGen — 5-Minute Demo Script</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:'Inter',sans-serif;background:#0f0f1a;color:#e2e2f0;line-height:1.7}
+.container{max-width:900px;margin:0 auto;padding:40px 24px 80px}
+h1{font-size:48px;font-weight:800;letter-spacing:-2px;background:linear-gradient(135deg,#a78bfa,#818cf8,#60a5fa);-webkit-background-clip:text;-webkit-text-fill-color:transparent;margin-bottom:8px}
+.subtitle{font-size:18px;color:#9ca3af;margin-bottom:40px}
+.meta-bar{display:flex;gap:16px;flex-wrap:wrap;margin-bottom:48px}
+.meta-pill{padding:8px 16px;border-radius:8px;font-size:13px;font-weight:600;background:rgba(139,92,246,0.12);border:1px solid rgba(139,92,246,0.25);color:#a78bfa}
+.legend{background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.08);border-radius:12px;padding:20px 24px;margin-bottom:48px}
+.legend h3{font-size:14px;font-weight:700;text-transform:uppercase;letter-spacing:1.5px;color:#818cf8;margin-bottom:12px}
+.legend-item{display:flex;align-items:center;gap:10px;font-size:14px;color:#9ca3af;margin-bottom:6px}
+.legend-icon{width:28px;text-align:center;font-size:16px}
+.act{margin-bottom:56px;border-left:3px solid rgba(139,92,246,0.3);padding-left:28px;position:relative}
+.act::before{content:'';position:absolute;left:-7px;top:0;width:11px;height:11px;border-radius:50%;background:#7c3aed}
+.act-header{margin-bottom:20px}
+.act-number{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:2px;color:#7c3aed;margin-bottom:4px}
+.act-title{font-size:28px;font-weight:700;color:#f3f0ff;letter-spacing:-0.5px}
+.act-time{display:inline-block;margin-top:6px;padding:4px 12px;border-radius:6px;font-size:12px;font-weight:600;background:rgba(59,130,246,0.15);color:#60a5fa;border:1px solid rgba(59,130,246,0.25)}
+.screen-dir{background:rgba(234,179,8,0.08);border:1px solid rgba(234,179,8,0.2);border-radius:8px;padding:12px 16px;margin:14px 0;font-size:13px;color:#fbbf24;display:flex;align-items:flex-start;gap:10px}
+.screen-dir .icon{flex-shrink:0;font-size:16px}
+.voiceover{font-size:17px;font-weight:500;color:#e2e2f0;margin:10px 0;line-height:1.8}
+.voiceover strong{color:#f3f0ff}
+.pause{background:rgba(139,92,246,0.08);border:1px solid rgba(139,92,246,0.2);border-radius:8px;padding:10px 16px;margin:12px 0;font-size:13px;color:#a78bfa;display:flex;align-items:center;gap:10px}
+.note{background:rgba(16,185,129,0.08);border:1px solid rgba(16,185,129,0.2);border-radius:8px;padding:10px 16px;margin:12px 0;font-size:13px;color:#34d399;display:flex;align-items:center;gap:10px}
+.checklist{background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.08);border-radius:12px;padding:24px 28px;margin-top:48px}
+.checklist h2{font-size:22px;font-weight:700;color:#f3f0ff;margin-bottom:16px}
+.check-item{display:flex;align-items:center;gap:10px;font-size:14px;color:#d1d5db;margin-bottom:10px}
+.check-item input[type=checkbox]{accent-color:#7c3aed;width:16px;height:16px}
+table{width:100%;border-collapse:collapse;margin-top:16px}
+th{text-align:left;padding:10px 14px;font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:#818cf8;border-bottom:2px solid rgba(139,92,246,0.2)}
+td{padding:10px 14px;font-size:14px;color:#d1d5db;border-bottom:1px solid rgba(255,255,255,0.05)}
+td em{color:#fbbf24;font-style:normal;font-weight:500}
+.phrases-table td:first-child{font-style:italic;color:#a78bfa;font-weight:500}
+.timing-table td:last-child{font-weight:700;color:#60a5fa}
+@media print{body{background:#fff;color:#1a1a2e}.act{border-left-color:#7c3aed}.voiceover{color:#1a1a2e}}
+</style>
+</head>
+<body>
+<div class="container">
+
+<h1>🎬 InGen — 5-Minute Demo Script</h1>
+<p class="subtitle">Screen-recorded product walkthrough with voiceover narration</p>
+
+<div class="meta-bar">
+<span class="meta-pill">🎯 Audience: SDMs, PMs, Senior Leaders</span>
+<span class="meta-pill">🎙️ Tone: Polished Keynote</span>
+<span class="meta-pill">⏱️ Runtime: 5:00</span>
+<span class="meta-pill">🎥 Format: Screen Recording + Voiceover</span>
+</div>
+
+<div class="legend">
+<h3>How to Read This Script</h3>
+<div class="legend-item"><span class="legend-icon">🗣️</span> Large text = What you say out loud (voiceover)</div>
+<div class="legend-item"><span class="legend-icon">🖱️</span> Yellow boxes = What to click, hover, or show on screen</div>
+<div class="legend-item"><span class="legend-icon">⏸️</span> Purple boxes = Pause — let the screen breathe</div>
+<div class="legend-item"><span class="legend-icon">💡</span> Green boxes = Delivery tip (not spoken aloud)</div>
+</div>
+
+<!-- ACT 1 -->
+<div class="act" id="act1">
+<div class="act-header">
+<div class="act-number">Act 1</div>
+<div class="act-title">The Hook — "The Manager's Monday"</div>
+<span class="act-time">⏱️ 0:00 – 0:35 (35 seconds)</span>
+</div>
+
+<div class="screen-dir"><span class="icon">🖱️</span> Screen: Show your actual Outlook inbox — dozens of unread emails visible. Hold for 3 seconds.</div>
+
+<p class="voiceover"><strong>You open your laptop on Monday morning.</strong></p>
+<p class="voiceover"><strong>87 emails. 11 meetings. 3 escalations buried somewhere in there.</strong> A WBR doc someone updated over the weekend. And a 1:1 with your skip in 45 minutes that you haven't prepped for.</p>
+
+<div class="pause">⏸️ Pause — let the chaos sink in</div>
+
+<p class="voiceover"><strong>Sound familiar?</strong></p>
+<p class="voiceover">Every manager at Amazon has the same 8 hours. The question is — <strong>what if you had an AI chief of staff</strong> that read everything before you even opened your laptop?</p>
+
+<div class="screen-dir"><span class="icon">🖱️</span> Click on the InGen tab in your browser — the dashboard starts loading, showing the xkcd comic loading screen briefly, then the full dashboard appears.</div>
+
+<p class="voiceover"><strong>This is InGen.</strong></p>
+
+<div class="note">💡 Say "In-Gen" clearly — rhymes with "engine"</div>
+</div>
+
+<!-- ACT 2 -->
+<div class="act" id="act2">
+<div class="act-header">
+<div class="act-number">Act 2</div>
+<div class="act-title">AI Daily Briefing — "InGen reads everything so you don't have to"</div>
+<span class="act-time">⏱️ 0:35 – 1:30 (55 seconds)</span>
+</div>
+
+<div class="screen-dir"><span class="icon">🖱️</span> Dashboard is loaded. The AI Daily Briefing section is prominent at the top. Point out the stat bar first.</div>
+
+<p class="voiceover">The moment you land on InGen, <strong>three numbers tell you your day</strong>: emails received, urgent items, and meetings.</p>
+
+<div class="screen-dir"><span class="icon">🖱️</span> Hover over each stat card: "Today's Emails", "Urgent", "Meetings Today"</div>
+
+<p class="voiceover">But the real power is up here.</p>
+
+<div class="screen-dir"><span class="icon">🖱️</span> Gesture toward the AI Daily Briefing card with the ✨ sparkle icon.</div>
+
+<p class="voiceover">This is your <strong>AI Daily Briefing</strong>. Every morning, InGen's local AI engine — running <strong>entirely on your MacBook</strong> — analyzes your emails, your calendar, and even the Quip documents linked inside those emails.</p>
+
+<div class="pause">⏸️ Let them read the briefing text for 3 seconds</div>
+
+<p class="voiceover">It pulls out what matters. The escalation that needs your attention by noon. The doc review your PM is waiting on. The 1:1 where your direct report flagged a blocker last Thursday.</p>
+
+<div class="screen-dir"><span class="icon">🖱️</span> Scroll down slightly to show "Top Priorities" with urgency badges — High, Medium.</div>
+
+<p class="voiceover">These aren't generic summaries. These are <strong>prioritized, context-aware action items</strong> — generated from YOUR data. And notice the linked documents section — InGen automatically fetched and summarized Quip docs that were referenced in your emails.</p>
+
+<div class="screen-dir"><span class="icon">🖱️</span> Point to the "📄 Linked Documents" section if visible.</div>
+
+<p class="voiceover">And here's what makes this different: this briefing <strong>streams in word by word</strong> — like ChatGPT — the first time. After that, it's cached. Instant. Under three seconds.</p>
+
+<div class="note">💡 Emphasize "entirely on your MacBook" and "zero cloud" — this is the differentiator</div>
+</div>
+
+<!-- ACT 3 -->
+<div class="act" id="act3">
+<div class="act-header">
+<div class="act-number">Act 3</div>
+<div class="act-title">Email Triage + AI Draft — "Your inbox, pre-triaged by AI"</div>
+<span class="act-time">⏱️ 1:30 – 2:15 (45 seconds)</span>
+</div>
+
+<div class="screen-dir"><span class="icon">🖱️</span> The "Email Triage" tab should already be active. Show the priority swim lanes.</div>
+
+<p class="voiceover">Now let's look at email. InGen doesn't just show you a list — <strong>it triages for you.</strong></p>
+
+<div class="screen-dir"><span class="icon">🖱️</span> Point to the three swim lanes: 🔴 Respond Now, 🟡 Respond Today, 🟢 FYI</div>
+
+<p class="voiceover"><strong>Three lanes.</strong> Red — respond now, these are urgent. Yellow — respond today. And green — FYI, collapsed by default, because you don't need the noise.</p>
+
+<div class="screen-dir"><span class="icon">🖱️</span> Click the date range filter — switch from "Today" to "7 days" to show more emails loading in.</div>
+
+<p class="voiceover">You can filter by time range — today, seven days, fourteen, thirty — and it paginates automatically.</p>
+
+<div class="screen-dir"><span class="icon">🖱️</span> Click on a red/urgent email card to expand it. Show the email body.</div>
+
+<p class="voiceover">Let me expand this one. Now watch this —</p>
+
+<div class="screen-dir"><span class="icon">🖱️</span> Click the "✨ Draft Reply" button on the email card. Wait for the AI draft to generate.</div>
+
+<p class="voiceover"><strong>One click.</strong> InGen generates a draft reply using Retrieval Augmented Generation. It searched through two hundred of my past sent emails to match my writing style, pulled context from the thread, and wrote a response I can send — or tweak — in seconds.</p>
+
+<div class="pause">⏸️ Let the draft text display for 3 seconds</div>
+
+<p class="voiceover"><strong>That's not a template. That's AI that knows how I write.</strong></p>
+</div>
+
+<!-- ACT 4 -->
+<div class="act" id="act4">
+<div class="act-header">
+<div class="act-number">Act 4</div>
+<div class="act-title">Dive Deep Chat — "Ask your data anything"</div>
+<span class="act-time">⏱️ 2:15 – 2:45 (30 seconds)</span>
+</div>
+
+<div class="screen-dir"><span class="icon">🖱️</span> Scroll down to the AI Chat interface at the bottom of the dashboard. Click into the chat input field.</div>
+
+<p class="voiceover">But what if you don't want a summary — you want a specific answer?</p>
+
+<div class="screen-dir"><span class="icon">🖱️</span> Type: "What did I discuss with the team about the launch timeline last week?" and press Enter.</div>
+
+<p class="voiceover">InGen has a <strong>conversational AI chat</strong> — backed by vector search over all your emails and calendar data. Ask it anything.</p>
+
+<div class="pause">⏸️ Wait for the response to stream in — it should show cited sources</div>
+
+<p class="voiceover">Look at that — it found the relevant email threads, cross-referenced my calendar, and gave me a sourced answer. This is like having a <strong>personal Kendra — except it's private, local, and it's searching YOUR data</strong>, not a shared index.</p>
+
+<div class="note">💡 If the response has "Sources" or document references, point them out</div>
+</div>
+
+<!-- ACT 5 -->
+<div class="act" id="act5">
+<div class="act-header">
+<div class="act-number">Act 5</div>
+<div class="act-title">Week Ahead — "Know your week before it starts"</div>
+<span class="act-time">⏱️ 2:45 – 3:15 (30 seconds)</span>
+</div>
+
+<div class="screen-dir"><span class="icon">🖱️</span> Click "Week Ahead" in the sidebar navigation.</div>
+
+<p class="voiceover">Let's zoom out from today to the whole week.</p>
+
+<div class="screen-dir"><span class="icon">🖱️</span> The Week Ahead page loads showing a 7-day calendar view with day cards.</div>
+
+<p class="voiceover"><strong>Week Ahead</strong> gives you a day-by-day breakdown of your next seven days. Each day shows your meeting count, your meeting load level — light, balanced, moderate, heavy — and it automatically identifies <strong>deep work slots</strong>.</p>
+
+<div class="screen-dir"><span class="icon">🖱️</span> Point to a day card that shows "Deep Work" slots or 1:1 detection badges.</div>
+
+<p class="voiceover">See this? InGen found a ninety-minute gap on Wednesday — that's your protected deep work window. And it flagged your 1:1s so you can prep for those specifically.</p>
+
+<div class="screen-dir"><span class="icon">🖱️</span> Scroll down to the AI Weekly Coaching Brief section.</div>
+
+<p class="voiceover">And down here — the <strong>AI Weekly Coach</strong>. This is a personalized coaching brief generated by AI that references your actual meeting names. It covers preparation priorities, energy pacing across heavy and light days, strategic opportunities, and scheduling risk alerts.</p>
+
+<p class="voiceover"><strong>This is the brief I wish someone handed me every Sunday night.</strong></p>
+</div>
+
+<!-- ACT 6 -->
+<div class="act" id="act6">
+<div class="act-header">
+<div class="act-number">Act 6</div>
+<div class="act-title">Leadership Analytics — "The dashboard you wish you had at your first staff meeting"</div>
+<span class="act-time">⏱️ 3:15 – 3:50 (35 seconds)</span>
+</div>
+
+<div class="screen-dir"><span class="icon">🖱️</span> Click "Leadership" in the sidebar.</div>
+
+<p class="voiceover">Now — <strong>Leadership Analytics</strong>. This is where InGen becomes an operating system for managers.</p>
+
+<div class="screen-dir"><span class="icon">🖱️</span> The Leadership page loads. Show the Time Audit section first.</div>
+
+<p class="voiceover"><strong>Time Audit</strong> — how many hours in meetings versus deep work? What's the breakdown by meeting type — 1:1s, small groups, large meetings, all-hands?</p>
+
+<div class="screen-dir"><span class="icon">🖱️</span> Point to the meeting type breakdown and the balance assessment.</div>
+
+<p class="voiceover">InGen gives you the balance assessment with full transparency. You can toggle between seven, fourteen, and thirty-day views.</p>
+
+<div class="screen-dir"><span class="icon">🖱️</span> Scroll to Relationship Health section.</div>
+
+<p class="voiceover"><strong>Relationship Health</strong> — every key contact scored from zero to one hundred based on communication patterns. Green means healthy. Red means neglected. It pulls your direct reports from Phonetool automatically.</p>
+
+<div class="screen-dir"><span class="icon">🖱️</span> Point to a relationship card that shows "At Risk" or "Neglected" status.</div>
+
+<p class="voiceover">This one's flagged "At Risk" — I haven't had meaningful communication in twelve days. <strong>That's the kind of signal that prevents surprises in Forte.</strong></p>
+
+<div class="screen-dir"><span class="icon">🖱️</span> Quickly scroll past Action Items and Blockers sections.</div>
+
+<p class="voiceover">Below that — AI-extracted action items organized by ownership, and auto-detected blockers from your email and meeting content.</p>
+</div>
+
+<!-- ACT 7 -->
+<div class="act" id="act7">
+<div class="act-header">
+<div class="act-number">Act 7</div>
+<div class="act-title">Team Health &amp; Engineering Metrics — "Operational excellence, automated"</div>
+<span class="act-time">⏱️ 3:50 – 4:35 (45 seconds)</span>
+</div>
+
+<div class="screen-dir"><span class="icon">🖱️</span> Click "Team Health" in the sidebar.</div>
+
+<p class="voiceover"><strong>Team Health</strong> — your WBR goals, always up to date.</p>
+
+<div class="screen-dir"><span class="icon">🖱️</span> The My Team / WBR page loads showing the goal board with status color cards.</div>
+
+<p class="voiceover">InGen pulls goals directly from Taskei, parses the status, and gives you this at-a-glance board. Green, yellow, red — with an <strong>AI-generated health summary</strong> at the top.</p>
+
+<div class="screen-dir"><span class="icon">🖱️</span> Point to the summary cards: On Track, Needs Attention, Completed, Stale.</div>
+
+<p class="voiceover">But here's the powerful part —</p>
+
+<div class="screen-dir"><span class="icon">🖱️</span> Point to or click on the ECD tracking section — missed ECDs, upcoming ECDs.</div>
+
+<p class="voiceover"><strong>ECD tracking.</strong> InGen snapshots your estimated completion dates weekly and detects drift. It knows when a date slipped, by how many days, and flags upcoming ECDs within a three-day window. <strong>No more spreadsheet archaeology.</strong></p>
+
+<div class="screen-dir"><span class="icon">🖱️</span> Click to expand a goal card to show child tasks if available.</div>
+
+<p class="voiceover">And you can drill into any goal to see subtasks — recursive expansion, three levels deep.</p>
+
+<div class="screen-dir"><span class="icon">🖱️</span> Click "Code Metrics" in the sidebar.</div>
+
+<p class="voiceover"><strong>Code Metrics</strong> — this is the engineering velocity dashboard.</p>
+
+<div class="screen-dir"><span class="icon">🖱️</span> The Eng Metrics page loads showing the org summary and engineer table.</div>
+
+<p class="voiceover">Per-engineer code review activity pulled from code.amazon.com. CRs created, CRs reviewed, review ratios. These mini sparklines show eight-week trends at a glance.</p>
+
+<div class="screen-dir"><span class="icon">🖱️</span> Point to the sparkline column and the week-over-week delta arrows.</div>
+
+<p class="voiceover">Week-over-week deltas. And if an engineer has three consecutive weeks of declining output — the row highlights amber. <strong>Early signal, not a surprise.</strong></p>
+
+<div class="screen-dir"><span class="icon">🖱️</span> Click "Ticket Health" in the sidebar.</div>
+
+<p class="voiceover">And <strong>Ticket Health</strong> — your resolver groups at a glance. Open tickets, aging breakdown, SLA status. The operational hygiene dashboard every SDM needs.</p>
+
+<div class="screen-dir"><span class="icon">🖱️</span> Show the summary cards and resolver group table briefly — don't linger.</div>
+</div>
+
+<!-- ACT 8 -->
+<div class="act" id="act8">
+<div class="act-header">
+<div class="act-number">Act 8</div>
+<div class="act-title">The Close — "100% local. Zero cloud. Your data stays yours."</div>
+<span class="act-time">⏱️ 4:35 – 5:00 (25 seconds)</span>
+</div>
+
+<div class="screen-dir"><span class="icon">🖱️</span> Click the dark/light theme toggle in the sidebar to flip to light mode. Then flip back to dark.</div>
+
+<p class="voiceover">Oh — and it looks good doing it. Dark mode, light mode, liquid glass UI.</p>
+
+<div class="screen-dir"><span class="icon">🖱️</span> Click the sidebar collapse button to show the compact icon-only mode, then expand again.</div>
+
+<p class="voiceover">Collapsible sidebar for when you need the real estate.</p>
+
+<div class="screen-dir"><span class="icon">🖱️</span> Pause on the full dashboard view — the hero shot.</div>
+
+<p class="voiceover">But let me leave you with the most important thing.</p>
+
+<p class="voiceover"><strong>InGen runs one hundred percent on your MacBook.</strong> No cloud APIs. No data exfiltration. No accounts. No subscriptions. Your emails, your calendar, your AI — they never leave your machine.</p>
+
+<div class="pause">⏸️ Beat — let that land</div>
+
+<p class="voiceover">Installation is one command. Takes about ten minutes. And from that point on, you have an AI chief of staff that reads everything, triages your inbox, preps your meetings, tracks your goals, and monitors your team's engineering health — <strong>all before your first sip of coffee.</strong></p>
+
+<div class="screen-dir"><span class="icon">🖱️</span> Hold on the dashboard — clean, full view.</div>
+
+<p class="voiceover"><strong>This is InGen. Built by managers, for managers.</strong></p>
+
+<p class="voiceover"><strong>Try it this week.</strong></p>
+</div>
+
+<!-- CHECKLIST -->
+<div class="checklist" id="checklist">
+<h2>📋 Pre-Recording Checklist</h2>
+<div class="check-item"><input type="checkbox"> <strong>Outlook is open</strong> with a healthy inbox (50+ emails visible for the hook shot)</div>
+<div class="check-item"><input type="checkbox"> <strong>InGen is running</strong> at <code>localhost:3000</code> with fresh data</div>
+<div class="check-item"><input type="checkbox"> <strong>AI Briefing is cached</strong> — load the dashboard once before recording so the briefing appears instantly</div>
+<div class="check-item"><input type="checkbox"> <strong>At least one urgent email</strong> exists in the 🔴 Respond Now lane</div>
+<div class="check-item"><input type="checkbox"> <strong>Week Ahead has data</strong> — verify 7-day calendar has meetings populated</div>
+<div class="check-item"><input type="checkbox"> <strong>Leadership page has data</strong> — check relationship health cards show names</div>
+<div class="check-item"><input type="checkbox"> <strong>Team Health has goals</strong> — WBR board should have colored status cards</div>
+<div class="check-item"><input type="checkbox"> <strong>Code Metrics has data</strong> — engineer table should have sparklines populated</div>
+<div class="check-item"><input type="checkbox"> <strong>Ticket Health has data</strong> — resolver groups should show open ticket counts</div>
+<div class="check-item"><input type="checkbox"> <strong>Dark mode is active</strong> (more cinematic for recording)</div>
+<div class="check-item"><input type="checkbox"> <strong>Sidebar is expanded</strong> at the start</div>
+<div class="check-item"><input type="checkbox"> <strong>Browser is full-screen</strong> or maximized, no bookmarks bar, clean chrome</div>
+<div class="check-item"><input type="checkbox"> <strong>Font size is readable</strong> at recording resolution (consider 110% zoom)</div>
+</div>
+
+<!-- KEY PHRASES -->
+<div class="checklist" id="phrases" style="margin-top:32px">
+<h2>🎯 Key Phrases to Hit</h2>
+<table class="phrases-table">
+<thead><tr><th>Phrase</th><th>When to Say It</th></tr></thead>
+<tbody>
+<tr><td>"Entirely on your MacBook"</td><td><em>During AI Briefing section</em></td></tr>
+<tr><td>"Zero cloud"</td><td><em>During Briefing + Close</em></td></tr>
+<tr><td>"That's AI that knows how I write"</td><td><em>After Draft Reply generates</em></td></tr>
+<tr><td>"Like having a personal Kendra — except it's private"</td><td><em>During Dive Deep Chat</em></td></tr>
+<tr><td>"The brief I wish someone handed me every Sunday night"</td><td><em>Week Ahead coaching section</em></td></tr>
+<tr><td>"The kind of signal that prevents surprises in Forte"</td><td><em>Relationship Health cards</em></td></tr>
+<tr><td>"No more spreadsheet archaeology"</td><td><em>ECD tracking section</em></td></tr>
+<tr><td>"Early signal, not a surprise"</td><td><em>Code Metrics declining streak</em></td></tr>
+<tr><td>"Built by managers, for managers"</td><td><em>Final line of the demo</em></td></tr>
+</tbody>
+</table>
+</div>
+
+<!-- TIMING TABLE -->
+<div class="checklist" id="timing" style="margin-top:32px">
+<h2>⏱️ Timing Summary</h2>
+<table class="timing-table">
+<thead><tr><th>Section</th><th>Duration</th><th>Cumulative</th></tr></thead>
+<tbody>
+<tr><td>Act 1 — The Hook</td><td>0:35</td><td>0:35</td></tr>
+<tr><td>Act 2 — AI Briefing</td><td>0:55</td><td>1:30</td></tr>
+<tr><td>Act 3 — Email Triage + Draft</td><td>0:45</td><td>2:15</td></tr>
+<tr><td>Act 4 — Dive Deep Chat</td><td>0:30</td><td>2:45</td></tr>
+<tr><td>Act 5 — Week Ahead</td><td>0:30</td><td>3:15</td></tr>
+<tr><td>Act 6 — Leadership Analytics</td><td>0:35</td><td>3:50</td></tr>
+<tr><td>Act 7 — Team Health + Eng Metrics + Tickets</td><td>0:45</td><td>4:35</td></tr>
+<tr><td>Act 8 — The Close</td><td>0:25</td><td><strong>5:00</strong></td></tr>
+</tbody>
+</table>
+</div>
+
+</div>
+</body>
+</html>

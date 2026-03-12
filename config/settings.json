@@ -1,0 +1,48 @@
+{
+  "outlookCalendarId": "432",
+  "issuesFolderPath": "Inbox/Issues",
+  "ignoreExternalEmails": true,
+  "insightConfidenceThreshold": 0.5,
+  "lowPowerMode": false,
+  "phonetoolAlias": "sankalpv",
+  "logUploadUrl": "",
+  "promptUpdateUrl": "https://gist.githubusercontent.com/sankalpv/3ceed22582916bbe0c3d22e27e10790c/raw/3bd7b948d80d89c6bcc8a0cd0fdc4d5b08b0bf12/%257B%257D%2520prompts.json",
+  "quip": {
+    "enabled": true,
+    "baseUrl": "https://quip-amazon.com",
+    "maxDocsPerEmail": 5,
+    "timeoutSeconds": 30
+  },
+  "mcpServers": {
+    "amzn-mcp": {
+      "command": "/Users/sankalpv/.toolbox/bin/amzn-mcp",
+      "args": [],
+      "env": {}
+    },
+    "builder-mcp": {
+      "command": "/Users/sankalpv/.toolbox/bin/builder-mcp",
+      "args": [],
+      "env": {}
+    }
+  },
+  "wbr": {
+    "roomId": "2c8f0ce4-0d0d-4ff9-9d8d-eb744252bc23",
+    "folderId": "ab02443f-f7a8-4fec-a815-afc0a27906fa",
+    "goalPrefix": "CPP2026Goal",
+    "title": "Classification and Policy Platform - 2026 Goals and Projects Status",
+    "staleAnnouncementDays": 6
+  },
+  "aiTemperature": 0.25,
+  "bedrock": {
+    "region": "us-west-2",
+    "modelId": "us.anthropic.claude-sonnet-4-20250514-v1:0",
+    "maxTokens": 8192,
+    "temperature": 0.25
+  },
+  "engMetrics": {
+    "weeklyRetentionWeeks": 52,
+    "staleCrThresholdDays": 5,
+    "busFactorWindowDays": 90,
+    "fetchDelayMs": 500
+  }
+}

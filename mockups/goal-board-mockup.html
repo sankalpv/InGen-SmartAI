@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>🎯 Goal Board — Interactive PMT View</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:-apple-system,BlinkMacSystemFont,'Inter','Segoe UI',sans-serif;background:#0a0a12;color:#e2e8f0;min-height:100vh;padding:32px;overflow-x:hidden}
+::-webkit-scrollbar{width:6px}::-webkit-scrollbar-track{background:transparent}::-webkit-scrollbar-thumb{background:rgba(255,255,255,0.08);border-radius:3px}
+.container{max-width:900px;margin:0 auto}
+h1{font-size:26px;font-weight:700;letter-spacing:-0.5px;background:linear-gradient(135deg,#c4b5fd,#818cf8);-webkit-background-clip:text;-webkit-text-fill-color:transparent;margin-bottom:6px}
+.subtitle{color:rgba(255,255,255,0.35);font-size:14px;margin-bottom:20px}
+
+/* Stats */
+.stats{display:flex;gap:12px;margin-bottom:24px;flex-wrap:wrap}
+.stat{border-radius:14px;padding:14px 24px;text-align:center;min-width:90px;cursor:default;transition:all 0.3s cubic-bezier(0.4,0,0.2,1);opacity:0;transform:translateY(10px);animation:fadeUp 0.4s forwards}
+.stat:hover{transform:translateY(-3px) scale(1.05)!important;box-shadow:0 8px 24px rgba(0,0,0,0.3)}
+.stat-val{font-size:28px;font-weight:800;line-height:1}
+.stat-lbl{font-size:10px;color:rgba(255,255,255,0.4);text-transform:uppercase;letter-spacing:0.8px;margin-top:6px;font-weight:600}
+@keyframes fadeUp{to{opacity:1;transform:translateY(0)}}
+
+/* View Switcher */
+.view-sw{display:flex;gap:4px;background:rgba(0,0,0,0.4);padding:4px;border-radius:14px;border:1px solid rgba(255,255,255,0.06);margin-bottom:24px}
+.view-btn{flex:1;padding:10px 16px;border-radius:10px;border:none;cursor:pointer;font-family:inherit;font-size:14px;font-weight:600;background:transparent;color:rgba(255,255,255,0.35);transition:all 0.25s}
+.view-btn.active{background:rgba(139,92,246,0.2);color:#c4b5fd}
+.view-btn:hover{color:#c4b5fd;transform:scale(1.02)}
+
+/* Bucket */
+.bucket{border-radius:18px;overflow:hidden;background:rgba(22,22,30,0.7);backdrop-filter:blur(12px);border:1px solid rgba(255,255,255,0.05);margin-bottom:12px;opacity:0;transform:translateY(20px) scale(0.97);animation:springIn 0.5s forwards}
+.bucket.risk{border-color:rgba(255,159,10,0.15)}
+.bucket-hdr{padding:16px 20px;cursor:pointer;display:flex;align-items:center;gap:14px;transition:background 0.2s}
+.bucket-hdr:hover{background:rgba(255,255,255,0.02)}
+.bucket-hdr:active{transform:scale(0.998)}
+.avatar{width:44px;height:44px;border-radius:13px;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:17px;color:#fff;box-shadow:0 4px 12px rgba(0,0,0,0.3);flex-shrink:0;transition:transform 0.3s}
+.avatar:hover{transform:scale(1.1) rotate(5deg)}
+.bucket-info{flex:1}.bucket-name{font-size:15px;font-weight:600;color:rgba(255,255,255,0.95)}.bucket-sub{font-size:12px;color:rgba(255,255,255,0.35);margin-top:2px}
+.dots{display:flex;gap:4px;margin-right:12px}.dot{width:10px;height:10px;border-radius:50%;transition:transform 0.3s;animation:dotPop 0.4s backwards}
+.dot:hover{transform:scale(1.4)}
+@keyframes dotPop{from{transform:scale(0)}}
+.badge{padding:3px 12px;border-radius:99px;font-size:13px;font-weight:700;flex-shrink:0}
+.chevron{color:rgba(255,255,255,0.2);font-size:16px;flex-shrink:0;transition:transform 0.3s cubic-bezier(0.4,0,0.2,1)}
+.bucket.open .chevron{transform:rotate(180deg)}
+
+/* Bucket Content */
+.bucket-content{max-height:0;overflow:hidden;transition:max-height 0.5s cubic-bezier(0.4,0,0.2,1),opacity 0.3s;opacity:0}
+.bucket.open .bucket-content{max-height:3000px;opacity:1}
+.bucket-inner{padding:0 16px 16px;border-top:1px solid rgba(255,255,255,0.04)}
+
+/* Goal Card */
+.goal{border-radius:14px;overflow:hidden;background:rgba(255,255,255,0.025);margin-bottom:8px;cursor:pointer;transition:all 0.25s cubic-bezier(0.4,0,0.2,1);opacity:0;transform:translateY(15px);animation:fadeUp 0.35s forwards}
+.goal:hover{transform:scale(1.008);box-shadow:0 4px 20px rgba(0,0,0,0.15)}
+.goal-hdr{padding:14px 18px}
+.goal-top{display:flex;align-items:center;gap:10px;margin-bottom:8px}
+.status-dot{width:10px;height:10px;border-radius:50%;flex-shrink:0;animation:pulse 2s ease-in-out infinite}
+@keyframes pulse{0%,100%{transform:scale(1)}50%{transform:scale(1.25)}}
+.goal-id{color:#818cf8;font-weight:700;font-size:12px;flex-shrink:0}
+.goal-title{font-size:13px;font-weight:600;color:rgba(255,255,255,0.85);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.goal-chev{color:rgba(255,255,255,0.2);font-size:14px;flex-shrink:0;transition:transform 0.3s}
+.goal.open .goal-chev{transform:rotate(180deg)}
+.goal-tags{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.tag{padding:2px 8px;border-radius:6px;font-size:10px;font-weight:600}
+.progress-wrap{display:flex;align-items:center;gap:6px;flex:1;max-width:120px}
+.progress-bg{height:6px;background:rgba(255,255,255,0.06);border-radius:3px;overflow:hidden;width:100%}
+.progress-fill{height:100%;border-radius:3px;transition:width 0.8s cubic-bezier(0.4,0,0.2,1)}
+.progress-txt{font-size:10px;color:rgba(255,255,255,0.3);flex-shrink:0}
+
+/* Goal Detail */
+.goal-detail{max-height:0;overflow:hidden;transition:max-height 0.4s cubic-bezier(0.4,0,0.2,1),opacity 0.3s;opacity:0}
+.goal.open .goal-detail{max-height:2000px;opacity:1}
+.goal-detail-inner{padding:0 18px 16px;border-top:1px solid rgba(255,255,255,0.04)}
+.desc{font-size:12px;color:rgba(255,255,255,0.5);line-height:1.6;margin:12px 0;padding:10px 14px;border-radius:8px;background:rgba(255,255,255,0.02)}
+.quad{display:flex;gap:12px;margin:12px 0;font-size:11px;color:rgba(255,255,255,0.4)}
+.quad strong{color:rgba(255,255,255,0.6);text-transform:uppercase;font-size:10px}
+.alert-box{padding:10px 14px;border-radius:8px;font-size:12px;margin:8px 0;line-height:1.5}
+.alert-red{background:rgba(255,69,58,0.06);border:1px solid rgba(255,69,58,0.12);color:#ff6b6b}
+.alert-blue{background:rgba(10,132,255,0.06);border:1px solid rgba(10,132,255,0.1);color:rgba(255,255,255,0.6)}
+
+/* Subtask */
+.subtask{display:flex;align-items:center;gap:10px;padding:8px 12px;border-radius:8px;background:rgba(255,255,255,0.02);border:1px solid rgba(255,255,255,0.04);font-size:12px;margin-bottom:4px;opacity:0;animation:slideIn 0.3s forwards}
+@keyframes slideIn{from{opacity:0;transform:translateX(-10px)}to{opacity:1;transform:translateX(0)}}
+.subtask-icon{font-size:14px}.subtask-id{color:#818cf8;font-weight:600;flex-shrink:0}
+.subtask-title{flex:1;color:rgba(255,255,255,0.7);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.subtask-assignee{color:rgba(255,255,255,0.3);flex-shrink:0}
+.ecd-badge{font-size:10px;font-weight:600;padding:1px 6px;border-radius:4px}
+.ecd-ok{color:rgba(255,255,255,0.25)}.ecd-past{color:#ff453a;background:rgba(255,69,58,0.1)}
+.section-lbl{font-size:10px;font-weight:700;color:rgba(255,255,255,0.35);text-transform:uppercase;letter-spacing:1px;margin:12px 0 8px}
+.footer{text-align:center;padding:24px 0;font-size:11px;color:rgba(255,255,255,0.15)}
+
+@keyframes springIn{0%{opacity:0;transform:translateY(20px) scale(0.97)}70%{transform:translateY(-3px) scale(1.005)}100%{opacity:1;transform:translateY(0) scale(1)}}
+</style>
+</head>
+<body>
+<div class="container" id="app"></div>
+<script>
+const GOALS=[{id:'CPP2026Goal-7',title:'Bend the Curve on CPP IMR annual cost growth — $12M savings',sc:'Green',ecd:'12-18-2026',gt:'04-VP',theme:'IMR Optimization',quad:{pm:'—',pmt:'gduma',tech:'nsantosh',sdm:'rkarth'},tasks:[{id:'CPP-1234',t:'Identify top 5 cost drivers',s:'Closed',a:'nsantosh',e:'02-15-2026'},{id:'CPP-1235',t:'Automated cost anomaly detection',s:'Open',a:'devikap',e:'04-30-2026'}],desc:'Reduce IMR costs by optimizing pipelines.'},{id:'CPP2026Goal-18',title:'Classification V3 — 15% accuracy improvement',sc:'Green',ecd:'09-30-2026',gt:'06-Director',theme:'ML Accuracy',quad:{pm:'—',pmt:'gduma',tech:'vkarthik',sdm:'rkarth'},tasks:[{id:'CPP-2001',t:'Fine-tune transformer model',s:'Open',a:'vkarthik',e:'05-15-2026'},{id:'CPP-2002',t:'A/B test V3 vs V2',s:'Open',a:'priyar',e:'07-01-2026'},{id:'CPP-2003',t:'Deploy V3 to production',s:'Open',a:'nsantosh',e:'09-15-2026'}],desc:'Next-gen transformer architecture.'},{id:'CPP2026Goal-32',title:'Automate 80% of manual reviews via AI',sc:'Yellow',ecd:'06-30-2026',gt:'06-Director',theme:'Automation',quad:{pm:'—',pmt:'gduma',tech:'devikap',sdm:'rkarth'},tasks:[{id:'CPP-3001',t:'AI review assistant prototype',s:'Closed',a:'devikap',e:'03-01-2026'},{id:'CPP-3002',t:'Integrate with reviewer workflow',s:'Open',a:'devikap',e:'05-15-2026'}],desc:'Reduce human review burden.',p2g:'Integration delayed 2 weeks. Need PMT alignment by W12.'},{id:'CPP2026Goal-15',title:'Real-time API — P99 < 50ms',sc:'Green',ecd:'08-15-2026',gt:'06-Director',theme:'Latency',quad:{pm:'jdoe',pmt:'anniwong',tech:'mikeb',sdm:'sarahk'},tasks:[{id:'CPP-4001',t:'Optimize inference caching',s:'Closed',a:'mikeb',e:'02-28-2026'},{id:'CPP-4002',t:'Deploy edge nodes 3 regions',s:'Open',a:'mikeb',e:'06-01-2026'},{id:'CPP-4003',t:'Load test 10x peak',s:'Open',a:'alexj',e:'07-15-2026'}],desc:'Ultra-low latency endpoint.'},{id:'CPP2026Goal-36',title:'Migrate 100% legacy rules to ML',sc:'Red',ecd:'03-15-2026',gt:'06-Director',theme:'Migration',quad:{pm:'jdoe',pmt:'anniwong',tech:'lisam',sdm:'sarahk'},tasks:[{id:'CPP-5001',t:'Audit 142 legacy rules',s:'Open',a:'lisam',e:'02-28-2026'},{id:'CPP-5002',t:'Train ML for top-50 rules',s:'Open',a:'lisam',e:'03-10-2026'}],desc:'Rules-to-ML migration.',p2g:'BLOCKED: 142 rules need audit. ECD will slip to 04-30.'},{id:'CPP2026Goal-30',title:'Policy compliance — 12 marketplaces',sc:'Green',ecd:'11-30-2026',gt:'08-2PT',theme:'Compliance',quad:{pm:'jdoe',pmt:'anniwong',tech:'tomw',sdm:'sarahk'},tasks:[{id:'CPP-6001',t:'Compliance rules JP/AU/SG',s:'Closed',a:'tomw',e:'01-31-2026'},{id:'CPP-6002',t:'Marketplace adapter framework',s:'Open',a:'tomw',e:'04-15-2026'}],desc:'Extend compliance to 12 marketplaces.'},{id:'CPP2026Goal-23',title:'Cold-start 45s → <5s',sc:'Green',ecd:'07-31-2026',gt:'06-Director',theme:'Performance',quad:{pm:'—',pmt:'anojanp',tech:'rajeshm',sdm:'kumarp'},tasks:[{id:'CPP-7001',t:'Lambda SnapStart preloading',s:'Open',a:'rajeshm',e:'05-01-2026'}],desc:'Dramatically reduce cold-start.'},{id:'CPP2026Goal-3',title:'99.99% availability all regions',sc:'Green',ecd:'12-31-2026',gt:'04-VP',theme:'Reliability',quad:{pm:'—',pmt:'anojanp',tech:'amitg',sdm:'kumarp'},tasks:[{id:'CPP-8001',t:'Multi-AZ failover PDX',s:'Closed',a:'amitg',e:'02-15-2026'},{id:'CPP-8002',t:'Circuit breaker patterns',s:'Open',a:'amitg',e:'04-30-2026'},{id:'CPP-8003',t:'GameDay chaos testing',s:'Open',a:'amitg',e:'06-15-2026'},{id:'CPP-8004',t:'Automated runbook SEVs',s:'Open',a:'priyar',e:'08-01-2026'}],desc:'Four-nines via chaos engineering.'},{id:'CPP2026Goal-13',title:'Self-service onboarding portal',sc:'Green',ecd:'10-15-2026',gt:'06-Director',theme:'Self-Service',quad:{pm:'—',pmt:'jaysri',tech:'dineshk',sdm:'sureshb'},tasks:[{id:'CPP-9001',t:'Portal UX wireframes',s:'Closed',a:'dineshk',e:'02-01-2026'},{id:'CPP-9002',t:'Model training wizard',s:'Open',a:'dineshk',e:'06-01-2026'}],desc:'Enable self-service onboarding.'},{id:'CPP2026Goal-38',title:'EU Digital Services Act compliance',sc:'Green',ecd:'02-28-2026',gt:'06-Director',theme:'Compliance',quad:{pm:'—',pmt:'jaysri',tech:'mariak',sdm:'sureshb'},tasks:[],desc:'EU DSA requirements.',ann:'All DSA items shipped. Awaiting legal sign-off. (02-20)'},{id:'CPP2026Goal-37',title:'Reduce hazmat false positives 40%',sc:'Yellow',ecd:'05-31-2026',gt:'06-Director',theme:'ML Accuracy',quad:{pm:'—',pmt:'jaysri',tech:'chenw',sdm:'sureshb'},tasks:[{id:'CPP-11001',t:'Retrain hazmat model',s:'Open',a:'chenw',e:'04-15-2026'}],desc:'Reduce seller friction.',p2g:'Dataset 60% complete. Need labeling team by W14.'},{id:'CPP2026Goal-8',title:'Federated model training — 3 BUs',sc:'Green',ecd:'11-15-2026',gt:'06-Director',theme:'ML Platform',quad:{pm:'—',pmt:'flyastha',tech:'rameshv',sdm:'ankitj'},tasks:[{id:'CPP-12001',t:'Federated learning arch',s:'Closed',a:'rameshv',e:'03-01-2026'},{id:'CPP-12002',t:'Secure aggregation',s:'Open',a:'rameshv',e:'06-30-2026'}],desc:'Privacy-preserving federated learning.'}];
+const NAMES={gduma:'Gowri Duma',anniwong:'Annie Wong',anojanp:'Anojan P',jaysri:'Jay Srinivasan',flyastha:'Fly Astha'};
+const SC={Green:'#30d158',Yellow:'#ff9f0a',Red:'#ff453a'};
+const TC={'IMR Optimization':'#0a84ff','ML Accuracy':'#bf5af2',Automation:'#ff9f0a',Latency:'#30d158',Migration:'#ff453a',Compliance:'#5ac8fa',Performance:'#34c759',Reliability:'#007aff','Self-Service':'#af52de','ML Platform':'#ff6482'};
+const GR=['linear-gradient(135deg,#4f8cff,#3b6fd4)','linear-gradient(135deg,#a855f7,#7c3aed)','linear-gradient(135deg,#34d399,#059669)','linear-gradient(135deg,#fb923c,#ea580c)','linear-gradient(135deg,#22d3ee,#0891b2)','linear-gradient(135deg,#f472b6,#db2777)','linear-gradient(135deg,#fbbf24,#d97706)','linear-gradient(135deg,#818cf8,#6366f1)'];
+const isPast=e=>{if(!e)return false;const[m,d,y]=e.split('-').map(Number);return new Date(y,m-1,d)<new Date(new Date().toDateString())};
+
+let view='pmt';
+function render(){
+    const app=document.getElementById('app');
+    const grn=GOALS.filter(g=>g.sc==='Green').length,yel=GOALS.filter(g=>g.sc==='Yellow').length,red=GOALS.filter(g=>g.sc==='Red').length,miss=GOALS.filter(g=>isPast(g.ecd)).length;
+    let h=`<h1>🎯 Goal Board</h1><p class="subtitle">Interactive view · Click to explore · ${GOALS.length} goals</p>`;
+    // Stats
+    const stats=[{l:'Total',v:GOALS.length,c:'#a78bfa',bg:'rgba(139,92,246,0.08)',b:'rgba(139,92,246,0.15)'},{l:'Green',v:grn,c:'#30d158',bg:'rgba(48,209,88,0.08)',b:'rgba(48,209,88,0.15)'},{l:'Yellow',v:yel,c:'#ff9f0a',bg:'rgba(255,159,10,0.08)',b:'rgba(255,159,10,0.15)'},{l:'Red',v:red,c:'#ff453a',bg:'rgba(255,69,58,0.08)',b:'rgba(255,69,58,0.15)'},{l:'Missed ECD',v:miss,c:'#ff453a',bg:'rgba(255,69,58,0.08)',b:'rgba(255,69,58,0.15)'}];
+    h+='<div class="stats">';
+    stats.forEach((s,i)=>{h+=`<div class="stat" style="background:${s.bg};border:1px solid ${s.b};animation-delay:${i*0.06}s"><div class="stat-val" style="color:${s.c}">${s.v}</div><div class="stat-lbl">${s.l}</div></div>`;});
+    h+='</div>';
+    // Switcher
+    h+='<div class="view-sw">';
+    [{id:'pmt',l:'👤 By PMT'},{id:'theme',l:'🎨 By Theme'},{id:'status',l:'📋 By Status'}].forEach(v=>{h+=`<button class="view-btn ${view===v.id?'active':''}" onclick="view='${v.id}';render()">${v.l}</button>`;});
+    h+='</div>';
+    // Group
+    let groups=[];
+    if(view==='pmt'){const m={};GOALS.forEach(g=>{const k=g.quad.pmt;if(!m[k])m[k]=[];m[k].push(g)});groups=Object.entries(m).sort((a,b)=>b[1].length-a[1].length);}
+    else if(view==='theme'){const m={};GOALS.forEach(g=>{const k=g.theme;if(!m[k])m[k]=[];m[k].push(g)});groups=Object.entries(m).sort((a,b)=>b[1].length-a[1].length);}
+    else{['Red','Yellow','Green'].forEach(s=>{const gs=GOALS.filter(g=>g.sc===s);if(gs.length)groups.push([s,gs])});}
+    groups.forEach(([key,goals],bi)=>{
+        const hasRisk=goals.some(g=>g.sc==='Red'||g.sc==='Yellow');
+        const isStatus=view==='status';
+        const isTheme=view==='theme';
+        const name=isStatus?key:isTheme?key:(NAMES[key]||key);
+        const init=key==='—'?'?':key[0].toUpperCase();
+        const grad=isStatus?`${SC[key]||'#6b7280'}20`:isTheme?`${TC[key]||'#6b7280'}20`:GR[key.charCodeAt(0)%GR.length];
+        const emoji=isStatus?(key==='Green'?'🟢':key==='Yellow'?'🟡':'🔴'):isTheme?'🎯':'';
+        const badgeBg=hasRisk?'rgba(255,159,10,0.15)':'rgba(139,92,246,0.1)';
+        const badgeC=hasRisk?'#ff9f0a':'#a78bfa';
+        h+=`<div class="bucket ${hasRisk?'risk':''}" id="b${bi}" style="animation-delay:${bi*0.08}s" onclick="toggleBucket(event,'b${bi}')">`;
+        h+=`<div class="bucket-hdr">`;
+        if(!isStatus&&!isTheme) h+=`<div class="avatar" style="background:${grad}">${init}</div>`;
+        else h+=`<div class="avatar" style="background:${grad};font-size:22px">${emoji||init}</div>`;
+        h+=`<div class="bucket-info"><div class="bucket-name" ${isStatus?`style="color:${SC[key]}"`:isTheme?`style="color:${TC[key]||'#6b7280'}"`:``}>${name}</div>`;
+        h+=`<div class="bucket-sub">${!isStatus&&!isTheme&&key!=='—'?key+' · ':''}${goals.length} goal${goals.length!==1?'s':''}</div></div>`;
+        h+=`<div class="dots">`;goals.forEach((g,di)=>{const c=SC[g.sc]||'#6b7280';h+=`<div class="dot" style="background:${c};box-shadow:0 0 6px ${c}50;animation-delay:${bi*0.08+di*0.05}s"></div>`;});h+=`</div>`;
+        h+=`<span class="badge" style="background:${badgeBg};color:${badgeC}">${goals.length}</span>`;
+        h+=`<span class="chevron">▾</span></div>`;
+        h+=`<div class="bucket-content"><div class="bucket-inner">`;
+        goals.forEach((g,gi)=>{
+            const c=SC[g.sc]||'#6b7280';const tc=TC[g.theme]||'#6b7280';
+            const closed=g.tasks.filter(t=>t.s==='Closed').length;const total=g.tasks.length;const pct=total>0?Math.round(closed/total*100):0;
+            h+=`<div class="goal" id="g${bi}_${gi}" style="border-left:3px solid ${c};animation-delay:${gi*0.06}s" onclick="event.stopPropagation();toggleGoal('g${bi}_${gi}')">`;
+            h+=`<div class="goal-hdr"><div class="goal-top">`;
+            h+=`<div class="status-dot" style="background:${c};box-shadow:0 0 8px ${c}60"></div>`;
+            h+=`<span class="goal-id">${g.id}</span><span class="goal-title">${g.title}</span><span class="goal-chev">▾</span></div>`;
+            h+=`<div class="goal-tags">`;
+            h+=`<span class="tag" style="background:${c}15;color:${c};border:1px solid ${c}25;font-weight:700">${g.sc}</span>`;
+            h+=`<span class="tag" style="background:${tc}12;color:${tc}">${g.theme}</span>`;
+            const ecdCls=isPast(g.ecd)?'ecd-past':'ecd-ok';
+            h+=`<span class="tag ${ecdCls}" style="${isPast(g.ecd)?'background:rgba(255,69,58,0.12)':'background:rgba(255,255,255,0.04)'}">${isPast(g.ecd)?'⚠️ ':''}ECD: ${g.ecd}</span>`;
+            h+=`<span class="tag" style="color:rgba(255,255,255,0.25)">${g.gt}</span>`;
+            if(total>0){h+=`<div class="progress-wrap"><div class="progress-bg"><div class="progress-fill" style="width:${pct}%;background:${c}"></div></div><span class="progress-txt">${closed}/${total}</span></div>`;}
+            h+=`</div></div>`;
+            // Detail
+            h+=`<div class="goal-detail"><div class="goal-detail-inner">`;
+            if(g.desc)h+=`<div class="desc">${g.desc}</div>`;
+            h+=`<div class="quad"><span><strong>PM</strong>: ${g.quad.pm}</span><span><strong>PMT</strong>: ${g.quad.pmt}</span><span><strong>Tech</strong>: ${g.quad.tech}</span><span><strong>SDM</strong>: ${g.quad.sdm}</span></div>`;
+            if(g.p2g)h+=`<div class="alert-box alert-red"><strong>⚠️ Path to Green:</strong> ${g.p2g}</div>`;
+            if(g.ann)h+=`<div class="alert-box alert-blue"><strong>📢 Announcement:</strong> ${g.ann}</div>`;
+            if(g.tasks.length>0){
+                h+=`<div class="section-lbl">Child Tasks (${g.tasks.length})</div>`;
+                g.tasks.forEach((t,ti)=>{
+                    const ec=isPast(t.e)?'ecd-past':'ecd-ok';
+                    h+=`<div class="subtask" style="animation-delay:${ti*0.05}s"><span class="subtask-icon">${t.s==='Closed'?'✅':'🔵'}</span><span class="subtask-id">${t.id}</span><span class="subtask-title">${t.t}</span><span class="subtask-assignee">${t.a}</span><span class="ecd-badge ${ec}">${isPast(t.e)?'⚠️ ':''}${t.e}</span></div>`;
+                });
+            }
+            h+=`</div></div></div>`;
+        });
+        h+=`</div></div></div>`;
+    });
+    h+=`<div class="footer">Mockup · Pure CSS animations · Click PMT → Goals → Details → Subtasks</div>`;
+    app.innerHTML=h;
+}
+function toggleBucket(e,id){if(e.target.closest('.goal'))return;document.getElementById(id).classList.toggle('open');}
+function toggleGoal(id){document.getElementById(id).classList.toggle('open');}
+render();
+</script>
+</body>
+</html>

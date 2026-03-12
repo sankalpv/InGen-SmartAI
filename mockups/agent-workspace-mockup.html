@@ -1,0 +1,349 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>InGen Agent Workspace — Mockup</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:#0a0a10;color:#e2e8f0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;min-height:100vh}
+.page{max-width:1200px;margin:0 auto;padding:24px}
+h1{font-size:24px;font-weight:700;margin-bottom:4px;display:flex;align-items:center;gap:10px}
+.subtitle{color:#818cf8;font-size:13px;margin-bottom:24px}
+/* Task Input */
+.task-input-area{background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.08);border-radius:16px;padding:20px;margin-bottom:24px}
+.task-input-area label{font-size:14px;color:#94a3b8;margin-bottom:10px;display:block}
+.task-bar{display:flex;gap:8px}
+.task-bar input{flex:1;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1);border-radius:12px;padding:14px 18px;color:#fff;font-size:15px;outline:none}
+.task-bar input:focus{border-color:rgba(139,92,246,0.5);box-shadow:0 0 0 3px rgba(139,92,246,0.15)}
+.task-bar button{background:linear-gradient(135deg,#3b82f6,#8b5cf6);color:#fff;border:none;border-radius:12px;padding:14px 28px;font-size:15px;font-weight:600;cursor:pointer}
+.templates{display:flex;gap:8px;margin-top:12px;flex-wrap:wrap}
+.templates button{background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.06);border-radius:10px;padding:8px 14px;color:#94a3b8;font-size:12px;cursor:pointer;display:flex;align-items:center;gap:6px}
+.templates button:hover{background:rgba(139,92,246,0.1);border-color:rgba(139,92,246,0.3);color:#c4b5fd}
+/* Pipeline */
+.pipeline-section{background:rgba(255,255,255,0.02);border:1px solid rgba(255,255,255,0.06);border-radius:16px;padding:20px;margin-bottom:24px}
+.pipeline-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:16px}
+.pipeline-header h3{font-size:14px;color:#818cf8;font-weight:600;text-transform:uppercase;letter-spacing:0.05em}
+.pipeline-timer{font-size:13px;color:#34d399;font-weight:600}
+.pipeline-nodes{display:flex;align-items:center;gap:0;justify-content:center;padding:10px 0}
+.node{width:90px;text-align:center;position:relative}
+.node-icon{width:52px;height:52px;border-radius:14px;display:flex;align-items:center;justify-content:center;font-size:22px;margin:0 auto 6px;transition:all 0.3s;border:2px solid transparent}
+.node.pending .node-icon{background:rgba(255,255,255,0.04);border-color:rgba(255,255,255,0.08)}
+.node.running .node-icon{background:rgba(59,130,246,0.15);border-color:#3b82f6;animation:pulse 1.2s infinite}
+.node.done .node-icon{background:rgba(34,197,94,0.15);border-color:#22c55e}
+.node.error .node-icon{background:rgba(239,68,68,0.15);border-color:#ef4444}
+.node-label{font-size:10px;color:#64748b;font-weight:500}
+.node-time{font-size:9px;color:#475569;margin-top:2px}
+.node-count{font-size:9px;color:#22c55e;font-weight:600;margin-top:1px}
+.connector{width:40px;height:2px;background:rgba(255,255,255,0.06);position:relative;flex-shrink:0}
+.connector.active{background:linear-gradient(90deg,#3b82f6,#8b5cf6);animation:flowRight 1s infinite}
+.connector.done{background:#22c55e}
+.progress-bar{height:4px;background:rgba(255,255,255,0.06);border-radius:2px;margin-top:16px;overflow:hidden}
+.progress-fill{height:100%;background:linear-gradient(90deg,#3b82f6,#8b5cf6);border-radius:2px;transition:width 0.5s;width:65%}
+.progress-text{font-size:11px;color:#64748b;margin-top:6px;text-align:center}
+/* Results + Evidence split */
+.results-grid{display:grid;grid-template-columns:1fr 360px;gap:16px}
+.results-panel{background:rgba(255,255,255,0.02);border:1px solid rgba(255,255,255,0.06);border-radius:16px;padding:20px}
+.results-panel h3{font-size:14px;color:#a78bfa;font-weight:700;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:14px}
+.result-content{font-size:14px;line-height:1.7;color:#cbd5e1}
+.result-content h4{color:#e2e8f0;font-weight:600;margin:14px 0 6px;font-size:15px}
+.result-content ul{padding-left:18px;margin:6px 0}
+.result-content li{margin-bottom:4px}
+.result-actions{display:flex;gap:8px;margin-top:16px;padding-top:14px;border-top:1px solid rgba(255,255,255,0.06)}
+.result-actions button{padding:8px 16px;border-radius:8px;border:1px solid rgba(255,255,255,0.1);background:rgba(255,255,255,0.04);color:#94a3b8;font-size:12px;cursor:pointer;display:flex;align-items:center;gap:6px}
+.result-actions button:hover{background:rgba(139,92,246,0.1);color:#c4b5fd}
+/* Evidence panel */
+.evidence-panel{background:rgba(255,255,255,0.02);border:1px solid rgba(255,255,255,0.06);border-radius:16px;padding:16px}
+.evidence-panel h3{font-size:13px;color:#818cf8;font-weight:600;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:12px}
+.evidence-card{background:rgba(0,0,0,0.25);border:1px solid rgba(255,255,255,0.06);border-radius:10px;padding:12px;margin-bottom:8px;cursor:pointer;transition:all 0.15s}
+.evidence-card:hover{border-color:rgba(139,92,246,0.3);background:rgba(99,102,241,0.06)}
+.evidence-card .ec-header{display:flex;align-items:center;gap:8px;margin-bottom:6px}
+.evidence-card .ec-icon{font-size:16px}
+.evidence-card .ec-title{font-size:12px;font-weight:600;color:#c4b5fd}
+.evidence-card .ec-count{font-size:10px;color:#22c55e;margin-left:auto;font-weight:600}
+.evidence-card .ec-body{font-size:11px;color:#64748b;line-height:1.5}
+.evidence-card .ec-items{margin-top:6px}
+.evidence-card .ec-item{padding:4px 8px;background:rgba(255,255,255,0.03);border-radius:6px;margin-bottom:3px;font-size:11px;color:#94a3b8;display:flex;gap:6px}
+.evidence-card .ec-item-label{color:#818cf8;font-weight:500;flex-shrink:0;min-width:40px}
+/* Clarifying Questions */
+.clarify-section{background:rgba(139,92,246,0.04);border:1px solid rgba(139,92,246,0.15);border-radius:16px;padding:20px;margin-bottom:24px}
+.clarify-header{display:flex;align-items:center;gap:10px;font-size:14px;color:#c4b5fd;font-weight:500;margin-bottom:16px}
+.clarify-icon{font-size:20px}
+.cq-card{margin-bottom:14px}
+.cq-q{font-size:13px;color:#94a3b8;margin-bottom:8px;font-weight:500}
+.cq-options{display:flex;gap:6px;flex-wrap:wrap}
+.cq-btn{background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.08);border-radius:8px;padding:7px 14px;color:#94a3b8;font-size:12px;cursor:pointer;transition:all 0.15s}
+.cq-btn:hover{background:rgba(139,92,246,0.1);border-color:rgba(139,92,246,0.3);color:#c4b5fd}
+.cq-btn.selected{background:rgba(139,92,246,0.15);border-color:#8b5cf6;color:#c4b5fd;font-weight:600}
+.clarify-actions{display:flex;gap:10px;margin-top:16px;padding-top:14px;border-top:1px solid rgba(139,92,246,0.1)}
+.cq-go{background:linear-gradient(135deg,#3b82f6,#8b5cf6);color:#fff;border:none;border-radius:10px;padding:10px 24px;font-size:13px;font-weight:600;cursor:pointer}
+.cq-skip{background:transparent;border:1px solid rgba(255,255,255,0.1);color:#64748b;border-radius:10px;padding:10px 20px;font-size:13px;cursor:pointer}
+.cq-skip:hover{color:#94a3b8;border-color:rgba(255,255,255,0.2)}
+/* Chain of Thought */
+.cot-toggle{display:inline-flex;align-items:center;gap:4px;font-size:11px;color:#818cf8;cursor:pointer;margin-left:6px;opacity:0.7;transition:opacity 0.15s}
+.cot-toggle:hover{opacity:1}
+.cot-reason{display:none;margin:6px 0 10px 20px;padding:8px 12px;border-left:2px solid rgba(139,92,246,0.3);background:rgba(139,92,246,0.04);border-radius:0 8px 8px 0;font-size:12px;color:#94a3b8;line-height:1.6}
+.cot-reason.open{display:block}
+.cot-reason cite{color:#60a5fa;font-style:normal;font-weight:500}
+/* Animations */
+@keyframes pulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:0.7;transform:scale(1.05)}}
+@keyframes flowRight{0%{background-position:-40px 0}100%{background-position:40px 0}}
+@keyframes fadeUp{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}
+</style>
+</head>
+<body>
+<div class="page">
+  <h1>🧬 Agent Workspace</h1>
+  <div class="subtitle">Multi-step AI task planner with tool orchestration</div>
+
+  <!-- Task Input -->
+  <div class="task-input-area">
+    <label>What would you like me to do?</label>
+    <div class="task-bar">
+      <input type="text" placeholder="e.g. Prepare me for tomorrow's BSV2 risk discussion" value="Prepare me for tomorrow's BSV2 risk discussion" id="taskInput">
+      <button onclick="runDemo()">▶ Execute</button>
+    </div>
+    <div class="templates">
+      <button>📋 Meeting prep</button>
+      <button>📊 Weekly summary</button>
+      <button>🔍 Investigate topic</button>
+      <button>📧 Draft reply</button>
+      <button>🎯 Goal deep-dive</button>
+      <button>👥 Team check-in</button>
+    </div>
+  </div>
+
+  <!-- Clarifying Questions Phase -->
+  <div class="clarify-section" id="clarifySection">
+    <div class="clarify-header">
+      <span class="clarify-icon">🤔</span>
+      <span>Before I start, a few questions to tailor the prep brief:</span>
+    </div>
+    <div class="clarify-questions">
+      <div class="cq-card">
+        <div class="cq-q">1. What's your role in this meeting?</div>
+        <div class="cq-options">
+          <button class="cq-btn selected" onclick="selectOpt(this)">🙋 Meeting owner</button>
+          <button class="cq-btn" onclick="selectOpt(this)">👤 Key stakeholder</button>
+          <button class="cq-btn" onclick="selectOpt(this)">👁️ Observer</button>
+        </div>
+      </div>
+      <div class="cq-card">
+        <div class="cq-q">2. What's your primary concern?</div>
+        <div class="cq-options">
+          <button class="cq-btn" onclick="selectOpt(this)">⏰ Timeline risk</button>
+          <button class="cq-btn selected" onclick="selectOpt(this)">🔧 Technical gaps</button>
+          <button class="cq-btn" onclick="selectOpt(this)">📊 Resource allocation</button>
+          <button class="cq-btn" onclick="selectOpt(this)">🤷 All of the above</button>
+        </div>
+      </div>
+      <div class="cq-card">
+        <div class="cq-q">3. Output format?</div>
+        <div class="cq-options">
+          <button class="cq-btn selected" onclick="selectOpt(this)">📋 Bullet points</button>
+          <button class="cq-btn" onclick="selectOpt(this)">📝 Formal doc</button>
+          <button class="cq-btn" onclick="selectOpt(this)">📧 Email summary</button>
+        </div>
+      </div>
+    </div>
+    <div class="clarify-actions">
+      <button class="cq-go" onclick="runDemo()">▶ Execute with these preferences</button>
+      <button class="cq-skip" onclick="runDemo()">⏩ Skip & use defaults</button>
+    </div>
+  </div>
+
+  <!-- Execution Pipeline -->
+  <div class="pipeline-section" id="pipeline">
+    <div class="pipeline-header">
+      <h3>⚡ Execution Pipeline</h3>
+      <span class="pipeline-timer" id="timer">3.4s total · 5 tools</span>
+    </div>
+    <div class="pipeline-nodes" id="nodes"></div>
+    <div class="progress-bar"><div class="progress-fill" id="progressFill"></div></div>
+    <div class="progress-text" id="progressText">65% complete · 4 of 5 tools done</div>
+  </div>
+
+  <!-- Results + Evidence -->
+  <div class="results-grid">
+    <div class="results-panel">
+      <h3>📋 Result</h3>
+      <div class="result-content" id="resultContent"></div>
+      <div class="result-actions">
+        <button>📋 Copy</button>
+        <button>📄 Export to Quip</button>
+        <button>✉️ Draft email</button>
+      </div>
+    </div>
+    <div class="evidence-panel">
+      <h3>🔎 Tool Evidence</h3>
+      <div id="evidenceCards"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+const STEPS = [
+  {icon:'🤔',label:'Plan',time:'0.2s',status:'done',count:''},
+  {icon:'📅',label:'Calendar',time:'0.1s',status:'done',count:'1 meeting'},
+  {icon:'📧',label:'Emails',time:'1.2s',status:'done',count:'5 threads'},
+  {icon:'👤',label:'People',time:'0.8s',status:'done',count:'3 people'},
+  {icon:'🎯',label:'Goals',time:'0.5s',status:'done',count:'Goal-12'},
+  {icon:'📋',label:'Synthesize',time:'0.6s',status:'running',count:''},
+];
+
+function renderPipeline(steps) {
+  const c = document.getElementById('nodes');
+  c.innerHTML = '';
+  steps.forEach((s, i) => {
+    const node = document.createElement('div');
+    node.className = `node ${s.status}`;
+    node.innerHTML = `
+      <div class="node-icon">${s.icon}</div>
+      <div class="node-label">${s.label}</div>
+      <div class="node-time">${s.status !== 'pending' ? s.time : ''}</div>
+      <div class="node-count">${s.count}</div>
+    `;
+    c.appendChild(node);
+    if (i < steps.length - 1) {
+      const conn = document.createElement('div');
+      conn.className = `connector ${s.status === 'done' ? 'done' : s.status === 'running' ? 'active' : ''}`;
+      c.appendChild(conn);
+    }
+  });
+}
+
+function renderEvidence() {
+  const cards = [
+    {icon:'📅',title:'Calendar Search',count:'1 result',items:[
+      {label:'Match',value:'BSV2 Risk Discussion — Thu 4:00 PM'},
+      {label:'Attendees',value:'Vipul, Karthik, Abhijit, Ruchika, Shruthi, Astha, Ana, Divya'},
+      {label:'Location',value:'SEA Rufus 03.101 + Zoom'},
+    ]},
+    {icon:'📧',title:'Email Search',count:'5 threads',items:[
+      {label:'From',value:'Vipul: "BSV2 not functionally ready"'},
+      {label:'From',value:'Abhijit: "gaps identified in Job Manager"'},
+      {label:'From',value:'Karthik: "Runtime fixes in progress"'},
+      {label:'From',value:'Astha: "product milestone timeline at risk"'},
+      {label:'From',value:'Shruthi: "Artemis dependency mapping needed"'},
+    ]},
+    {icon:'👤',title:'People Lookup',count:'3 people',items:[
+      {label:'Vipul',value:'PE, Classification & Policy Platform'},
+      {label:'Abhijit',value:'SDM, Semantic Rule Execution'},
+      {label:'Karthik',value:'SDM, Runtime / Job Manager'},
+    ]},
+    {icon:'🎯',title:'Goal Status',count:'1 match',items:[
+      {label:'Goal',value:'CPP2026Goal-12: Embedding Excellence'},
+      {label:'Status',value:'🟡 Yellow — at risk'},
+      {label:'ECD',value:'Q2 2026 — may slip to Q3 if BSV2 delays'},
+    ]},
+  ];
+  const el = document.getElementById('evidenceCards');
+  el.innerHTML = cards.map(c => `
+    <div class="evidence-card">
+      <div class="ec-header">
+        <span class="ec-icon">${c.icon}</span>
+        <span class="ec-title">${c.title}</span>
+        <span class="ec-count">${c.count}</span>
+      </div>
+      <div class="ec-items">
+        ${c.items.map(it => `<div class="ec-item"><span class="ec-item-label">${it.label}</span>${it.value}</div>`).join('')}
+      </div>
+    </div>
+  `).join('');
+}
+
+function selectOpt(btn) {
+  btn.parentElement.querySelectorAll('.cq-btn').forEach(b => b.classList.remove('selected'));
+  btn.classList.add('selected');
+}
+function toggleCot(id) {
+  document.getElementById(id).classList.toggle('open');
+}
+function renderResult() {
+  document.getElementById('resultContent').innerHTML = `
+    <h4>Meeting Prep Brief: BSV2 Risk Discussion</h4>
+    <p><strong>Thu Mar 12, 4:00 PM</strong> · SEA Rufus 03.101 + Zoom · 8 attendees</p>
+    <h4>Context</h4>
+    <p>BSV2 (BuildSystemV2) is not yet scaled, functionally ready, or fully migrated for the Embedding Excellence project. The team identified a risk with authoring and launching classes using Semantic Rule Execution in the CPP runtime via the Model Execution framework.</p>
+    <h4>Key Decision Needed</h4>
+    <p>Continue with BSV2 ramp OR build a BSv2→BSv1 translation layer in Runtime as a fallback.</p>
+    <h4>Your Talking Points</h4>
+    <ul>
+      <li>
+        <strong>❓ Ask Karthik:</strong> Job Manager fix timeline + Runtime scaling plan
+        <span class="cot-toggle" onclick="toggleCot('cot1')">💭 Why?</span>
+        <div class="cot-reason" id="cot1">
+          <cite>Abhijit's email (Mar 11)</cite> states <em>"functional gaps are primarily with Job Manager and these are being looked into by Karthik's team."</em> You need a concrete timeline from Karthik to assess whether Goal-12's Q2 ECD is achievable or needs to be escalated.
+        </div>
+      </li>
+      <li>
+        <strong>❓ Ask Vipul:</strong> PE assessment on translation layer cost vs. BSV2 ramp risk
+        <span class="cot-toggle" onclick="toggleCot('cot2')">💭 Why?</span>
+        <div class="cot-reason" id="cot2">
+          <cite>Vipul's email (Mar 11)</cite> asked <em>"are we all aligned on BSV2 not being functionally ready?"</em> — signaling he sees a gap between team assumptions and reality. As PE, Vipul can quantify the engineering cost of building a BSv2→BSv1 translation layer vs. the risk of waiting for BSV2 to mature.
+        </div>
+      </li>
+      <li>
+        <strong>❓ Ask Abhijit:</strong> Semantic Executor readiness — how many classes can launch today?
+        <span class="cot-toggle" onclick="toggleCot('cot3')">💭 Why?</span>
+        <div class="cot-reason" id="cot3">
+          The <cite>meeting invite</cite> says <em>"come prepared with current status and blockers."</em> Abhijit owns Semantic Rule Execution and set up this meeting. You need to understand the gap: how many of the ~40 planned classes can launch on BSV2 today vs. how many need the fallback path. This determines the scope of the translation layer work.
+        </div>
+      </li>
+      <li>
+        <strong>📋 Confirm:</strong> Dependency mapping — classes directly/indirectly related
+        <span class="cot-toggle" onclick="toggleCot('cot4')">💭 Why?</span>
+        <div class="cot-reason" id="cot4">
+          The <cite>meeting agenda item #1</cite> explicitly lists <em>"Dependency mapping: how many classes will be directly or indirectly related (e.g., using an Artemis-authored class as scope for a new class)."</em> This is a key input for the decision — if dependencies are deep, the fallback path becomes more complex.
+        </div>
+      </li>
+    </ul>
+    <h4>⚠️ Risk Assessment
+      <span class="cot-toggle" onclick="toggleCot('cot5')">💭 Why?</span>
+    </h4>
+    <div class="cot-reason" id="cot5">
+      <cite>WBR Goal-12</cite> "Embedding Excellence" has ECD Q2 2026 and is currently 🟡 Yellow. It depends on launching ~40 classes via Model Execution (BSV2). If BSV2 can't support this volume by Q2, the entire project timeline shifts to Q3 — impacting the team's annual goal delivery.
+    </div>
+    <p>If BSV2 timeline slips, <strong>CPP2026Goal-12 (Embedding Excellence)</strong> ECD moves from Q2 to Q3. Currently Yellow status.</p>
+  `;
+}
+
+function runDemo() {
+  const allPending = STEPS.map(s => ({...s, status:'pending', count:'', time:''}));
+  renderPipeline(allPending);
+  document.getElementById('progressFill').style.width = '0%';
+  document.getElementById('progressText').textContent = '0% · Starting...';
+  document.getElementById('resultContent').innerHTML = '<p style="color:#64748b">Executing...</p>';
+  document.getElementById('evidenceCards').innerHTML = '';
+
+  let step = 0;
+  const interval = setInterval(() => {
+    if (step >= STEPS.length) {
+      clearInterval(interval);
+      document.getElementById('progressFill').style.width = '100%';
+      document.getElementById('progressText').textContent = '100% complete · 6 tools done · 3.4s';
+      renderResult();
+      renderEvidence();
+      return;
+    }
+    const updated = STEPS.map((s, i) => ({
+      ...s,
+      status: i < step ? 'done' : i === step ? 'running' : 'pending',
+      count: i <= step ? s.count : '',
+      time: i <= step ? s.time : '',
+    }));
+    renderPipeline(updated);
+    const pct = Math.round(((step + 1) / STEPS.length) * 100);
+    document.getElementById('progressFill').style.width = pct + '%';
+    document.getElementById('progressText').textContent = `${pct}% · ${step + 1} of ${STEPS.length} tools`;
+    step++;
+  }, 600);
+}
+
+// Initial render
+renderPipeline(STEPS);
+renderResult();
+renderEvidence();
+</script>
+</body>
+</html>

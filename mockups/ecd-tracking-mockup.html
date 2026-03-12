@@ -1,0 +1,334 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ECD Tracking Mockup — Team Health</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { background: #0f0f16; color: #fff; font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Segoe UI', sans-serif; padding: 40px 60px; line-height: 1.5; }
+h1 { font-size: 28px; font-weight: 700; margin-bottom: 6px; }
+.subtitle { color: rgba(255,255,255,0.45); font-size: 14px; margin-bottom: 32px; }
+
+/* Stats row */
+.stats { display: flex; gap: 16px; flex-wrap: wrap; margin-bottom: 16px; }
+.stat { border-radius: 12px; padding: 14px 22px; text-align: center; min-width: 95px; }
+.stat .val { font-size: 28px; font-weight: 700; }
+.stat .lbl { font-size: 10px; color: rgba(255,255,255,0.4); text-transform: uppercase; margin-top: 4px; letter-spacing: 0.5px; }
+.s-green { background: rgba(48,209,88,0.08); border: 1px solid rgba(48,209,88,0.15); }
+.s-green .val { color: #30d158; }
+.s-yellow { background: rgba(255,159,10,0.08); border: 1px solid rgba(255,159,10,0.15); }
+.s-yellow .val { color: #ff9f0a; }
+.s-red { background: rgba(255,69,58,0.08); border: 1px solid rgba(255,69,58,0.15); }
+.s-red .val { color: #ff453a; }
+.s-purple { background: rgba(139,92,246,0.08); border: 1px solid rgba(139,92,246,0.15); }
+.s-purple .val { color: #a78bfa; }
+/* NEW */
+.s-drift { background: rgba(99,102,241,0.1); border: 1px solid rgba(99,102,241,0.3); cursor: pointer; transition: 0.2s; position: relative; }
+.s-drift:hover { background: rgba(99,102,241,0.2); transform: translateY(-1px); }
+.s-drift .val { color: #818cf8; }
+.s-drift .new-badge { position: absolute; top: -6px; right: -6px; background: #818cf8; color: #fff; font-size: 9px; font-weight: 700; padding: 2px 6px; border-radius: 99px; }
+
+/* Alert row */
+.alerts { display: flex; gap: 16px; padding-top: 16px; border-top: 1px solid rgba(255,255,255,0.06); margin-bottom: 32px; }
+.alert-btn { border-radius: 12px; padding: 14px 22px; display: flex; align-items: center; gap: 12px; cursor: pointer; flex: 1; border: none; font-family: inherit; transition: 0.2s; }
+.alert-btn:hover { transform: translateY(-1px); }
+.alert-missed { background: rgba(255,69,58,0.1); border: 1px solid rgba(255,69,58,0.25); }
+.alert-soon { background: rgba(255,159,10,0.1); border: 1px solid rgba(255,159,10,0.25); }
+.alert-btn .icon { font-size: 24px; }
+.alert-btn .info .count { font-size: 22px; font-weight: 700; }
+.alert-btn .info .label { font-size: 11px; color: rgba(255,255,255,0.5); text-transform: uppercase; }
+.alert-missed .info .count { color: #ff453a; }
+.alert-soon .info .count { color: #ff9f0a; }
+
+/* Section label */
+.section-title { font-size: 14px; font-weight: 700; color: rgba(255,255,255,0.7); margin: 24px 0 16px; display: flex; align-items: center; gap: 8px; }
+
+/* Goal card */
+.goal { background: rgba(22,22,30,0.6); border-radius: 12px; padding: 18px 22px; margin-bottom: 14px; border-left: 3px solid #30d158; }
+.goal.red { border-left-color: #ff453a; }
+.goal.yellow { border-left-color: #ff9f0a; }
+.goal .top { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; flex-wrap: wrap; }
+.goal .id { color: #818cf8; font-weight: 700; font-size: 14px; text-decoration: none; }
+.goal .title { font-size: 14px; font-weight: 600; color: rgba(255,255,255,0.9); flex: 1; }
+.badge { padding: 2px 8px; border-radius: 6px; font-size: 11px; font-weight: 600; display: inline-flex; align-items: center; gap: 4px; }
+.badge-green { background: rgba(48,209,88,0.12); color: #30d158; }
+.badge-red { background: rgba(255,69,58,0.12); color: #ff453a; }
+.badge-yellow { background: rgba(255,159,10,0.12); color: #ff9f0a; }
+.badge-type { background: rgba(139,92,246,0.1); color: #a78bfa; }
+
+/* ECD with drift */
+.ecd-badge { padding: 2px 8px; border-radius: 6px; font-size: 11px; font-weight: 600; }
+.ecd-normal { background: rgba(48,209,88,0.12); color: #30d158; }
+.ecd-past { background: rgba(255,69,58,0.15); color: #ff453a; border: 1px solid rgba(255,69,58,0.3); }
+.ecd-drift { position: relative; }
+.drift-indicator { display: inline-flex; align-items: center; gap: 3px; margin-left: 6px; font-size: 10px; font-weight: 600; padding: 1px 6px; border-radius: 4px; }
+.drift-slip { background: rgba(255,69,58,0.1); color: #ff453a; border: 1px solid rgba(255,69,58,0.2); }
+.drift-pullin { background: rgba(48,209,88,0.1); color: #30d158; border: 1px solid rgba(48,209,88,0.2); }
+
+.goal .meta { font-size: 12px; color: rgba(255,255,255,0.45); margin-top: 6px; }
+
+/* Slide panel */
+.panel-overlay { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.4); z-index: 999; }
+.panel-overlay.active { display: block; }
+.panel { position: fixed; top: 0; right: -540px; width: 540px; height: 100vh; background: rgba(15,15,22,0.97); backdrop-filter: blur(20px); border-left: 2px solid rgba(99,102,241,0.3); z-index: 1000; overflow-y: auto; padding: 28px; transition: right 0.3s ease; box-shadow: -10px 0 40px rgba(0,0,0,0.5); }
+.panel.active { right: 0; }
+.panel-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px; }
+.panel-header h3 { font-size: 17px; font-weight: 700; color: #818cf8; display: flex; align-items: center; gap: 8px; }
+.panel-close { background: rgba(255,255,255,0.1); border: none; color: #fff; border-radius: 8px; padding: 7px 16px; cursor: pointer; font-family: inherit; font-size: 13px; }
+
+/* Drift item */
+.drift-item { background: rgba(99,102,241,0.06); border: 1px solid rgba(99,102,241,0.15); border-radius: 10px; padding: 14px 16px; margin-bottom: 10px; }
+.drift-item .row1 { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; flex-wrap: wrap; }
+.drift-item .row1 .id { color: #818cf8; font-weight: 600; font-size: 12px; text-decoration: none; }
+.drift-item .row1 .type-badge { padding: 1px 6px; border-radius: 4px; font-size: 10px; font-weight: 600; }
+.drift-item .row1 .type-goal { background: rgba(139,92,246,0.1); color: #a78bfa; }
+.drift-item .row1 .type-task { background: rgba(10,132,255,0.1); color: #0a84ff; }
+.drift-item .name { font-size: 13px; color: rgba(255,255,255,0.8); margin-bottom: 8px; }
+.drift-item .dates { display: flex; gap: 20px; font-size: 11px; }
+.drift-item .dates .prev { color: rgba(255,255,255,0.35); text-decoration: line-through; }
+.drift-item .dates .curr { font-weight: 600; }
+.drift-item .dates .slip { color: #ff453a; }
+.drift-item .dates .pull { color: #30d158; }
+.drift-item .dates .arrow { font-size: 14px; }
+.drift-item .assignee { font-size: 11px; color: rgba(255,255,255,0.3); margin-top: 4px; }
+
+/* Child tasks in goal */
+.children { margin-top: 10px; padding-left: 12px; border-left: 2px solid rgba(255,255,255,0.06); }
+.child-row { font-size: 12px; color: rgba(255,255,255,0.5); padding: 5px 0; display: flex; align-items: center; gap: 8px; }
+.child-row .child-id { color: #818cf8; font-size: 11px; text-decoration: none; }
+.child-row .child-title { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+</style>
+</head>
+<body>
+
+<h1>Team Health</h1>
+<p class="subtitle">Classification and Policy Platform - 2026 Goals and Projects Status · For Week 10, from 03-03-2026 to 03-09-2026 · 42 goals</p>
+
+<!-- Stats Row -->
+<div class="stats">
+    <div class="stat s-green"><div class="val">30</div><div class="lbl">Green</div></div>
+    <div class="stat s-yellow"><div class="val">8</div><div class="lbl">Yellow</div></div>
+    <div class="stat s-red"><div class="val">2</div><div class="lbl">Red</div></div>
+    <div class="stat s-purple"><div class="val">42</div><div class="lbl">Total</div></div>
+    <div class="stat s-drift" onclick="openPanel()">
+        <div class="new-badge">NEW</div>
+        <div class="val">7</div>
+        <div class="lbl">ECD Changed</div>
+    </div>
+</div>
+
+<!-- Alert Row -->
+<div class="alerts">
+    <button class="alert-btn alert-missed">
+        <span class="icon">⚠️</span>
+        <div class="info"><div class="count">3</div><div class="label">Missed ECD</div></div>
+    </button>
+    <button class="alert-btn alert-soon">
+        <span class="icon">🔔</span>
+        <div class="info"><div class="count">5</div><div class="label">ECD in 3 Days</div></div>
+    </button>
+</div>
+
+<!-- Example Goals -->
+<div class="section-title">🚀 Started (38)</div>
+
+<!-- Goal with ECD drift (slipped) -->
+<div class="goal yellow">
+    <div class="top">
+        <a class="id" href="#">CPP2026Goal-14</a>
+        <span class="title">Expand online similarity search capabilities at Amazon Catalog scale</span>
+    </div>
+    <div class="top">
+        <span class="ecd-badge ecd-normal ecd-drift">
+            ECD: 12-20-2026
+            <span class="drift-indicator drift-slip">↗ slipped from 09-30-2026</span>
+        </span>
+        <span class="badge badge-green">Status: Green</span>
+        <span class="badge badge-type">06-Director</span>
+    </div>
+    <div class="meta"><strong>Quad</strong> — PM: Missing, PMT: safalkal, Tech: vipm, SDM: rishibh</div>
+    <div class="children">
+        <div class="child-row">
+            <span>🔵</span>
+            <a class="child-id" href="#">CPP-46104</a>
+            <span class="child-title">[EE 2026] M1: Enable Semantic Rule Authoring & Domain Generation</span>
+            <span class="ecd-badge ecd-normal">ECD: 03-31-2026</span>
+        </div>
+        <div class="child-row">
+            <span>🔵</span>
+            <a class="child-id" href="#">CPP-46275</a>
+            <span class="child-title">[Khoj] HLD supporting semantic rule domain generation on catalog scale data</span>
+            <span class="ecd-badge ecd-past ecd-drift">
+                ⚠️ ECD: 02-16-2026
+                <span class="drift-indicator drift-slip">↗ was 01-31-2026</span>
+            </span>
+        </div>
+    </div>
+</div>
+
+<!-- Goal with NO drift -->
+<div class="goal">
+    <div class="top">
+        <a class="id" href="#">CPP2026Goal-1</a>
+        <span class="title">Expand regulatory compliance capabilities to onboard all 2026 regulations</span>
+    </div>
+    <div class="top">
+        <span class="ecd-badge ecd-normal">ECD: 12-15-2026</span>
+        <span class="badge badge-green">Status: Green</span>
+        <span class="badge badge-type">02-eLT</span>
+    </div>
+    <div class="meta"><strong>Quad</strong> — PM: pratikj, PMT: pratikj, Tech: nsantosh, SDM: linld</div>
+</div>
+
+<!-- Goal with ECD pull-in (moved earlier) -->
+<div class="goal">
+    <div class="top">
+        <a class="id" href="#">CPP2026Goal-10</a>
+        <span class="title">Launch drift detection to generate drift signals for active classifiers</span>
+    </div>
+    <div class="top">
+        <span class="ecd-badge ecd-normal ecd-drift">
+            ECD: 06-30-2026
+            <span class="drift-indicator drift-pullin">↙ pulled in from 09-15-2026</span>
+        </span>
+        <span class="badge badge-green">Status: Green</span>
+        <span class="badge badge-type">04-VP</span>
+    </div>
+    <div class="meta"><strong>Quad</strong> — PM: deqian, PMT: sankalpv, Tech: adaliep, SDM: linld</div>
+</div>
+
+<!-- Slide Panel -->
+<div class="panel-overlay" id="overlay" onclick="closePanel()"></div>
+<div class="panel" id="driftPanel">
+    <div class="panel-header">
+        <h3>📅 ECD Changes This Week <span style="font-weight:400;color:rgba(255,255,255,0.4);font-size:13px;">(7)</span></h3>
+        <button class="panel-close" onclick="closePanel()">✕ Close</button>
+    </div>
+
+    <div style="font-size:12px;color:rgba(255,255,255,0.4);margin-bottom:16px;">Compared to last week's snapshot (02-24-2026)</div>
+
+    <!-- Slipped items -->
+    <div style="font-size:11px;font-weight:700;color:#ff453a;text-transform:uppercase;letter-spacing:1px;margin-bottom:10px;">📈 Slipped (4)</div>
+
+    <div class="drift-item">
+        <div class="row1">
+            <a class="id" href="#">CPP2026Goal-14</a>
+            <span class="type-badge type-goal">Goal</span>
+        </div>
+        <div class="name">Expand online similarity search capabilities at Amazon Catalog scale</div>
+        <div class="dates">
+            <span class="prev">09-30-2026</span>
+            <span class="arrow">→</span>
+            <span class="curr slip">12-20-2026 (+82 days)</span>
+        </div>
+        <div class="assignee">Assignee: vipm</div>
+    </div>
+
+    <div class="drift-item">
+        <div class="row1">
+            <a class="id" href="#">CPP-46275</a>
+            <span class="type-badge type-task">Task</span>
+            <span style="font-size:10px;color:rgba(255,255,255,0.3);">under CPP2026Goal-14</span>
+        </div>
+        <div class="name">[Khoj] HLD supporting semantic rule domain generation on catalog scale data</div>
+        <div class="dates">
+            <span class="prev">01-31-2026</span>
+            <span class="arrow">→</span>
+            <span class="curr slip">02-16-2026 (+16 days)</span>
+        </div>
+        <div class="assignee">Assignee: jbhair</div>
+    </div>
+
+    <div class="drift-item">
+        <div class="row1">
+            <a class="id" href="#">CPP2026Goal-7</a>
+            <span class="type-badge type-goal">Goal</span>
+        </div>
+        <div class="name">Bend the Curve on CPP IMR annual cost growth</div>
+        <div class="dates">
+            <span class="prev">06-30-2026</span>
+            <span class="arrow">→</span>
+            <span class="curr slip">09-30-2026 (+92 days)</span>
+        </div>
+        <div class="assignee">Assignee: ethyang</div>
+    </div>
+
+    <div class="drift-item">
+        <div class="row1">
+            <a class="id" href="#">CPP-46369</a>
+            <span class="type-badge type-task">Task</span>
+            <span style="font-size:10px;color:rgba(255,255,255,0.3);">under CPP2026Goal-14</span>
+        </div>
+        <div class="name">[EE 2026] STEEL THREAD Use Case Launch [DFS]</div>
+        <div class="dates">
+            <span class="prev">03-15-2026</span>
+            <span class="arrow">→</span>
+            <span class="curr slip">03-31-2026 (+16 days)</span>
+        </div>
+        <div class="assignee">Assignee: unassigned</div>
+    </div>
+
+    <!-- Pulled in items -->
+    <div style="font-size:11px;font-weight:700;color:#30d158;text-transform:uppercase;letter-spacing:1px;margin:20px 0 10px;">📉 Pulled In (2)</div>
+
+    <div class="drift-item">
+        <div class="row1">
+            <a class="id" href="#">CPP2026Goal-10</a>
+            <span class="type-badge type-goal">Goal</span>
+        </div>
+        <div class="name">Launch drift detection to generate drift signals for active classifiers</div>
+        <div class="dates">
+            <span class="prev">09-15-2026</span>
+            <span class="arrow">→</span>
+            <span class="curr pull">06-30-2026 (−77 days)</span>
+        </div>
+        <div class="assignee">Assignee: adaliep</div>
+    </div>
+
+    <div class="drift-item">
+        <div class="row1">
+            <a class="id" href="#">CPP2026Goal-3</a>
+            <span class="type-badge type-goal">Goal</span>
+        </div>
+        <div class="name">Extend Artemis to convert policy documents into machine-readable formats</div>
+        <div class="dates">
+            <span class="prev">12-31-2026</span>
+            <span class="arrow">→</span>
+            <span class="curr pull">11-15-2026 (−46 days)</span>
+        </div>
+        <div class="assignee">Assignee: nsantosh</div>
+    </div>
+
+    <!-- Unchanged note -->
+    <div style="font-size:11px;font-weight:700;color:rgba(255,255,255,0.3);text-transform:uppercase;letter-spacing:1px;margin:20px 0 10px;">✓ No Change (1)</div>
+
+    <div class="drift-item" style="border-color: rgba(255,255,255,0.06); background: rgba(255,255,255,0.02);">
+        <div class="row1">
+            <a class="id" href="#">CPP2026Goal-42</a>
+            <span class="type-badge type-goal">Goal</span>
+        </div>
+        <div class="name">Reduce overall CPP ticket inflow by 10%</div>
+        <div class="dates">
+            <span style="color:rgba(255,255,255,0.4);">ECD: 12-31-2026 (unchanged)</span>
+        </div>
+    </div>
+
+    <div style="margin-top:24px;padding-top:16px;border-top:1px solid rgba(255,255,255,0.06);font-size:11px;color:rgba(255,255,255,0.25);">
+        Snapshot taken: 03-05-2026 · Previous: 02-24-2026 · 42 goals tracked
+    </div>
+</div>
+
+<script>
+function openPanel() {
+    document.getElementById('driftPanel').classList.add('active');
+    document.getElementById('overlay').classList.add('active');
+}
+function closePanel() {
+    document.getElementById('driftPanel').classList.remove('active');
+    document.getElementById('overlay').classList.remove('active');
+}
+</script>
+
+</body>
+</html>

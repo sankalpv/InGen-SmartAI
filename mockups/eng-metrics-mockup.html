@@ -1,0 +1,440 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Engineering Metrics Mockup — InGen</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { background: #0f0f16; color: #fff; font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Segoe UI', sans-serif; padding: 32px 48px; line-height: 1.5; }
+
+/* Header */
+h1 { font-size: 28px; font-weight: 700; margin-bottom: 4px; }
+.subtitle { color: rgba(255,255,255,0.4); font-size: 14px; margin-bottom: 28px; display: flex; align-items: center; gap: 12px; }
+.refresh-btn { background: rgba(139,92,246,0.15); color: #a78bfa; border: none; padding: 6px 16px; border-radius: 8px; font-size: 13px; font-weight: 600; cursor: pointer; font-family: inherit; }
+
+/* Org summary stats */
+.org-stats { display: flex; gap: 16px; flex-wrap: wrap; margin-bottom: 24px; }
+.org-stat { border-radius: 14px; padding: 16px 24px; min-width: 110px; text-align: center; }
+.org-stat .val { font-size: 32px; font-weight: 700; }
+.org-stat .lbl { font-size: 10px; color: rgba(255,255,255,0.4); text-transform: uppercase; letter-spacing: 0.5px; margin-top: 4px; }
+.org-stat .trend { font-size: 11px; margin-top: 4px; font-weight: 600; }
+.trend-up { color: #30d158; }
+.trend-down { color: #ff453a; }
+.bg-blue { background: rgba(10,132,255,0.08); border: 1px solid rgba(10,132,255,0.15); }
+.bg-blue .val { color: #0a84ff; }
+.bg-green { background: rgba(48,209,88,0.08); border: 1px solid rgba(48,209,88,0.15); }
+.bg-green .val { color: #30d158; }
+.bg-orange { background: rgba(255,159,10,0.08); border: 1px solid rgba(255,159,10,0.15); }
+.bg-orange .val { color: #ff9f0a; }
+.bg-red { background: rgba(255,69,58,0.08); border: 1px solid rgba(255,69,58,0.15); }
+.bg-red .val { color: #ff453a; }
+.bg-purple { background: rgba(139,92,246,0.08); border: 1px solid rgba(139,92,246,0.15); }
+.bg-purple .val { color: #a78bfa; }
+
+/* Alerts row */
+.alerts { display: flex; gap: 16px; margin-bottom: 28px; }
+.alert-card { flex: 1; border-radius: 12px; padding: 14px 20px; display: flex; align-items: center; gap: 12px; cursor: pointer; border: none; font-family: inherit; transition: 0.2s; }
+.alert-card:hover { transform: translateY(-1px); }
+.alert-red { background: rgba(255,69,58,0.1); border: 1px solid rgba(255,69,58,0.2); }
+.alert-orange { background: rgba(255,159,10,0.1); border: 1px solid rgba(255,159,10,0.2); }
+.alert-card .icon { font-size: 22px; }
+.alert-card .count { font-size: 20px; font-weight: 700; }
+.alert-card .label { font-size: 10px; color: rgba(255,255,255,0.5); text-transform: uppercase; }
+.alert-red .count { color: #ff453a; }
+.alert-orange .count { color: #ff9f0a; }
+
+/* Section titles */
+.section-title { font-size: 15px; font-weight: 700; color: rgba(255,255,255,0.7); margin: 28px 0 16px; display: flex; align-items: center; gap: 8px; }
+
+/* Weekly trend chart (ASCII) */
+.trend-chart { background: rgba(22,22,30,0.6); border: 1px solid rgba(255,255,255,0.05); border-radius: 14px; padding: 20px 24px; margin-bottom: 24px; }
+.trend-chart .title { font-size: 13px; font-weight: 600; color: rgba(255,255,255,0.6); margin-bottom: 14px; }
+.chart-row { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+.chart-label { width: 60px; font-size: 11px; color: rgba(255,255,255,0.4); text-align: right; flex-shrink: 0; }
+.chart-bar { height: 20px; border-radius: 4px; display: flex; align-items: center; padding-left: 8px; font-size: 10px; font-weight: 600; color: #fff; min-width: 24px; transition: width 0.5s; }
+.chart-bar-blue { background: linear-gradient(90deg, rgba(10,132,255,0.6), rgba(10,132,255,0.3)); }
+.chart-bar-green { background: linear-gradient(90deg, rgba(48,209,88,0.6), rgba(48,209,88,0.3)); }
+
+/* Engineer table */
+.eng-table { width: 100%; border-collapse: collapse; }
+.eng-table th { text-align: left; font-size: 10px; color: rgba(255,255,255,0.35); text-transform: uppercase; letter-spacing: 1px; padding: 10px 14px; border-bottom: 1px solid rgba(255,255,255,0.06); font-weight: 600; }
+.eng-table td { padding: 14px; border-bottom: 1px solid rgba(255,255,255,0.03); font-size: 13px; vertical-align: middle; }
+.eng-table tr { transition: 0.15s; cursor: pointer; }
+.eng-table tr:hover { background: rgba(255,255,255,0.03); }
+
+.avatar { width: 34px; height: 34px; border-radius: 10px; display: inline-flex; align-items: center; justify-content: center; font-weight: 700; font-size: 13px; color: #fff; margin-right: 10px; vertical-align: middle; }
+.eng-name { font-weight: 600; color: rgba(255,255,255,0.9); }
+.eng-alias { font-size: 11px; color: rgba(255,255,255,0.35); }
+.eng-team { font-size: 11px; color: rgba(255,255,255,0.3); }
+
+.metric-val { font-weight: 600; }
+.metric-good { color: #30d158; }
+.metric-warn { color: #ff9f0a; }
+.metric-bad { color: #ff453a; }
+.metric-neutral { color: rgba(255,255,255,0.7); }
+
+.mini-trend { display: inline-flex; gap: 1px; align-items: flex-end; height: 16px; margin-left: 6px; vertical-align: middle; }
+.mini-bar { width: 4px; border-radius: 1px; background: rgba(10,132,255,0.5); }
+
+.badge { padding: 2px 8px; border-radius: 6px; font-size: 10px; font-weight: 600; }
+.badge-goal { background: rgba(139,92,246,0.1); color: #a78bfa; }
+.badge-stale { background: rgba(255,69,58,0.1); color: #ff453a; }
+.badge-ok { background: rgba(48,209,88,0.08); color: #30d158; }
+
+/* Slide panel */
+.panel-overlay { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.4); z-index: 999; }
+.panel-overlay.active { display: block; }
+.panel { position: fixed; top: 0; right: -580px; width: 580px; height: 100vh; background: rgba(15,15,22,0.97); backdrop-filter: blur(20px); border-left: 2px solid rgba(10,132,255,0.3); z-index: 1000; overflow-y: auto; padding: 28px; transition: right 0.3s ease; box-shadow: -10px 0 40px rgba(0,0,0,0.5); }
+.panel.active { right: 0; }
+.panel-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px; }
+.panel-header h3 { font-size: 17px; font-weight: 700; color: #0a84ff; }
+.panel-close { background: rgba(255,255,255,0.1); border: none; color: #fff; border-radius: 8px; padding: 7px 16px; cursor: pointer; font-family: inherit; font-size: 13px; }
+
+/* Person detail in panel */
+.person-header { display: flex; align-items: center; gap: 16px; margin-bottom: 24px; padding-bottom: 20px; border-bottom: 1px solid rgba(255,255,255,0.06); }
+.person-avatar { width: 56px; height: 56px; border-radius: 16px; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 20px; color: #fff; background: linear-gradient(135deg, #4f8cff, #3b6fd4); }
+.person-name { font-size: 20px; font-weight: 700; }
+.person-alias { font-size: 13px; color: rgba(255,255,255,0.4); }
+
+.detail-stats { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 20px; }
+.detail-stat { border-radius: 10px; padding: 10px 16px; text-align: center; min-width: 80px; flex: 1; }
+.detail-stat .val { font-size: 22px; font-weight: 700; }
+.detail-stat .lbl { font-size: 9px; color: rgba(255,255,255,0.4); text-transform: uppercase; margin-top: 2px; }
+
+.weekly-history { margin-top: 16px; }
+.weekly-row { display: flex; align-items: center; gap: 10px; padding: 8px 0; border-bottom: 1px solid rgba(255,255,255,0.03); font-size: 12px; }
+.weekly-row .week { width: 70px; color: rgba(255,255,255,0.4); flex-shrink: 0; }
+.weekly-row .bars { flex: 1; display: flex; gap: 4px; align-items: center; }
+.weekly-row .bar { height: 14px; border-radius: 3px; display: flex; align-items: center; padding-left: 6px; font-size: 9px; font-weight: 600; color: #fff; }
+.weekly-row .bar-cr { background: rgba(10,132,255,0.5); }
+.weekly-row .bar-rv { background: rgba(48,209,88,0.4); }
+.weekly-row .nums { width: 100px; text-align: right; color: rgba(255,255,255,0.5); font-size: 11px; flex-shrink: 0; }
+
+.goal-tags { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 12px; }
+</style>
+</head>
+<body>
+
+<h1>Engineering Metrics</h1>
+<div class="subtitle">
+    CPP Org — 28 engineers across 5 teams · Week 10, 2026
+    <button class="refresh-btn" onclick="alert('Would fetch from code.amazon.com via builder-mcp')">🔄 Refresh</button>
+    <span style="font-size:11px; color:rgba(255,255,255,0.25);">Last updated: Mar 5, 2026 4:30 PM</span>
+</div>
+
+<!-- Org Summary Stats -->
+<div class="org-stats">
+    <div class="org-stat bg-blue">
+        <div class="val">47</div>
+        <div class="lbl">CRs Created</div>
+        <div class="trend trend-up">↑ 12% vs last week</div>
+    </div>
+    <div class="org-stat bg-green">
+        <div class="val">62</div>
+        <div class="lbl">CRs Reviewed</div>
+        <div class="trend trend-up">↑ 8%</div>
+    </div>
+    <div class="org-stat bg-purple">
+        <div class="val">8.2K</div>
+        <div class="lbl">Lines Changed</div>
+        <div class="trend trend-down">↓ 5%</div>
+    </div>
+    <div class="org-stat bg-orange">
+        <div class="val">4.2h</div>
+        <div class="lbl">P50 CR Turnaround</div>
+        <div class="trend trend-up">↑ improved from 6.1h</div>
+    </div>
+    <div class="org-stat bg-red">
+        <div class="val">3</div>
+        <div class="lbl">Stale CRs</div>
+        <div class="trend trend-down">↑ was 1 last week</div>
+    </div>
+</div>
+
+<!-- Alerts -->
+<div class="alerts">
+    <button class="alert-card alert-red">
+        <span class="icon">🔴</span>
+        <div><div class="count">3</div><div class="label">Stale CRs (&gt;5 days)</div></div>
+    </button>
+    <button class="alert-card alert-orange">
+        <span class="icon">⚠️</span>
+        <div><div class="count">2</div><div class="label">Bus Factor Risk</div></div>
+    </button>
+    <button class="alert-card alert-red" style="background:rgba(255,69,58,0.06);">
+        <span class="icon">📊</span>
+        <div><div class="count" style="color:rgba(255,255,255,0.7);">65%</div><div class="label">Feature / 35% Ops</div></div>
+    </button>
+</div>
+
+<!-- Weekly Trend -->
+<div class="trend-chart">
+    <div class="title">📈 Org CR Velocity — Last 8 Weeks</div>
+    <div class="chart-row"><span class="chart-label">W3</span><div class="chart-bar chart-bar-blue" style="width:180px;">32</div><div class="chart-bar chart-bar-green" style="width:220px; margin-left:4px;">41</div></div>
+    <div class="chart-row"><span class="chart-label">W4</span><div class="chart-bar chart-bar-blue" style="width:200px;">36</div><div class="chart-bar chart-bar-green" style="width:250px; margin-left:4px;">48</div></div>
+    <div class="chart-row"><span class="chart-label">W5</span><div class="chart-bar chart-bar-blue" style="width:170px;">30</div><div class="chart-bar chart-bar-green" style="width:200px; margin-left:4px;">38</div></div>
+    <div class="chart-row"><span class="chart-label">W6</span><div class="chart-bar chart-bar-blue" style="width:230px;">42</div><div class="chart-bar chart-bar-green" style="width:280px; margin-left:4px;">55</div></div>
+    <div class="chart-row"><span class="chart-label">W7</span><div class="chart-bar chart-bar-blue" style="width:220px;">40</div><div class="chart-bar chart-bar-green" style="width:260px; margin-left:4px;">50</div></div>
+    <div class="chart-row"><span class="chart-label">W8</span><div class="chart-bar chart-bar-blue" style="width:240px;">44</div><div class="chart-bar chart-bar-green" style="width:300px; margin-left:4px;">58</div></div>
+    <div class="chart-row"><span class="chart-label">W9</span><div class="chart-bar chart-bar-blue" style="width:230px;">42</div><div class="chart-bar chart-bar-green" style="width:290px; margin-left:4px;">57</div></div>
+    <div class="chart-row"><span class="chart-label">W10</span><div class="chart-bar chart-bar-blue" style="width:260px;">47</div><div class="chart-bar chart-bar-green" style="width:320px; margin-left:4px;">62</div></div>
+    <div style="margin-top:10px; font-size:11px; color:rgba(255,255,255,0.3); display:flex; gap:20px;">
+        <span><span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:rgba(10,132,255,0.5);vertical-align:middle;margin-right:4px;"></span>CRs Created</span>
+        <span><span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:rgba(48,209,88,0.4);vertical-align:middle;margin-right:4px;"></span>CRs Reviewed</span>
+    </div>
+</div>
+
+<!-- Engineer Table -->
+<div class="section-title">👩‍💻 Engineers (click any row for details)</div>
+
+<table class="eng-table">
+    <thead>
+        <tr>
+            <th>Engineer</th>
+            <th>CRs Created</th>
+            <th>CRs Reviewed</th>
+            <th>Lines</th>
+            <th>CR Turnaround</th>
+            <th>Stale</th>
+            <th>Goals</th>
+        </tr>
+    </thead>
+    <tbody>
+        <tr onclick="openPanel()">
+            <td>
+                <span class="avatar" style="background:linear-gradient(135deg,#4f8cff,#3b6fd4);">A</span>
+                <span class="eng-name">Adalie Perez</span><br>
+                <span class="eng-alias" style="margin-left:44px;">adaliep · DFS</span>
+            </td>
+            <td>
+                <span class="metric-val metric-good">8</span>
+                <span class="mini-trend">
+                    <span class="mini-bar" style="height:6px;"></span>
+                    <span class="mini-bar" style="height:8px;"></span>
+                    <span class="mini-bar" style="height:5px;"></span>
+                    <span class="mini-bar" style="height:10px;"></span>
+                    <span class="mini-bar" style="height:12px;"></span>
+                    <span class="mini-bar" style="height:9px;"></span>
+                    <span class="mini-bar" style="height:14px;"></span>
+                    <span class="mini-bar" style="height:16px; background:rgba(48,209,88,0.6);"></span>
+                </span>
+            </td>
+            <td><span class="metric-val metric-neutral">12</span></td>
+            <td><span class="metric-val metric-neutral">1.4K</span></td>
+            <td><span class="metric-val metric-good">3.2h</span></td>
+            <td><span class="metric-val metric-good">0</span></td>
+            <td><span class="badge badge-goal">Goal-10</span> <span class="badge badge-goal">Goal-14</span></td>
+        </tr>
+        <tr>
+            <td>
+                <span class="avatar" style="background:linear-gradient(135deg,#a855f7,#7c3aed);">P</span>
+                <span class="eng-name">Pratik Jain</span><br>
+                <span class="eng-alias" style="margin-left:44px;">pratikj · Policy</span>
+            </td>
+            <td><span class="metric-val metric-neutral">5</span></td>
+            <td><span class="metric-val metric-good">15</span></td>
+            <td><span class="metric-val metric-neutral">800</span></td>
+            <td><span class="metric-val metric-good">2.8h</span></td>
+            <td><span class="metric-val metric-good">0</span></td>
+            <td><span class="badge badge-goal">Goal-1</span> <span class="badge badge-goal">Goal-4</span></td>
+        </tr>
+        <tr>
+            <td>
+                <span class="avatar" style="background:linear-gradient(135deg,#fb923c,#ea580c);">D</span>
+                <span class="eng-name">Deqian Zhang</span><br>
+                <span class="eng-alias" style="margin-left:44px;">deqian · Artemis</span>
+            </td>
+            <td><span class="metric-val metric-neutral">6</span></td>
+            <td><span class="metric-val metric-warn">3</span></td>
+            <td><span class="metric-val metric-neutral">1.1K</span></td>
+            <td><span class="metric-val metric-warn">8.5h</span></td>
+            <td><span class="metric-val metric-bad">2</span> <span class="badge badge-stale">⚠️</span></td>
+            <td><span class="badge badge-goal">Goal-10</span> <span class="badge badge-goal">Goal-9</span></td>
+        </tr>
+        <tr>
+            <td>
+                <span class="avatar" style="background:linear-gradient(135deg,#34d399,#059669);">N</span>
+                <span class="eng-name">Nishant Santosh</span><br>
+                <span class="eng-alias" style="margin-left:44px;">nsantosh · Platform</span>
+            </td>
+            <td><span class="metric-val metric-good">7</span></td>
+            <td><span class="metric-val metric-neutral">8</span></td>
+            <td><span class="metric-val metric-good">2.1K</span></td>
+            <td><span class="metric-val metric-good">4.0h</span></td>
+            <td><span class="metric-val metric-good">0</span></td>
+            <td><span class="badge badge-goal">Goal-1</span> <span class="badge badge-goal">Goal-3</span></td>
+        </tr>
+        <tr>
+            <td>
+                <span class="avatar" style="background:linear-gradient(135deg,#f472b6,#db2777);">J</span>
+                <span class="eng-name">Jay Bhair</span><br>
+                <span class="eng-alias" style="margin-left:44px;">jbhair · Embeddings</span>
+            </td>
+            <td><span class="metric-val metric-warn">2</span></td>
+            <td><span class="metric-val metric-neutral">6</span></td>
+            <td><span class="metric-val metric-warn">320</span></td>
+            <td><span class="metric-val metric-neutral">5.1h</span></td>
+            <td><span class="metric-val metric-bad">1</span> <span class="badge badge-stale">⚠️</span></td>
+            <td><span class="badge badge-goal">Goal-14</span></td>
+        </tr>
+        <tr>
+            <td>
+                <span class="avatar" style="background:linear-gradient(135deg,#22d3ee,#0891b2);">E</span>
+                <span class="eng-name">Ethel Yang</span><br>
+                <span class="eng-alias" style="margin-left:44px;">ethyang · Ops</span>
+            </td>
+            <td><span class="metric-val metric-neutral">4</span></td>
+            <td><span class="metric-val metric-neutral">5</span></td>
+            <td><span class="metric-val metric-neutral">600</span></td>
+            <td><span class="metric-val metric-good">3.5h</span></td>
+            <td><span class="metric-val metric-good">0</span></td>
+            <td><span class="badge badge-goal">Goal-7</span> <span class="badge badge-goal">Goal-33</span></td>
+        </tr>
+    </tbody>
+</table>
+
+<!-- Goal Alignment Section -->
+<div class="section-title">🎯 Goal-to-Code Alignment (Top Goals by Engineering Investment)</div>
+<div style="background:rgba(22,22,30,0.6); border:1px solid rgba(255,255,255,0.05); border-radius:14px; padding:20px 24px; margin-bottom:24px;">
+    <div style="display:flex; align-items:center; gap:10px; padding:10px 0; border-bottom:1px solid rgba(255,255,255,0.04);">
+        <span style="color:#818cf8; font-weight:700; width:140px;">CPP2026Goal-10</span>
+        <span style="flex:1; font-size:13px; color:rgba(255,255,255,0.7);">Launch drift detection</span>
+        <span style="font-size:13px; font-weight:600; color:#0a84ff;">14 CRs</span>
+        <span style="font-size:12px; color:rgba(255,255,255,0.4);">3.2K lines</span>
+        <span class="badge badge-ok">Active</span>
+    </div>
+    <div style="display:flex; align-items:center; gap:10px; padding:10px 0; border-bottom:1px solid rgba(255,255,255,0.04);">
+        <span style="color:#818cf8; font-weight:700; width:140px;">CPP2026Goal-1</span>
+        <span style="flex:1; font-size:13px; color:rgba(255,255,255,0.7);">Expand regulatory compliance</span>
+        <span style="font-size:13px; font-weight:600; color:#0a84ff;">11 CRs</span>
+        <span style="font-size:12px; color:rgba(255,255,255,0.4);">2.8K lines</span>
+        <span class="badge badge-ok">Active</span>
+    </div>
+    <div style="display:flex; align-items:center; gap:10px; padding:10px 0; border-bottom:1px solid rgba(255,255,255,0.04);">
+        <span style="color:#818cf8; font-weight:700; width:140px;">CPP2026Goal-14</span>
+        <span style="flex:1; font-size:13px; color:rgba(255,255,255,0.7);">Expand similarity search</span>
+        <span style="font-size:13px; font-weight:600; color:#0a84ff;">8 CRs</span>
+        <span style="font-size:12px; color:rgba(255,255,255,0.4);">1.6K lines</span>
+        <span class="badge badge-ok">Active</span>
+    </div>
+    <div style="display:flex; align-items:center; gap:10px; padding:10px 0; border-bottom:1px solid rgba(255,255,255,0.04);">
+        <span style="color:#818cf8; font-weight:700; width:140px;">CPP2026Goal-42</span>
+        <span style="flex:1; font-size:13px; color:rgba(255,255,255,0.7);">Reduce CPP ticket inflow</span>
+        <span style="font-size:13px; font-weight:600; color:#ff453a;">0 CRs</span>
+        <span style="font-size:12px; color:rgba(255,255,255,0.4);">0 lines</span>
+        <span class="badge badge-stale">No Activity</span>
+    </div>
+    <div style="display:flex; align-items:center; gap:10px; padding:10px 0;">
+        <span style="color:#818cf8; font-weight:700; width:140px;">CPP2026Goal-7</span>
+        <span style="flex:1; font-size:13px; color:rgba(255,255,255,0.7);">Bend the curve on IMR cost</span>
+        <span style="font-size:13px; font-weight:600; color:#ff9f0a;">2 CRs</span>
+        <span style="font-size:12px; color:rgba(255,255,255,0.4);">340 lines</span>
+        <span class="badge" style="background:rgba(255,159,10,0.1);color:#ff9f0a;">Low Activity</span>
+    </div>
+</div>
+
+<!-- Bus Factor -->
+<div class="section-title">🚨 Bus Factor Risk — Single-Owner Packages</div>
+<div style="background:rgba(22,22,30,0.6); border:1px solid rgba(255,69,58,0.1); border-radius:14px; padding:16px 24px; margin-bottom:24px;">
+    <div style="display:flex; align-items:center; gap:12px; padding:8px 0; font-size:13px;">
+        <span style="color:#ff453a; font-size:16px;">⚠️</span>
+        <span style="color:rgba(255,255,255,0.7); flex:1;">CPPDriftDetection — only <strong style="color:#ff453a;">adaliep</strong> has committed in 90 days</span>
+        <span style="font-size:11px; color:rgba(255,255,255,0.3);">Last commit: 2 days ago</span>
+    </div>
+    <div style="display:flex; align-items:center; gap:12px; padding:8px 0; font-size:13px;">
+        <span style="color:#ff453a; font-size:16px;">⚠️</span>
+        <span style="color:rgba(255,255,255,0.7); flex:1;">CPPEmbeddingModels — only <strong style="color:#ff453a;">jbhair</strong> has committed in 90 days</span>
+        <span style="font-size:11px; color:rgba(255,255,255,0.3);">Last commit: 5 days ago</span>
+    </div>
+</div>
+
+<!-- Slide Panel: Engineer Detail -->
+<div class="panel-overlay" id="overlay" onclick="closePanel()"></div>
+<div class="panel" id="detailPanel">
+    <div class="panel-header">
+        <h3>👤 Engineer Detail</h3>
+        <button class="panel-close" onclick="closePanel()">✕ Close</button>
+    </div>
+
+    <div class="person-header">
+        <div class="person-avatar">A</div>
+        <div>
+            <div class="person-name">Adalie Perez</div>
+            <div class="person-alias">adaliep@amazon.com · DFS Team</div>
+        </div>
+    </div>
+
+    <!-- Current Week Stats -->
+    <div class="detail-stats">
+        <div class="detail-stat bg-blue"><div class="val">8</div><div class="lbl">CRs Created</div></div>
+        <div class="detail-stat bg-green"><div class="val">12</div><div class="lbl">Reviewed</div></div>
+        <div class="detail-stat bg-purple"><div class="val">1.4K</div><div class="lbl">Lines</div></div>
+        <div class="detail-stat bg-orange"><div class="val">3.2h</div><div class="lbl">Turnaround</div></div>
+    </div>
+
+    <!-- Goals -->
+    <div style="font-size:12px; font-weight:600; color:rgba(255,255,255,0.5); text-transform:uppercase; letter-spacing:1px; margin-bottom:8px;">🎯 Contributing to Goals</div>
+    <div class="goal-tags">
+        <span class="badge badge-goal">CPP2026Goal-10: Drift Detection</span>
+        <span class="badge badge-goal">CPP2026Goal-14: Similarity Search</span>
+    </div>
+
+    <!-- Weekly History -->
+    <div style="font-size:12px; font-weight:600; color:rgba(255,255,255,0.5); text-transform:uppercase; letter-spacing:1px; margin:20px 0 10px;">📊 Weekly History (12 weeks)</div>
+    <div class="weekly-history">
+        <div class="weekly-row"><span class="week">W10</span><div class="bars"><div class="bar bar-cr" style="width:160px;">8</div><div class="bar bar-rv" style="width:200px;">12</div></div><span class="nums">1.4K lines</span></div>
+        <div class="weekly-row"><span class="week">W9</span><div class="bars"><div class="bar bar-cr" style="width:140px;">7</div><div class="bar bar-rv" style="width:180px;">9</div></div><span class="nums">1.1K lines</span></div>
+        <div class="weekly-row"><span class="week">W8</span><div class="bars"><div class="bar bar-cr" style="width:120px;">6</div><div class="bar bar-rv" style="width:200px;">10</div></div><span class="nums">900 lines</span></div>
+        <div class="weekly-row"><span class="week">W7</span><div class="bars"><div class="bar bar-cr" style="width:100px;">5</div><div class="bar bar-rv" style="width:160px;">8</div></div><span class="nums">1.2K lines</span></div>
+        <div class="weekly-row"><span class="week">W6</span><div class="bars"><div class="bar bar-cr" style="width:60px;">3</div><div class="bar bar-rv" style="width:100px;">5</div></div><span class="nums">400 lines</span></div>
+        <div class="weekly-row"><span class="week">W5</span><div class="bars"><div class="bar bar-cr" style="width:80px;">4</div><div class="bar bar-rv" style="width:140px;">7</div></div><span class="nums">750 lines</span></div>
+        <div class="weekly-row"><span class="week">W4</span><div class="bars"><div class="bar bar-cr" style="width:120px;">6</div><div class="bar bar-rv" style="width:180px;">9</div></div><span class="nums">1.0K lines</span></div>
+        <div class="weekly-row"><span class="week">W3</span><div class="bars"><div class="bar bar-cr" style="width:140px;">7</div><div class="bar bar-rv" style="width:220px;">11</div></div><span class="nums">1.3K lines</span></div>
+        <div class="weekly-row"><span class="week">W2</span><div class="bars"><div class="bar bar-cr" style="width:100px;">5</div><div class="bar bar-rv" style="width:160px;">8</div></div><span class="nums">800 lines</span></div>
+        <div class="weekly-row"><span class="week">W1</span><div class="bars"><div class="bar bar-cr" style="width:80px;">4</div><div class="bar bar-rv" style="width:120px;">6</div></div><span class="nums">600 lines</span></div>
+    </div>
+    <div style="margin-top:10px; font-size:11px; color:rgba(255,255,255,0.25); display:flex; gap:16px;">
+        <span><span style="display:inline-block;width:8px;height:8px;border-radius:2px;background:rgba(10,132,255,0.5);vertical-align:middle;margin-right:4px;"></span>CRs Created</span>
+        <span><span style="display:inline-block;width:8px;height:8px;border-radius:2px;background:rgba(48,209,88,0.4);vertical-align:middle;margin-right:4px;"></span>CRs Reviewed</span>
+    </div>
+
+    <!-- Recent CRs -->
+    <div style="font-size:12px; font-weight:600; color:rgba(255,255,255,0.5); text-transform:uppercase; letter-spacing:1px; margin:20px 0 10px;">📝 Recent Code Reviews</div>
+    <div style="font-size:12px; color:rgba(255,255,255,0.5); padding:6px 0; border-bottom:1px solid rgba(255,255,255,0.03); display:flex; gap:8px;">
+        <a href="#" style="color:#818cf8; text-decoration:none; flex-shrink:0;">CR-258266209</a>
+        <span style="flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">Drift signal store S3 resources for MVP</span>
+        <span style="color:rgba(255,255,255,0.3); flex-shrink:0;">+342 −12</span>
+        <span style="color:#30d158; flex-shrink:0;">✅ Approved</span>
+    </div>
+    <div style="font-size:12px; color:rgba(255,255,255,0.5); padding:6px 0; border-bottom:1px solid rgba(255,255,255,0.03); display:flex; gap:8px;">
+        <a href="#" style="color:#818cf8; text-decoration:none; flex-shrink:0;">CR-258190445</a>
+        <span style="flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">Add embedding similarity threshold config</span>
+        <span style="color:rgba(255,255,255,0.3); flex-shrink:0;">+128 −45</span>
+        <span style="color:#ff9f0a; flex-shrink:0;">🔵 Open</span>
+    </div>
+    <div style="font-size:12px; color:rgba(255,255,255,0.5); padding:6px 0; display:flex; gap:8px;">
+        <a href="#" style="color:#818cf8; text-decoration:none; flex-shrink:0;">CR-257998123</a>
+        <span style="flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">Refactor DriftDetector to support batch processing</span>
+        <span style="color:rgba(255,255,255,0.3); flex-shrink:0;">+567 −234</span>
+        <span style="color:#30d158; flex-shrink:0;">✅ Approved</span>
+    </div>
+
+    <div style="margin-top:24px; padding-top:16px; border-top:1px solid rgba(255,255,255,0.06); font-size:11px; color:rgba(255,255,255,0.2);">
+        Data stored in brain/eng-metrics-history.db · 52 weeks retention · Updated weekly
+    </div>
+</div>
+
+<script>
+function openPanel() {
+    document.getElementById('detailPanel').classList.add('active');
+    document.getElementById('overlay').classList.add('active');
+}
+function closePanel() {
+    document.getElementById('detailPanel').classList.remove('active');
+    document.getElementById('overlay').classList.remove('active');
+}
+</script>
+
+</body>
+</html>

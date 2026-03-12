@@ -1,0 +1,165 @@
+#!/usr/bin/env node
+/**
+ * Sync local data from Outlook — runs as ESM module
+ * Called by local-store.js via child process to avoid ESM/CJS conflicts
+ * 
+ * Uses batched progressive fetching: 20 emails at a time to avoid timeout
+ */
+
+import { fetchOutlookEmails, fetchOutlookCalendar } from '../services/outlook-local.js';
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const DATA_DIR = path.join(__dirname, '..', 'data');
+
+if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
+
+function writeStore(filePath, data) {
+    fs.writeFileSync(filePath, JSON.stringify({
+        updatedAt: new Date().toISOString(),
+        count: Array.isArray(data) ? data.length : 0,
+        data
+    }, null, 2));
+}
+
+function isValidEmailData(emails) {
+    // Validate: must be array, must not contain error objects
+    if (!Array.isArray(emails) || emails.length === 0) return false;
+    if (emails[0]?.id === 'error') return false;
+    return true;
+}
+
+const result = { emails: 0, calendar: 0, calendarWeek: 0 };
+
+// Fetch emails in batches of 20 (progressive — avoids AppleScript timeout)
+const BATCH_SIZE = 20;
+const TARGET_EMAILS = 500; // Fetch up to 500 emails (~2 months of history)
+let allEmails = [];
+
+// Load existing cache if available (we'll append to it)
+const emailsFile = path.join(DATA_DIR, 'emails.json');
+try {
+    if (fs.existsSync(emailsFile)) {
+        const existing = JSON.parse(fs.readFileSync(emailsFile, 'utf8'));
+        if (existing.data && Array.isArray(existing.data) && existing.data[0]?.id !== 'error') {
+            allEmails = existing.data;
+        }
+    }
+} catch (e) { /* ignore */ }
+
+// Fetch first batch (fast, reliable)
+try {
+    const firstBatch = await fetchOutlookEmails(BATCH_SIZE);
+    if (isValidEmailData(firstBatch)) {
+        // Merge new emails into existing cache (never shrink the cache during sync)
+        const existingIds = new Set(allEmails.map(e => e.id));
+        const newFromBatch = firstBatch.filter(e => !existingIds.has(e.id));
+        // Update existing emails with fresh data, prepend truly new ones
+        const freshIds = new Set(firstBatch.map(e => e.id));
+        const updatedExisting = allEmails.map(e => {
+            const fresh = firstBatch.find(f => f.id === e.id);
+            return fresh || e;
+        });
+        allEmails = [...newFromBatch, ...updatedExisting].slice(0, TARGET_EMAILS);
+        writeStore(emailsFile, allEmails);
+        result.emails = allEmails.length;
+        console.error(`[Sync] First batch: ${firstBatch.length} fetched, ${newFromBatch.length} new, total: ${allEmails.length}`);
+        
+        // Fetch additional batches using offset (JXA script supports it)
+        // Fix 5: Import execSync once outside the loop
+        const { execSync } = await import('child_process');
+        for (let offset = BATCH_SIZE; offset < TARGET_EMAILS; offset += BATCH_SIZE) {
+            try {
+                // Fix 5: 3-second cooldown between batches to give Outlook breathing room
+                console.error(`[Sync] Waiting 3s before next batch (offset ${offset})...`);
+                await new Promise(r => setTimeout(r, 3000));
+                
+                const scriptPath = path.join(__dirname, '..', 'scripts', 'fetch_outlook_ui_optimized.js');
+                const raw = execSync(`osascript -l JavaScript "${scriptPath}" ${BATCH_SIZE} ${offset}`, { timeout: 60000, maxBuffer: 10 * 1024 * 1024 }).toString();
+                let batch;
+                try { batch = JSON.parse(raw); } catch { batch = []; }
+                if (isValidEmailData(batch)) {
+                    // Deduplicate by ID
+                    const existingIds = new Set(allEmails.map(e => e.id));
+                    const newEmails = batch.filter(e => !existingIds.has(e.id));
+                    
+                    if (newEmails.length === 0) {
+                        console.error(`[Sync] Batch at offset ${offset}: no new emails, stopping`);
+                        break;
+                    }
+                    
+                    allEmails = [...allEmails, ...newEmails];
+                    writeStore(emailsFile, allEmails);
+                    result.emails = allEmails.length;
+                    console.error(`[Sync] Batch at offset ${offset}: +${newEmails.length} emails (total: ${allEmails.length})`);
+                } else {
+                    console.error(`[Sync] Batch at offset ${offset} returned invalid data, stopping`);
+                    break;
+                }
+            } catch (batchErr) {
+                console.error(`[Sync] Batch at offset ${offset} failed: ${batchErr.message}, stopping`);
+                break; // Stop fetching more batches but keep what we have
+            }
+        }
+    }
+} catch (e) {
+    console.error('Email sync failed:', e.message);
+}
+
+// Single wide calendar fetch (30 days back, 14 days forward) — single source of truth
+// All pages filter from this one dataset
+try {
+    const events = await fetchOutlookCalendar(null, 30, 14);
+    if (events && events.length > 0) {
+        writeStore(path.join(DATA_DIR, 'calendar.json'), events);
+        result.calendar = events.length;
+        console.error(`[Sync] Calendar: ${events.length} events (30 days back, 14 forward)`);
+    }
+} catch (e) {
+    console.error('Calendar sync failed:', e.message);
+}
+
+// Fetch "Issues" folder (SIM tickets, Taskei tasks, CloudWatch alarms)
+// Supports subfolder paths like "Inbox/Issues" — configurable in settings.json
+try {
+    const { execSync: execSyncIssues } = await import('child_process');
+    const issuesScriptPath = path.join(__dirname, '..', 'scripts', 'fetch_outlook_folder.scpt');
+    
+    // Read configured folder path from settings.json (default: "Inbox/Issues")
+    let issuesFolderPath = 'Inbox/Issues';
+    try {
+        const settingsPath = path.join(__dirname, '..', 'config', 'settings.json');
+        if (fs.existsSync(settingsPath)) {
+            const settings = JSON.parse(fs.readFileSync(settingsPath, 'utf8'));
+            if (settings.issuesFolderPath) issuesFolderPath = settings.issuesFolderPath;
+        }
+    } catch (e) { /* use default */ }
+    
+    // Fetch up to 200 issues emails (most recent)
+    console.error(`[Sync] Fetching Issues folder from Outlook (${issuesFolderPath})...`);
+    const issuesRaw = execSyncIssues(
+        `osascript "${issuesScriptPath}" "${issuesFolderPath}" 200`,
+        { timeout: 120000, maxBuffer: 10 * 1024 * 1024 }
+    ).toString();
+    
+    let issuesEmails;
+    try { issuesEmails = JSON.parse(issuesRaw); } catch { issuesEmails = []; }
+    
+    if (Array.isArray(issuesEmails) && issuesEmails.length > 0 && !issuesEmails[0]?.error) {
+        writeStore(path.join(DATA_DIR, 'issues-raw.json'), issuesEmails);
+        result.issues = issuesEmails.length;
+        console.error(`[Sync] Issues: ${issuesEmails.length} emails cached`);
+    } else {
+        const errorMsg = issuesEmails[0]?.error || 'empty response';
+        console.error(`[Sync] Issues folder: ${errorMsg} (folder may not exist or Outlook not running)`);
+        result.issues = 0;
+    }
+} catch (e) {
+    console.error(`[Sync] Issues folder fetch failed: ${e.message}`);
+    result.issues = 0;
+}
+
+// Output result as JSON for parent process
+console.log(JSON.stringify(result));
