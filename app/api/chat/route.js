@@ -34,13 +34,45 @@ async function streamChat(query, history, pageContext) {
         return streamPageChat(query, history, pageContext, encoder);
     }
 
-    // Default: Retrieve context from vector store (email/calendar)
+    // Detect broad queries that need full email context (not just RAG top-5)
+    const broadPatterns = /\b(summarize|summary|overview|all\s+emails?|what happened|catch me up|brief me|inbox|today'?s?\s+emails?|this week|recent\s+emails?|what did i miss|what'?s new|update me|digest|recap|round.?up)\b/i;
+    const isBroadQuery = broadPatterns.test(query);
+
     let contextDocs = [];
-    try {
-        const { default: vectorStore } = await import('@/services/vector-store.js');
-        contextDocs = await vectorStore.search(query, 5);
-    } catch (e) {
-        console.error('Chat vector search failed:', e);
+    if (isBroadQuery) {
+        // Broad query: pull full email cache for comprehensive summary
+        try {
+            const fs = await import('fs');
+            const path = await import('path');
+            const emailsPath = path.default.join(process.cwd(), 'data', 'emails.json');
+            if (fs.default.existsSync(emailsPath)) {
+                const raw = JSON.parse(fs.default.readFileSync(emailsPath, 'utf8'));
+                const emails = (raw.data || []).filter(e => !e.isSent && e.folder !== 'Sent Items');
+                // Include all recent inbox emails as context (subjects + senders + dates + snippets)
+                contextDocs = emails.slice(0, 100).map(e => ({
+                    id: e.id,
+                    subject: e.subject || '(No Subject)',
+                    sender: e.from?.name || e.from?.email || 'Unknown',
+                    received: e.date,
+                    snippet: (e.snippet || e.body || '').substring(0, 200),
+                    similarity: 1.0,
+                    source: 'full-cache'
+                }));
+                console.log(`[Chat] Broad query detected: "${query}" — using full cache (${contextDocs.length} emails)`);
+            }
+        } catch (e) {
+            console.error('Full cache load failed, falling back to RAG:', e.message);
+        }
+    }
+
+    // Targeted query or fallback: use RAG vector search
+    if (contextDocs.length === 0) {
+        try {
+            const { default: vectorStore } = await import('@/services/vector-store.js');
+            contextDocs = await vectorStore.search(query, 5);
+        } catch (e) {
+            console.error('Chat vector search failed:', e);
+        }
     }
 
     const stream = new ReadableStream({
