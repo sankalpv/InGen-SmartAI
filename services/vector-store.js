@@ -229,8 +229,9 @@ class VectorStore {
                 .slice(0, limit)
                 .map(hit => {
                     // Convert L2 distance to 0-1 similarity score
-                    // Lower distance = higher similarity. Score = 1 / (1 + distance/10)
-                    const similarity = 1 / (1 + hit.distance / 10);
+                    // Lower distance = higher similarity. Score = 1 / (1 + distance)
+                    // This gives discriminating scores: d=0.3→77%, d=1→50%, d=3→25%, d=10→9%
+                    const similarity = 1 / (1 + hit.distance);
                     return {
                         ...hit.metadata,
                         distance: hit.distance,

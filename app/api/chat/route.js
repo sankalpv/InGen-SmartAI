@@ -86,22 +86,37 @@ async function streamChat(query, history, pageContext) {
                 const allEmails = (raw.data || []).filter(e => !e.isSent && e.folder !== 'Sent Items');
                 
                 // Extract keywords (words > 3 chars, skip stop words)
-                const stopWords = new Set(['what', 'about', 'with', 'from', 'that', 'this', 'have', 'been', 'they', 'their', 'does', 'said', 'tell']);
+                const stopWords = new Set(['what', 'about', 'with', 'from', 'that', 'this', 'have', 'been', 'they', 'their', 'does', 'said', 'tell', 'when', 'where', 'which', 'there', 'would', 'could', 'should', 'into', 'some', 'than', 'then', 'very', 'just', 'only', 'also', 'been', 'being', 'will', 'each', 'make', 'like', 'many', 'most', 'over', 'such', 'take', 'long', 'come', 'made']);
                 const queryWords = query.toLowerCase().split(/\s+/).filter(w => w.length > 3 && !stopWords.has(w));
                 
                 if (queryWords.length > 0) {
                     const keywordHits = allEmails.filter(e => {
                         const text = `${e.subject || ''} ${e.from?.name || ''} ${e.snippet || ''}`.toLowerCase();
-                        return queryWords.some(w => text.includes(w));
-                    }).slice(0, 10).map(e => ({
-                        id: e.id,
-                        subject: e.subject || '(No Subject)',
-                        sender: e.from?.name || e.from?.email || 'Unknown',
-                        received: e.date,
-                        snippet: (e.snippet || e.body || '').substring(0, 300),
-                        similarity: 0.8,
-                        source: 'keyword-search'
-                    }));
+                        // Use word boundary matching — "interview" should NOT match "interviewers"
+                        // But allow partial match for names (raghuvarun) and technical terms
+                        return queryWords.some(w => {
+                            // Try exact word boundary first
+                            const wordBoundary = new RegExp(`\\b${w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i');
+                            if (wordBoundary.test(text)) return true;
+                            // For longer words (likely names), allow substring match
+                            if (w.length >= 6 && text.includes(w)) return true;
+                            return false;
+                        });
+                    }).map(e => {
+                        // Calculate match quality: how many query words matched?
+                        const text = `${e.subject || ''} ${e.from?.name || ''} ${e.snippet || ''}`.toLowerCase();
+                        const matchCount = queryWords.filter(w => text.includes(w)).length;
+                        const matchRatio = matchCount / queryWords.length;
+                        return {
+                            id: e.id,
+                            subject: e.subject || '(No Subject)',
+                            sender: e.from?.name || e.from?.email || 'Unknown',
+                            received: e.date,
+                            snippet: (e.snippet || e.body || '').substring(0, 300),
+                            similarity: parseFloat((0.3 + matchRatio * 0.5).toFixed(2)), // 0.3-0.8 based on match quality
+                            source: 'keyword-search'
+                        };
+                    }).sort((a, b) => b.similarity - a.similarity).slice(0, 10);
 
                     // Merge: dedup by subject, keyword hits first for name/term queries
                     const existingSubjects = new Set(contextDocs.map(d => (d.subject || '').toLowerCase()));
