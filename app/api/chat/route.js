@@ -130,6 +130,7 @@ async function streamChat(query, history, pageContext) {
         }
 
         // Step 3: Calendar search (find meetings matching query terms)
+        // Only include if meaningful content words match (skip generic words like "issue", "email", "meeting")
         try {
             const fs = await import('fs');
             const path = await import('path');
@@ -137,25 +138,34 @@ async function streamChat(query, history, pageContext) {
             if (fs.default.existsSync(calPath)) {
                 const raw = JSON.parse(fs.default.readFileSync(calPath, 'utf8'));
                 const events = raw.data || [];
-                const queryLower = query.toLowerCase();
-                const queryWords = queryLower.split(/\s+/).filter(w => w.length > 3);
                 
-                const calHits = events.filter(e => {
-                    const title = (e.title || '').toLowerCase();
-                    return queryWords.some(w => title.includes(w));
-                }).slice(0, 5).map(e => ({
-                    id: `cal-${e.id}`,
-                    subject: `📅 ${e.title}`,
-                    sender: 'Calendar',
-                    received: e.startTime,
-                    snippet: `Meeting: ${e.title} on ${new Date(e.startTime).toLocaleString()} (${e.location || 'No location'})`,
-                    similarity: 0.9,
-                    source: 'calendar'
-                }));
+                // Use stricter keyword extraction for calendar — skip action/meta words
+                const calStopWords = new Set([...stopWords, 'draft', 'email', 'send', 'write', 'reply', 'forward', 'meeting', 'calendar', 'schedule', 'issue', 'around', 'manager', 'team', 'update', 'status', 'check', 'find', 'show', 'list', 'give', 'help', 'need', 'want', 'prepare', 'brief']);
+                const calQueryWords = query.toLowerCase().split(/\s+/).filter(w => w.length > 3 && !calStopWords.has(w));
+                
+                if (calQueryWords.length > 0) {
+                    const calHits = events.map(e => {
+                        const title = (e.title || '').toLowerCase();
+                        // Count how many content words match
+                        const matchCount = calQueryWords.filter(w => title.includes(w)).length;
+                        return { event: e, matchCount, matchRatio: matchCount / calQueryWords.length };
+                    }).filter(h => h.matchCount >= 1 && h.matchRatio >= 0.3) // At least 1 match AND 30% of query words
+                    .sort((a, b) => b.matchRatio - a.matchRatio)
+                    .slice(0, 3)
+                    .map(h => ({
+                        id: `cal-${h.event.id}`,
+                        subject: `📅 ${h.event.title}`,
+                        sender: 'Calendar',
+                        received: h.event.startTime,
+                        snippet: `Meeting: ${h.event.title} on ${new Date(h.event.startTime).toLocaleString()} (${h.event.location || 'No location'})`,
+                        similarity: parseFloat((0.3 + h.matchRatio * 0.5).toFixed(2)), // 0.3-0.8 based on match quality
+                        source: 'calendar'
+                    }));
 
-                if (calHits.length > 0) {
-                    contextDocs = [...contextDocs, ...calHits];
-                    console.log(`[Chat] Calendar search added ${calHits.length} meeting results`);
+                    if (calHits.length > 0) {
+                        contextDocs = [...contextDocs, ...calHits];
+                        console.log(`[Chat] Calendar search added ${calHits.length} meeting results (words: ${calQueryWords.join(', ')})`);
+                    }
                 }
             }
         } catch (e) {
