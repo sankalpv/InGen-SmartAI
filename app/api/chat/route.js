@@ -129,37 +129,39 @@ async function streamChat(query, history, pageContext) {
             console.error('Keyword search failed:', e.message);
         }
 
-        // Step 3: Calendar search (find meetings matching query terms)
-        try {
-            const fs = await import('fs');
-            const path = await import('path');
-            const calPath = path.default.join(process.cwd(), 'data', 'calendar.json');
-            if (fs.default.existsSync(calPath)) {
-                const raw = JSON.parse(fs.default.readFileSync(calPath, 'utf8'));
-                const events = raw.data || [];
-                const queryLower = query.toLowerCase();
-                const queryWords = queryLower.split(/\s+/).filter(w => w.length > 3);
-                
-                const calHits = events.filter(e => {
-                    const title = (e.title || '').toLowerCase();
-                    return queryWords.some(w => title.includes(w));
-                }).slice(0, 5).map(e => ({
-                    id: `cal-${e.id}`,
-                    subject: `📅 ${e.title}`,
-                    sender: 'Calendar',
-                    received: e.startTime,
-                    snippet: `Meeting: ${e.title} on ${new Date(e.startTime).toLocaleString()} (${e.location || 'No location'})`,
-                    similarity: 0.9,
-                    source: 'calendar'
-                }));
+        // Step 3: Calendar search — OPT-IN only when query explicitly asks about meetings/schedule
+        const calendarTriggers = /\b(meeting|meetings|calendar|schedule|when\s+is|agenda|attendees?|invite|1:1|1-on-1|prep\s+for|prepare\s+for|debrief|prebrief|interview)\b/i;
+        if (calendarTriggers.test(query)) {
+            try {
+                const fs = await import('fs');
+                const path = await import('path');
+                const calPath = path.default.join(process.cwd(), 'data', 'calendar.json');
+                if (fs.default.existsSync(calPath)) {
+                    const raw = JSON.parse(fs.default.readFileSync(calPath, 'utf8'));
+                    const events = raw.data || [];
+                    const queryWords = query.toLowerCase().split(/\s+/).filter(w => w.length > 3 && !stopWords.has(w));
+                    
+                    const calHits = events.filter(e => {
+                        const title = (e.title || '').toLowerCase();
+                        return queryWords.some(w => title.includes(w));
+                    }).slice(0, 3).map(e => ({
+                        id: `cal-${e.id}`,
+                        subject: `📅 ${e.title}`,
+                        sender: 'Calendar',
+                        received: e.startTime,
+                        snippet: `Meeting: ${e.title} on ${new Date(e.startTime).toLocaleString()} (${e.location || 'No location'})`,
+                        similarity: 0.7,
+                        source: 'calendar'
+                    }));
 
-                if (calHits.length > 0) {
-                    contextDocs = [...contextDocs, ...calHits];
-                    console.log(`[Chat] Calendar search added ${calHits.length} meeting results`);
+                    if (calHits.length > 0) {
+                        contextDocs = [...contextDocs, ...calHits];
+                        console.log(`[Chat] Calendar search (triggered) added ${calHits.length} meeting results`);
+                    }
                 }
+            } catch (e) {
+                console.error('Calendar search failed:', e.message);
             }
-        } catch (e) {
-            console.error('Calendar search failed:', e.message);
         }
     }
 
