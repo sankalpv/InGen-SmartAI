@@ -151,14 +151,17 @@ async function streamChat(query, history, pageContext) {
     const stream = new ReadableStream({
         async start(controller) {
             try {
-                // Send sources first
+                // Send sources first (include snippet + date for expandable detail panel)
                 controller.enqueue(encoder.encode(`data: ${JSON.stringify({
                     type: 'sources',
                     sources: contextDocs.map(doc => ({
                         id: doc.id,
                         subject: doc.subject,
-                        from: doc.sender || doc.from?.name,
-                        similarity: doc.similarity
+                        from: doc.sender || doc.from?.name || doc.from,
+                        similarity: doc.similarity || 0,
+                        received: doc.received || doc.date,
+                        snippet: (doc.snippet || '').substring(0, 200),
+                        source: doc.source || 'rag'
                     }))
                 })}\n\n`));
 

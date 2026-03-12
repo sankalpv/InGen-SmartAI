@@ -156,6 +156,214 @@ function formatTime(date) {
     return new Date(date).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 }
 
+// Sources Panel — sorted by similarity (closest first), clickable to expand details
+function SourcesPanel({ sources }) {
+    const [isExpanded, setIsExpanded] = useState(false);
+    const [expandedIdx, setExpandedIdx] = useState(null);
+
+    // Sort by similarity (highest first), then deduplicate
+    const sorted = [...sources]
+        .sort((a, b) => (b.similarity || 0) - (a.similarity || 0));
+
+    // Determine source type icon
+    const getSourceIcon = (source) => {
+        if (source.subject?.startsWith('📅')) return '📅';
+        if (source.from === 'Calendar') return '📅';
+        return '📧';
+    };
+
+    // Similarity to color
+    const getSimColor = (sim) => {
+        if (sim >= 0.8) return '#34d399'; // green
+        if (sim >= 0.5) return '#fbbf24'; // yellow
+        if (sim >= 0.3) return '#f97316'; // orange
+        return '#94a3b8'; // gray
+    };
+
+    const getSimLabel = (sim) => {
+        if (sim >= 0.8) return 'High';
+        if (sim >= 0.5) return 'Medium';
+        if (sim >= 0.3) return 'Low';
+        return 'Weak';
+    };
+
+    const defaultExpanded = sorted.length <= 5;
+
+    return (
+        <div style={{
+            marginTop: '12px',
+            paddingTop: '10px',
+            borderTop: '1px solid rgba(255, 255, 255, 0.06)',
+        }}>
+            {/* Header — clickable to toggle */}
+            <div
+                onClick={() => setIsExpanded(!isExpanded)}
+                style={{
+                    fontSize: '10px',
+                    fontWeight: 700,
+                    color: '#818cf8',
+                    textTransform: 'uppercase',
+                    letterSpacing: '0.08em',
+                    marginBottom: '8px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                    cursor: 'pointer',
+                    userSelect: 'none',
+                }}
+            >
+                <Sparkles size={10} />
+                Sources ({sorted.length})
+                <span style={{ fontSize: '12px', color: 'rgba(255,255,255,0.3)', marginLeft: 'auto' }}>
+                    {(isExpanded || defaultExpanded) ? '▾' : '▸'}
+                </span>
+            </div>
+
+            {/* Source list */}
+            {(isExpanded || defaultExpanded) && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                    {sorted.map((source, i) => {
+                        const sim = source.similarity || 0;
+                        const simPct = Math.round(sim * 100);
+                        const simColor = getSimColor(sim);
+                        const icon = getSourceIcon(source);
+                        const isItemExpanded = expandedIdx === i;
+
+                        return (
+                            <div key={i}>
+                                {/* Source row — clickable */}
+                                <div
+                                    onClick={() => setExpandedIdx(isItemExpanded ? null : i)}
+                                    style={{
+                                        fontSize: '12px',
+                                        color: '#94a3b8',
+                                        padding: '7px 10px',
+                                        borderRadius: isItemExpanded ? '8px 8px 0 0' : '8px',
+                                        background: isItemExpanded ? 'rgba(99, 102, 241, 0.08)' : 'rgba(0, 0, 0, 0.2)',
+                                        border: `1px solid ${isItemExpanded ? 'rgba(99, 102, 241, 0.2)' : 'rgba(255, 255, 255, 0.04)'}`,
+                                        borderBottom: isItemExpanded ? 'none' : undefined,
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        gap: '8px',
+                                        cursor: 'pointer',
+                                        transition: 'all 0.15s',
+                                    }}
+                                >
+                                    {/* Similarity bar */}
+                                    <div style={{
+                                        width: '32px',
+                                        height: '4px',
+                                        borderRadius: '2px',
+                                        background: 'rgba(255,255,255,0.06)',
+                                        flexShrink: 0,
+                                        overflow: 'hidden',
+                                    }}>
+                                        <div style={{
+                                            width: `${simPct}%`,
+                                            height: '100%',
+                                            borderRadius: '2px',
+                                            background: simColor,
+                                            transition: 'width 0.3s',
+                                        }} />
+                                    </div>
+                                    {/* Score */}
+                                    <span style={{
+                                        fontSize: '10px',
+                                        fontWeight: 600,
+                                        color: simColor,
+                                        minWidth: '28px',
+                                        flexShrink: 0,
+                                    }}>
+                                        {simPct}%
+                                    </span>
+                                    {/* Icon */}
+                                    <span style={{ flexShrink: 0, fontSize: '11px' }}>{icon}</span>
+                                    {/* From */}
+                                    <span style={{ fontWeight: 500, color: '#818cf8', flexShrink: 0, maxWidth: '70px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                        {source.from ? source.from.split(' ')[0] : 'Unknown'}
+                                    </span>
+                                    {/* Subject */}
+                                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>
+                                        {(source.subject || '').replace(/^📅\s*/, '')}
+                                    </span>
+                                    {/* Expand indicator */}
+                                    <span style={{ fontSize: '10px', color: 'rgba(255,255,255,0.25)', flexShrink: 0 }}>
+                                        {isItemExpanded ? '▴' : '▾'}
+                                    </span>
+                                </div>
+
+                                {/* Expanded detail panel */}
+                                {isItemExpanded && (
+                                    <div style={{
+                                        padding: '10px 12px',
+                                        background: 'rgba(99, 102, 241, 0.04)',
+                                        border: '1px solid rgba(99, 102, 241, 0.2)',
+                                        borderTop: 'none',
+                                        borderRadius: '0 0 8px 8px',
+                                        fontSize: '11px',
+                                        lineHeight: '1.6',
+                                        color: '#94a3b8',
+                                    }}>
+                                        <div style={{ marginBottom: '6px' }}>
+                                            <strong style={{ color: '#c4b5fd' }}>Subject:</strong>{' '}
+                                            <span style={{ color: '#e2e8f0' }}>{source.subject}</span>
+                                        </div>
+                                        <div style={{ marginBottom: '6px', display: 'flex', gap: '16px', flexWrap: 'wrap' }}>
+                                            <span><strong style={{ color: '#c4b5fd' }}>From:</strong> {source.from || 'Unknown'}</span>
+                                            {source.received && (
+                                                <span>
+                                                    <strong style={{ color: '#c4b5fd' }}>Date:</strong>{' '}
+                                                    {new Date(source.received).toLocaleDateString()} {new Date(source.received).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                                </span>
+                                            )}
+                                        </div>
+                                        <div style={{ display: 'flex', gap: '8px', alignItems: 'center', marginBottom: '6px' }}>
+                                            <span style={{
+                                                padding: '2px 6px',
+                                                borderRadius: '4px',
+                                                background: simColor + '20',
+                                                color: simColor,
+                                                fontSize: '10px',
+                                                fontWeight: 600,
+                                            }}>
+                                                {getSimLabel(sim)} match ({simPct}%)
+                                            </span>
+                                            <span style={{
+                                                padding: '2px 6px',
+                                                borderRadius: '4px',
+                                                background: 'rgba(255,255,255,0.05)',
+                                                color: '#94a3b8',
+                                                fontSize: '10px',
+                                            }}>
+                                                {icon === '📅' ? 'Calendar' : 'Email'}
+                                            </span>
+                                        </div>
+                                        {source.snippet && (
+                                            <div style={{
+                                                marginTop: '6px',
+                                                padding: '8px',
+                                                borderRadius: '6px',
+                                                background: 'rgba(0,0,0,0.2)',
+                                                color: 'rgba(255,255,255,0.5)',
+                                                fontSize: '11px',
+                                                lineHeight: '1.5',
+                                                maxHeight: '80px',
+                                                overflow: 'hidden',
+                                            }}>
+                                                {source.snippet}
+                                            </div>
+                                        )}
+                                    </div>
+                                )}
+                            </div>
+                        );
+                    })}
+                </div>
+            )}
+        </div>
+    );
+}
+
 export default function AIChat({ pageContext }) {
     const [isOpen, setIsOpen] = useState(false);
     const [isExpanded, setIsExpanded] = useState(false);
@@ -507,51 +715,9 @@ export default function AIChat({ pageContext }) {
                                 </>
                             )}
 
-                            {/* Sources */}
+                            {/* Sources — sorted by similarity, clickable, with scores */}
                             {msg.sources && msg.sources.length > 0 && !msg.streaming && (
-                                <div style={{
-                                    marginTop: '12px',
-                                    paddingTop: '10px',
-                                    borderTop: '1px solid rgba(255, 255, 255, 0.06)',
-                                }}>
-                                    <p style={{
-                                        fontSize: '10px',
-                                        fontWeight: 700,
-                                        color: '#818cf8',
-                                        textTransform: 'uppercase',
-                                        letterSpacing: '0.08em',
-                                        marginBottom: '8px',
-                                        display: 'flex',
-                                        alignItems: 'center',
-                                        gap: '4px',
-                                    }}>
-                                        <Sparkles size={10} /> Sources ({msg.sources.length})
-                                    </p>
-                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                                        {msg.sources.slice(0, 4).map((source, i) => (
-                                            <div key={i} style={{
-                                                fontSize: '12px',
-                                                color: '#94a3b8',
-                                                padding: '6px 10px',
-                                                borderRadius: '8px',
-                                                background: 'rgba(0, 0, 0, 0.2)',
-                                                border: '1px solid rgba(255, 255, 255, 0.04)',
-                                                display: 'flex',
-                                                alignItems: 'center',
-                                                gap: '8px',
-                                                overflow: 'hidden',
-                                            }}>
-                                                <span style={{ width: '3px', height: '16px', borderRadius: '2px', background: '#6366f1', flexShrink: 0 }} />
-                                                <span style={{ fontWeight: 500, color: '#818cf8', flexShrink: 0 }}>
-                                                    {source.from ? source.from.split(' ')[0] : 'Unknown'}
-                                                </span>
-                                                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                                                    {source.subject}
-                                                </span>
-                                            </div>
-                                        ))}
-                                    </div>
-                                </div>
+                                <SourcesPanel sources={msg.sources} />
                             )}
                         </div>
                         {/* Timestamp */}
