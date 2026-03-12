@@ -35,7 +35,7 @@ const result = { emails: 0, calendar: 0, calendarWeek: 0 };
 
 // Fetch emails in batches of 20 (progressive — avoids AppleScript timeout)
 const BATCH_SIZE = 20;
-const TARGET_EMAILS = 200; // Fetch up to 200 emails total
+const TARGET_EMAILS = 500; // Fetch up to 500 emails (~2 months of history)
 let allEmails = [];
 
 // Load existing cache if available (we'll append to it)

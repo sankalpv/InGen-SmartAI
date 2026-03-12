@@ -92,16 +92,16 @@ async function run() {
     console.log('Starting Email History Ingestion...');
 
     // 1. Ingest Sent Items (Critical for style replication)
-    // Try standard folder names
-    let sentEmails = await fetchFromFolder("Sent Items", 200);
+    // Try standard folder names — fetch 500 for deep RAG history
+    let sentEmails = await fetchFromFolder("Sent Items", 500);
     if (sentEmails.length === 0) {
         console.log('Retrying with folder "Sent"...');
-        sentEmails = await fetchFromFolder("Sent", 200);
+        sentEmails = await fetchFromFolder("Sent", 500);
     }
     await ingestEmails(sentEmails, 'Sent Items');
 
-    // 2. Ingest Inbox (Critical for context)
-    const inboxEmails = await fetchFromFolder("Inbox", 100);
+    // 2. Ingest Inbox (Critical for context) — fetch 500 for comprehensive RAG
+    const inboxEmails = await fetchFromFolder("Inbox", 500);
     await ingestEmails(inboxEmails, 'Inbox');
 
     console.log('\nIngestion Complete.');
