@@ -20,7 +20,7 @@ module.exports = {
     coverageDirectory: 'coverage',
     coverageReporters: ['text', 'text-summary', 'lcov'],
     transform: {
-        '^.+\\.js$': 'babel-jest',
+        '^.+\\.js$': '<rootDir>/__tests__/jest-babel-transform.js',
     },
     transformIgnorePatterns: [
         '/node_modules/(?!(@modelcontextprotocol|next-auth|@auth|jose|oauth4webapi)/)',
