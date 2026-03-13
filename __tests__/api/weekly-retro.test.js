@@ -1,5 +1,11 @@
 // Auto-generated test for app/api/weekly-retro/route.js
 
+jest.mock('@/auth', () => ({ auth: jest.fn(() => Promise.resolve({ user: { name: 'Test' }, accessToken: 'test-token' })) }));
+jest.mock('@/services/gmail', () => ({
+    fetchGmailEmails: jest.fn(() => Promise.resolve([])),
+    fetchGoogleCalendarEvents: jest.fn(() => Promise.resolve([])),
+}));
+jest.mock('@/services/ai', () => ({ generateWeeklyRetro: jest.fn(() => Promise.resolve('retro summary')) }));
 
 // Mock NextResponse
 jest.mock('next/server', () => ({
@@ -32,7 +38,6 @@ describe('API: /api/weekly-retro', () => {
 
         it('should handle errors gracefully', async () => {
             const { GET } = require('../../app/api/weekly-retro/route');
-            // Should not throw even if dependencies fail
             const response = await GET(new Request('http://localhost/api/weekly-retro'));
             expect(response).toBeDefined();
         });

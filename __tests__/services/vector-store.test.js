@@ -2,7 +2,7 @@
 jest.mock('hnswlib-node', () => ({
     HierarchicalNSW: jest.fn(() => ({
         initIndex: jest.fn(), addPoint: jest.fn(), searchKnn: jest.fn(() => ({ neighbors: [], distances: [] })),
-        writeIndexSync: jest.fn(), readIndexSync: jest.fn(),
+        writeIndexSync: jest.fn(), readIndexSync: jest.fn(), getCurrentCount: jest.fn(() => 0),
     })),
 }));
 jest.mock('fs');
@@ -21,303 +21,53 @@ describe('services/vector-store.js', () => {
         expect(mod).toBeDefined();
     });
 
-    describe('error', () => {
-        it('should be defined', () => {
-            expect(mod.error || mod.default?.error).toBeDefined();
-        });
-
-        it('should be accessible from module', () => {
-            const val = mod.error || mod.default?.error;
-            if (typeof val === 'function') {
-                expect(typeof val).toBe('function');
-            } else {
-                expect(val).toBeDefined();
-            }
-        });
-    });
-
-    describe('child', () => {
-        it('should be defined', () => {
-            expect(mod.child || mod.default?.child).toBeDefined();
-        });
-
-        it('should be accessible from module', () => {
-            const val = mod.child || mod.default?.child;
-            if (typeof val === 'function') {
-                expect(typeof val).toBe('function');
-            } else {
-                expect(val).toBeDefined();
-            }
-        });
-    });
-
-    describe('embedding', () => {
-        it('should be defined', () => {
-            expect(mod.embedding || mod.default?.embedding).toBeDefined();
-        });
-
-        it('should be accessible from module', () => {
-            const val = mod.embedding || mod.default?.embedding;
-            if (typeof val === 'function') {
-                expect(typeof val).toBe('function');
-            } else {
-                expect(val).toBeDefined();
-            }
-        });
-    });
-
-    describe('parseInt', () => {
-        it('should be defined', () => {
-            expect(mod.parseInt || mod.default?.parseInt).toBeDefined();
-        });
-
-        it('should be accessible from module', () => {
-            const val = mod.parseInt || mod.default?.parseInt;
-            if (typeof val === 'function') {
-                expect(typeof val).toBe('function');
-            } else {
-                expect(val).toBeDefined();
-            }
-        });
-    });
-
-    describe('join', () => {
-        it('should be defined', () => {
-            expect(mod.join || mod.default?.join).toBeDefined();
-        });
-
-        it('should be accessible from module', () => {
-            const val = mod.join || mod.default?.join;
-            if (typeof val === 'function') {
-                expect(typeof val).toBe('function');
-            } else {
-                expect(val).toBeDefined();
-            }
-        });
-    });
-
-    describe('cwd', () => {
-        it('should be defined', () => {
-            expect(mod.cwd || mod.default?.cwd).toBeDefined();
-        });
-
-        it('should be accessible from module', () => {
-            const val = mod.cwd || mod.default?.cwd;
-            if (typeof val === 'function') {
-                expect(typeof val).toBe('function');
-            } else {
-                expect(val).toBeDefined();
-            }
-        });
-    });
-
-    describe('existsSync', () => {
-        it('should be defined', () => {
-            expect(mod.existsSync || mod.default?.existsSync).toBeDefined();
-        });
-
-        it('should be accessible from module', () => {
-            const val = mod.existsSync || mod.default?.existsSync;
-            if (typeof val === 'function') {
-                expect(typeof val).toBe('function');
-            } else {
-                expect(val).toBeDefined();
-            }
-        });
-    });
-
-    describe('mkdirSync', () => {
-        it('should be defined', () => {
-            expect(mod.mkdirSync || mod.default?.mkdirSync).toBeDefined();
-        });
-
-        it('should be accessible from module', () => {
-            const val = mod.mkdirSync || mod.default?.mkdirSync;
-            if (typeof val === 'function') {
-                expect(typeof val).toBe('function');
-            } else {
-                expect(val).toBeDefined();
-            }
-        });
-    });
-
     describe('init', () => {
         it('should be defined', () => {
-            expect(mod.init || mod.default?.init).toBeDefined();
+            expect(mod.init).toBeDefined();
         });
 
-        it('should be accessible from module', () => {
-            const val = mod.init || mod.default?.init;
-            if (typeof val === 'function') {
-                expect(typeof val).toBe('function');
-            } else {
-                expect(val).toBeDefined();
-            }
+        it('should be a function', () => {
+            expect(typeof mod.init).toBe('function');
         });
     });
 
-    describe('warn', () => {
+    describe('search', () => {
         it('should be defined', () => {
-            expect(mod.warn || mod.default?.warn).toBeDefined();
+            expect(mod.search).toBeDefined();
         });
 
-        it('should be accessible from module', () => {
-            const val = mod.warn || mod.default?.warn;
-            if (typeof val === 'function') {
-                expect(typeof val).toBe('function');
-            } else {
-                expect(val).toBeDefined();
-            }
+        it('should be a function', () => {
+            expect(typeof mod.search).toBe('function');
         });
     });
 
-    describe('unavailable', () => {
+    describe('ingestEmail', () => {
         it('should be defined', () => {
-            expect(mod.unavailable || mod.default?.unavailable).toBeDefined();
+            expect(mod.ingestEmail).toBeDefined();
         });
 
-        it('should be accessible from module', () => {
-            const val = mod.unavailable || mod.default?.unavailable;
-            if (typeof val === 'function') {
-                expect(typeof val).toBe('function');
-            } else {
-                expect(val).toBeDefined();
-            }
+        it('should be a function', () => {
+            expect(typeof mod.ingestEmail).toBe('function');
         });
     });
 
-    describe('parse', () => {
+    describe('getStats', () => {
         it('should be defined', () => {
-            expect(mod.parse || mod.default?.parse).toBeDefined();
+            expect(mod.getStats).toBeDefined();
         });
 
-        it('should be accessible from module', () => {
-            const val = mod.parse || mod.default?.parse;
-            if (typeof val === 'function') {
-                expect(typeof val).toBe('function');
-            } else {
-                expect(val).toBeDefined();
-            }
+        it('should be a function', () => {
+            expect(typeof mod.getStats).toBe('function');
         });
     });
 
-    describe('readFileSync', () => {
+    describe('save', () => {
         it('should be defined', () => {
-            expect(mod.readFileSync || mod.default?.readFileSync).toBeDefined();
+            expect(mod.save).toBeDefined();
         });
 
-        it('should be accessible from module', () => {
-            const val = mod.readFileSync || mod.default?.readFileSync;
-            if (typeof val === 'function') {
-                expect(typeof val).toBe('function');
-            } else {
-                expect(val).toBeDefined();
-            }
-        });
-    });
-
-    describe('keys', () => {
-        it('should be defined', () => {
-            expect(mod.keys || mod.default?.keys).toBeDefined();
-        });
-
-        it('should be accessible from module', () => {
-            const val = mod.keys || mod.default?.keys;
-            if (typeof val === 'function') {
-                expect(typeof val).toBe('function');
-            } else {
-                expect(val).toBeDefined();
-            }
-        });
-    });
-
-    describe('map', () => {
-        it('should be defined', () => {
-            expect(mod.map || mod.default?.map).toBeDefined();
-        });
-
-        it('should be accessible from module', () => {
-            const val = mod.map || mod.default?.map;
-            if (typeof val === 'function') {
-                expect(typeof val).toBe('function');
-            } else {
-                expect(val).toBeDefined();
-            }
-        });
-    });
-
-    describe('max', () => {
-        it('should be defined', () => {
-            expect(mod.max || mod.default?.max).toBeDefined();
-        });
-
-        it('should be accessible from module', () => {
-            const val = mod.max || mod.default?.max;
-            if (typeof val === 'function') {
-                expect(typeof val).toBe('function');
-            } else {
-                expect(val).toBeDefined();
-            }
-        });
-    });
-
-    describe('HierarchicalNSW', () => {
-        it('should be defined', () => {
-            expect(mod.HierarchicalNSW || mod.default?.HierarchicalNSW).toBeDefined();
-        });
-
-        it('should be accessible from module', () => {
-            const val = mod.HierarchicalNSW || mod.default?.HierarchicalNSW;
-            if (typeof val === 'function') {
-                expect(typeof val).toBe('function');
-            } else {
-                expect(val).toBeDefined();
-            }
-        });
-    });
-
-    describe('readIndexSync', () => {
-        it('should be defined', () => {
-            expect(mod.readIndexSync || mod.default?.readIndexSync).toBeDefined();
-        });
-
-        it('should be accessible from module', () => {
-            const val = mod.readIndexSync || mod.default?.readIndexSync;
-            if (typeof val === 'function') {
-                expect(typeof val).toBe('function');
-            } else {
-                expect(val).toBeDefined();
-            }
-        });
-    });
-
-    describe('initIndex', () => {
-        it('should be defined', () => {
-            expect(mod.initIndex || mod.default?.initIndex).toBeDefined();
-        });
-
-        it('should be accessible from module', () => {
-            const val = mod.initIndex || mod.default?.initIndex;
-            if (typeof val === 'function') {
-                expect(typeof val).toBe('function');
-            } else {
-                expect(val).toBeDefined();
-            }
-        });
-    });
-
-    describe('getEmbedding', () => {
-        it('should be defined', () => {
-            expect(mod.getEmbedding || mod.default?.getEmbedding).toBeDefined();
-        });
-
-        it('should be accessible from module', () => {
-            const val = mod.getEmbedding || mod.default?.getEmbedding;
-            if (typeof val === 'function') {
-                expect(typeof val).toBe('function');
-            } else {
-                expect(val).toBeDefined();
-            }
+        it('should be a function', () => {
+            expect(typeof mod.save).toBe('function');
         });
     });
 });

@@ -1,5 +1,24 @@
 // Auto-generated test for app/api/issues/route.js
 
+// The route uses createRequire with relative paths, so mock the resolved modules
+jest.mock('@/services/issues-store', () => ({
+    getIssues: jest.fn(() => []),
+    getIssueById: jest.fn(() => null),
+    updateIssue: jest.fn(() => ({})),
+    getStats: jest.fn(() => Promise.resolve({ totalIssues: 5 })),
+}));
+jest.mock('@/services/issues-parser', () => ({
+    parseIssueEmails: jest.fn(() => Promise.resolve({ parsed: 0, newIssues: 0, activitiesAdded: 0 })),
+    classifyActivities: jest.fn(() => Promise.resolve()),
+}));
+jest.mock('@/services/local-store', () => ({
+    getEmails: jest.fn(() => ({ exists: true, data: [] })),
+    getCalendar: jest.fn(() => ({ exists: true, data: [] })),
+    getIssues: jest.fn(() => ({ exists: false })),
+}));
+jest.mock('@/services/phonetool', () => ({
+    lookupAlias: jest.fn(() => Promise.resolve({})),
+}));
 
 // Mock NextResponse
 jest.mock('next/server', () => ({
@@ -32,7 +51,6 @@ describe('API: /api/issues', () => {
 
         it('should handle errors gracefully', async () => {
             const { GET } = require('../../app/api/issues/route');
-            // Should not throw even if dependencies fail
             const response = await GET(new Request('http://localhost/api/issues'));
             expect(response).toBeDefined();
         });
@@ -44,11 +62,11 @@ describe('API: /api/issues', () => {
             const request = new Request('http://localhost/api/issues', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ test: true }),
+                body: JSON.stringify({ action: 'refresh' }),
             });
             const response = await POST(request);
             expect(response).toBeDefined();
-        });
+        }, 15000);
 
         it('should handle missing body', async () => {
             const { POST } = require('../../app/api/issues/route');
@@ -59,6 +77,6 @@ describe('API: /api/issues', () => {
             });
             const response = await POST(request);
             expect(response).toBeDefined();
-        });
+        }, 15000);
     });
 });

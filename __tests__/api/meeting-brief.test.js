@@ -1,5 +1,8 @@
 // Auto-generated test for app/api/meeting-brief/route.js
 
+// Mock auth (used by the route to check sessions)
+jest.mock('@/auth', () => ({ auth: jest.fn(() => Promise.resolve({ user: { name: 'Test' }, accessToken: 'test-token' })) }));
+jest.mock('@/services/ai', () => ({ prepareMeetingBrief: jest.fn(() => Promise.resolve({ brief: 'test brief', context: [] })) }));
 
 // Mock NextResponse
 jest.mock('next/server', () => ({
@@ -26,13 +29,12 @@ describe('API: /api/meeting-brief', () => {
     describe('GET', () => {
         it('should return 200 on success', async () => {
             const { GET } = require('../../app/api/meeting-brief/route');
-            const response = await GET(new Request('http://localhost/api/meeting-brief'));
+            const response = await GET(new Request('http://localhost/api/meeting-brief?title=test'));
             expect(response.status).toBeLessThanOrEqual(500);
         });
 
         it('should handle errors gracefully', async () => {
             const { GET } = require('../../app/api/meeting-brief/route');
-            // Should not throw even if dependencies fail
             const response = await GET(new Request('http://localhost/api/meeting-brief'));
             expect(response).toBeDefined();
         });

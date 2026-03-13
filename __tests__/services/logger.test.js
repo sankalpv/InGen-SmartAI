@@ -1,5 +1,4 @@
 // Auto-generated test for services/logger.js
-jest.mock('../../services/logger', () => ({ child: jest.fn(() => ({ info: jest.fn(), warn: jest.fn(), error: jest.fn(), debug: jest.fn() })) }));
 jest.mock('fs');
 
 describe('services/logger.js', () => {
@@ -7,57 +6,53 @@ describe('services/logger.js', () => {
 
     beforeEach(() => {
         jest.clearAllMocks();
-        // Reset module between tests
-jest.resetModules();
-mod = require('../../services/logger');
+        jest.resetModules();
+        mod = require('../../services/logger');
     });
 
     it('should export correctly', () => {
         expect(mod).toBeDefined();
     });
 
-    describe('getLogStream', () => {
+    describe('child', () => {
         it('should be defined', () => {
-            expect(mod.getLogStream || mod.default?.getLogStream).toBeDefined();
+            expect(mod.child).toBeDefined();
         });
 
-        it('should be accessible from module', () => {
-            const val = mod.getLogStream || mod.default?.getLogStream;
-            if (typeof val === 'function') {
-                expect(typeof val).toBe('function');
-            } else {
-                expect(val).toBeDefined();
-            }
+        it('should be a function', () => {
+            expect(typeof mod.child).toBe('function');
+        });
+
+        it('should return a child logger', () => {
+            const child = mod.child('test');
+            expect(child).toBeDefined();
+            expect(typeof child.info).toBe('function');
+            expect(typeof child.warn).toBe('function');
+            expect(typeof child.error).toBe('function');
         });
     });
 
-    describe('formatMessage', () => {
+    describe('info', () => {
         it('should be defined', () => {
-            expect(mod.formatMessage || mod.default?.formatMessage).toBeDefined();
-        });
-
-        it('should be accessible from module', () => {
-            const val = mod.formatMessage || mod.default?.formatMessage;
-            if (typeof val === 'function') {
-                expect(typeof val).toBe('function');
-            } else {
-                expect(val).toBeDefined();
-            }
+            expect(typeof mod.info).toBe('function');
         });
     });
 
-    describe('write', () => {
+    describe('warn', () => {
         it('should be defined', () => {
-            expect(mod.write || mod.default?.write).toBeDefined();
+            expect(typeof mod.warn).toBe('function');
         });
+    });
 
-        it('should be accessible from module', () => {
-            const val = mod.write || mod.default?.write;
-            if (typeof val === 'function') {
-                expect(typeof val).toBe('function');
-            } else {
-                expect(val).toBeDefined();
-            }
+    describe('error', () => {
+        it('should be defined', () => {
+            expect(typeof mod.error).toBe('function');
+        });
+    });
+
+    describe('debug', () => {
+        it('should be defined', () => {
+            expect(typeof mod.debug).toBe('function');
         });
     });
 });

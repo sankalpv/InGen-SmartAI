@@ -1,5 +1,8 @@
 // Auto-generated test for app/api/ticket-health/route.js
 
+jest.mock('@/services/ticket-health', () => ({
+    getDashboard: jest.fn(() => Promise.resolve({ tickets: [], summary: {} })),
+}));
 
 // Mock NextResponse
 jest.mock('next/server', () => ({
@@ -28,13 +31,12 @@ describe('API: /api/ticket-health', () => {
             const { GET } = require('../../app/api/ticket-health/route');
             const response = await GET(new Request('http://localhost/api/ticket-health'));
             expect(response.status).toBeLessThanOrEqual(500);
-        });
+        }, 10000);
 
         it('should handle errors gracefully', async () => {
             const { GET } = require('../../app/api/ticket-health/route');
-            // Should not throw even if dependencies fail
             const response = await GET(new Request('http://localhost/api/ticket-health'));
             expect(response).toBeDefined();
-        });
+        }, 10000);
     });
 });

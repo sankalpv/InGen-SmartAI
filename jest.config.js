@@ -23,6 +23,6 @@ module.exports = {
         '^.+\\.js$': 'babel-jest',
     },
     transformIgnorePatterns: [
-        '/node_modules/(?!(@modelcontextprotocol)/)',
+        '/node_modules/(?!(@modelcontextprotocol|next-auth|@auth|jose|oauth4webapi)/)',
     ],
 };

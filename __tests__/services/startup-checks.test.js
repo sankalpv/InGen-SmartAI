@@ -1,21 +1,15 @@
 // Auto-generated test for services/startup-checks.js
-jest.mock('../../services/startup-checks', () => (jest.fn()));
 jest.mock('fs');
-jest.mock('hnswlib-node', () => ({
-    HierarchicalNSW: jest.fn(() => ({
-        initIndex: jest.fn(), addPoint: jest.fn(), searchKnn: jest.fn(() => ({ neighbors: [], distances: [] })),
-        writeIndexSync: jest.fn(), readIndexSync: jest.fn(),
-    })),
-}));
+jest.mock('../../services/logger', () => ({ child: jest.fn(() => ({ info: jest.fn(), warn: jest.fn(), error: jest.fn(), debug: jest.fn() })) }));
+jest.mock('../../services/ollama-client', () => ({ embed: jest.fn(() => Promise.resolve(new Array(4096).fill(0))), generate: jest.fn(() => Promise.resolve('response')), chat: jest.fn() }));
 
 describe('services/startup-checks.js', () => {
     let mod;
 
     beforeEach(() => {
         jest.clearAllMocks();
-        // Reset module between tests
-jest.resetModules();
-mod = require('../../services/startup-checks');
+        jest.resetModules();
+        mod = require('../../services/startup-checks');
     });
 
     it('should export correctly', () => {
@@ -24,16 +18,11 @@ mod = require('../../services/startup-checks');
 
     describe('runAll', () => {
         it('should be defined', () => {
-            expect(mod.runAll || mod.default?.runAll).toBeDefined();
+            expect(mod.runAll).toBeDefined();
         });
 
-        it('should be accessible from module', () => {
-            const val = mod.runAll || mod.default?.runAll;
-            if (typeof val === 'function') {
-                expect(typeof val).toBe('function');
-            } else {
-                expect(val).toBeDefined();
-            }
+        it('should be a function', () => {
+            expect(typeof mod.runAll).toBe('function');
         });
     });
 });

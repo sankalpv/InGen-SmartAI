@@ -1,5 +1,8 @@
 // Auto-generated test for app/api/settings/calendars/route.js
 
+jest.mock('@/services/outlook-local', () => ({
+    getCalendarList: jest.fn(() => Promise.resolve([{ id: 'cal1', name: 'Calendar' }])),
+}));
 
 // Mock NextResponse
 jest.mock('next/server', () => ({
@@ -32,7 +35,6 @@ describe('API: /api/settings/calendars', () => {
 
         it('should handle errors gracefully', async () => {
             const { GET } = require('../../app/api/settings/calendars/route');
-            // Should not throw even if dependencies fail
             const response = await GET(new Request('http://localhost/api/settings/calendars'));
             expect(response).toBeDefined();
         });
