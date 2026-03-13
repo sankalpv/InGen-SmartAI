@@ -133,8 +133,9 @@ Resolver group ticket dashboard showing open/aging/SLA status across your teams.
 - **Aging tickets tab** — Tickets older than 7 days sorted by age
 - **My tickets tab** — Tickets assigned to you across all resolver groups
 - **Group detail panel** — Slide-out showing all tickets for a specific resolver group
+- **Send to Slack** — One-click ticket health summary to any Slack channel. Enter a channel name (defaults to `cpp-stores-automation-sdm`), click Send, and a formatted summary with emoji, counts, and per-group breakdown is posted via `slack-mcp`
 
-**Data flow:** `builder-mcp` → `TicketingReadActions` → `ticket-health.js` (caching) → React dashboard
+**Data flow:** `builder-mcp` → `TicketingReadActions` → `ticket-health.js` (caching) → React dashboard; Slack send: `slack-mcp` → channel name resolution (direct / search / list) → `post_message`
 
 ### 🌗 Dark/Light Theme
 Toggle between dark and light mode from the sidebar or Settings page. Preference persists in localStorage with anti-flash script for instant theme application on page load.
@@ -166,7 +167,7 @@ All processing happens locally. No data leaves your machine.
 | Vector DB | hnswlib-node (local, in-process) |
 | Data Bridge | AppleScript/JXA → local JSON cache |
 | Background | node-cron (hourly sync) |
-| MCP Integration | `builder-mcp` for Phonetool, code.amazon.com, Taskei, Quip |
+| MCP Integration | `builder-mcp` for Phonetool, code.amazon.com, Taskei, Quip; `slack-mcp` for Slack messaging |
 | Data Storage | JSON files + SQLite (eng-metrics, issues, org-store, insights) |
 
 ---

@@ -1,23 +1,33 @@
-import { mockSlackMessages } from '@/services/mock-data';
-import { summarizeSlack } from '@/services/ai';
 import { NextResponse } from 'next/server';
 
 export async function GET() {
     try {
-        const useMock = process.env.USE_MOCK_DATA === 'true' || !process.env.SLACK_BOT_TOKEN;
+        const { fetchSlackMessages } = require('@/services/slack');
+        const messages = await fetchSlackMessages();
 
-        if (useMock) {
-            const analyzed = await summarizeSlack(mockSlackMessages);
-            return NextResponse.json({ messages: analyzed, source: 'mock' });
+        // AI summarize if we have messages and ai module
+        if (messages.length > 0) {
+            try {
+                const { summarizeSlack } = await import('@/services/ai');
+                const analyzed = await summarizeSlack(messages);
+                return NextResponse.json({ messages: analyzed, source: 'mcp' });
+            } catch {
+                // AI summarize failed, return raw messages
+                return NextResponse.json({ messages, source: 'mcp' });
+            }
         }
 
-        const analyzed = await summarizeSlack(mockSlackMessages);
-        return NextResponse.json({ messages: analyzed, source: 'mock' });
+        return NextResponse.json({ messages: [], source: 'mcp' });
     } catch (error) {
         console.error('Slack API error:', error);
-        return NextResponse.json(
-            { error: 'Failed to fetch Slack messages' },
-            { status: 500 }
-        );
+        // Fallback to mock data
+        try {
+            const { mockSlackMessages } = require('@/services/mock-data');
+            const { summarizeSlack } = await import('@/services/ai');
+            const analyzed = await summarizeSlack(mockSlackMessages);
+            return NextResponse.json({ messages: analyzed, source: 'mock' });
+        } catch {
+            return NextResponse.json({ messages: [], source: 'error', error: error.message });
+        }
     }
 }

@@ -23,6 +23,14 @@
       "command": "/Users/sankalpv/.toolbox/bin/builder-mcp",
       "args": [],
       "env": {}
+    },
+    "slack-mcp": {
+      "command": "/Users/sankalpv/.aim/mcp-servers/slack-mcp",
+      "args": [],
+      "env": {
+        "SSB_INSTANCE_ID": "496484ad-130b-4eb6-8903-a1d6643b7336",
+        "ENTITY_ID": "a7700202152f97b3cc71f434fddc107ad9d5d0a4eff8c5887ea2e9006eb29a66"
+      }
     }
   },
   "wbr": {
