@@ -61,26 +61,6 @@ mod = require('../../services/issues-parser');
         });
     });
 
-    describe('// Expose extractors for testing
-    detectIssueType', () => {
-        it('should be defined', () => {
-            expect(mod.// Expose extractors for testing
-    detectIssueType || mod.default?.// Expose extractors for testing
-    detectIssueType).toBeDefined();
-        });
-
-        it('should be accessible from module', () => {
-            const val = mod.// Expose extractors for testing
-    detectIssueType || mod.default?.// Expose extractors for testing
-    detectIssueType;
-            if (typeof val === 'function') {
-                expect(typeof val).toBe('function');
-            } else {
-                expect(val).toBeDefined();
-            }
-        });
-    });
-
     describe('extractIssueTitle', () => {
         it('should be defined', () => {
             expect(mod.extractIssueTitle || mod.default?.extractIssueTitle).toBeDefined();

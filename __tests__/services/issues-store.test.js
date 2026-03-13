@@ -37,26 +37,6 @@ mod = require('../../services/issues-store');
         });
     });
 
-    describe('// Issue CRUD
-    upsertIssue', () => {
-        it('should be defined', () => {
-            expect(mod.// Issue CRUD
-    upsertIssue || mod.default?.// Issue CRUD
-    upsertIssue).toBeDefined();
-        });
-
-        it('should be accessible from module', () => {
-            const val = mod.// Issue CRUD
-    upsertIssue || mod.default?.// Issue CRUD
-    upsertIssue;
-            if (typeof val === 'function') {
-                expect(typeof val).toBe('function');
-            } else {
-                expect(val).toBeDefined();
-            }
-        });
-    });
-
     describe('addActivity', () => {
         it('should be defined', () => {
             expect(mod.addActivity || mod.default?.addActivity).toBeDefined();
@@ -139,26 +119,6 @@ mod = require('../../services/issues-store');
 
         it('should be accessible from module', () => {
             const val = mod.isEmailParsed || mod.default?.isEmailParsed;
-            if (typeof val === 'function') {
-                expect(typeof val).toBe('function');
-            } else {
-                expect(val).toBeDefined();
-            }
-        });
-    });
-
-    describe('// Queries
-    getOpenIssues', () => {
-        it('should be defined', () => {
-            expect(mod.// Queries
-    getOpenIssues || mod.default?.// Queries
-    getOpenIssues).toBeDefined();
-        });
-
-        it('should be accessible from module', () => {
-            const val = mod.// Queries
-    getOpenIssues || mod.default?.// Queries
-    getOpenIssues;
             if (typeof val === 'function') {
                 expect(typeof val).toBe('function');
             } else {
@@ -302,26 +262,6 @@ mod = require('../../services/issues-store');
         });
     });
 
-    describe('// Person summaries
-    upsertPersonSummary', () => {
-        it('should be defined', () => {
-            expect(mod.// Person summaries
-    upsertPersonSummary || mod.default?.// Person summaries
-    upsertPersonSummary).toBeDefined();
-        });
-
-        it('should be accessible from module', () => {
-            const val = mod.// Person summaries
-    upsertPersonSummary || mod.default?.// Person summaries
-    upsertPersonSummary;
-            if (typeof val === 'function') {
-                expect(typeof val).toBe('function');
-            } else {
-                expect(val).toBeDefined();
-            }
-        });
-    });
-
     describe('getPersonSummaries', () => {
         it('should be defined', () => {
             expect(mod.getPersonSummaries || mod.default?.getPersonSummaries).toBeDefined();
@@ -352,26 +292,6 @@ mod = require('../../services/issues-store');
         });
     });
 
-    describe('// Classification
-    classifyActivity', () => {
-        it('should be defined', () => {
-            expect(mod.// Classification
-    classifyActivity || mod.default?.// Classification
-    classifyActivity).toBeDefined();
-        });
-
-        it('should be accessible from module', () => {
-            const val = mod.// Classification
-    classifyActivity || mod.default?.// Classification
-    classifyActivity;
-            if (typeof val === 'function') {
-                expect(typeof val).toBe('function');
-            } else {
-                expect(val).toBeDefined();
-            }
-        });
-    });
-
     describe('getPersonActivityBreakdown', () => {
         it('should be defined', () => {
             expect(mod.getPersonActivityBreakdown || mod.default?.getPersonActivityBreakdown).toBeDefined();
@@ -379,26 +299,6 @@ mod = require('../../services/issues-store');
 
         it('should be accessible from module', () => {
             const val = mod.getPersonActivityBreakdown || mod.default?.getPersonActivityBreakdown;
-            if (typeof val === 'function') {
-                expect(typeof val).toBe('function');
-            } else {
-                expect(val).toBeDefined();
-            }
-        });
-    });
-
-    describe('// Owner-based queries
-    getIssuesByOwner', () => {
-        it('should be defined', () => {
-            expect(mod.// Owner-based queries
-    getIssuesByOwner || mod.default?.// Owner-based queries
-    getIssuesByOwner).toBeDefined();
-        });
-
-        it('should be accessible from module', () => {
-            const val = mod.// Owner-based queries
-    getIssuesByOwner || mod.default?.// Owner-based queries
-    getIssuesByOwner;
             if (typeof val === 'function') {
                 expect(typeof val).toBe('function');
             } else {
@@ -444,26 +344,6 @@ mod = require('../../services/issues-store');
 
         it('should be accessible from module', () => {
             const val = mod.getCombinedPeopleSummary || mod.default?.getCombinedPeopleSummary;
-            if (typeof val === 'function') {
-                expect(typeof val).toBe('function');
-            } else {
-                expect(val).toBeDefined();
-            }
-        });
-    });
-
-    describe('// Lifecycle
-    close', () => {
-        it('should be defined', () => {
-            expect(mod.// Lifecycle
-    close || mod.default?.// Lifecycle
-    close).toBeDefined();
-        });
-
-        it('should be accessible from module', () => {
-            const val = mod.// Lifecycle
-    close || mod.default?.// Lifecycle
-    close;
             if (typeof val === 'function') {
                 expect(typeof val).toBe('function');
             } else {

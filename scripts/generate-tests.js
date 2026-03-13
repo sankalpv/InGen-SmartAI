@@ -28,7 +28,7 @@ function getServiceExports(filePath) {
         // Find module.exports
         const exportsMatch = content.match(/module\.exports\s*=\s*\{([^}]+)\}/);
         if (exportsMatch) {
-            return exportsMatch[1].split(',').map(e => e.trim().split(':')[0].trim()).filter(Boolean);
+            return exportsMatch[1].split(',').map(e => e.trim().split(':')[0].trim()).filter(e => e && /^[a-zA-Z_$][a-zA-Z0-9_$]*$/.test(e));
         }
         // Find module.exports = new ClassName
         const classMatch = content.match(/module\.exports\s*=\s*new\s+(\w+)/);
