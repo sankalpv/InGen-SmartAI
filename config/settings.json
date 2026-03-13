@@ -47,6 +47,9 @@
     "maxTokens": 8192,
     "temperature": 0.25
   },
+  "slackWatchChannels": [
+    "cpp-stores-automation-sdm"
+  ],
   "engMetrics": {
     "weeklyRetentionWeeks": 52,
     "staleCrThresholdDays": 5,

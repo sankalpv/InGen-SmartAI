@@ -178,4 +178,93 @@ async function postToChannelByName(channelName, text) {
     throw new Error(`Could not find or post to Slack channel: #${name}. Make sure you are a member of this channel.`);
 }
 
-module.exports = { fetchSlackMessages, sendDM, searchSlack, listMyChannels, postToChannel, postToChannelByName };
+/**
+ * Fetch recent messages from a specific channel by name via search
+ * @param {string} channelName - Channel name (without #)
+ * @param {number} count - Number of messages to fetch (default 20)
+ */
+async function fetchChannelMessages(channelName, count = 20) {
+    const name = channelName.replace(/^#/, '');
+    const messages = [];
+    try {
+        const result = await mcpClient.callTool(SERVER, 'search', {
+            query: `in:#${name}`,
+            count,
+            scope: 'messages',
+        });
+        const data = parseResult(result);
+        for (const m of (data?.messages?.matches || [])) {
+            messages.push({
+                id: m.ts || m.iid || String(Date.now()),
+                channel: `#${m.channel?.name || name}`,
+                channelId: m.channel?.id || '',
+                from: { name: m.username || m.user || 'Unknown', avatar: '📢' },
+                message: m.text || '',
+                timestamp: m.ts ? new Date(parseFloat(m.ts) * 1000).toISOString() : new Date().toISOString(),
+                isDirectMessage: false,
+                needsResponse: false,
+            });
+        }
+        logger.info(`Fetched ${messages.length} messages from #${name}`);
+    } catch (error) {
+        logger.error(`Error fetching #${name}:`, error.message);
+    }
+    return messages;
+}
+
+/**
+ * Fetch all Slack messages — DMs, mentions, and configured watch channels
+ * @param {string[]} watchChannels - Channel names to fetch (from settings)
+ * @returns {Array} Combined messages from all sources, deduped by id
+ */
+async function fetchAllSlackMessages(watchChannels = []) {
+    const seen = new Set();
+    const all = [];
+
+    const addUnique = (msgs) => {
+        for (const m of msgs) {
+            const key = m.id + '|' + m.channel;
+            if (!seen.has(key)) {
+                seen.add(key);
+                all.push(m);
+            }
+        }
+    };
+
+    // 1. DMs and mentions (existing)
+    const dmMentions = await fetchSlackMessages();
+    addUnique(dmMentions);
+
+    // 2. Watch channels
+    for (const ch of watchChannels) {
+        try {
+            const channelMsgs = await fetchChannelMessages(ch, 20);
+            addUnique(channelMsgs);
+        } catch (e) {
+            logger.error(`Failed to fetch watch channel #${ch}:`, e.message);
+        }
+    }
+
+    logger.info(`fetchAllSlackMessages: ${all.length} total (${dmMentions.length} DMs/mentions + ${watchChannels.length} channels)`);
+    return all;
+}
+
+/**
+ * Load watch channels from settings
+ */
+function getWatchChannels() {
+    try {
+        const fs = require('fs');
+        const path = require('path');
+        const settingsPath = path.join(process.cwd(), 'config', 'settings.json');
+        const settings = JSON.parse(fs.readFileSync(settingsPath, 'utf8'));
+        return settings.slackWatchChannels || [];
+    } catch {
+        return [];
+    }
+}
+
+module.exports = {
+    fetchSlackMessages, fetchChannelMessages, fetchAllSlackMessages,
+    getWatchChannels, sendDM, searchSlack, listMyChannels, postToChannel, postToChannelByName,
+};
