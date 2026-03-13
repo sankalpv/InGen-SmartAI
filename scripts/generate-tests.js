@@ -97,13 +97,24 @@ function generateServiceTest(serviceName, filePath) {
             mockBlocks.push(`jest.mock('fs');`);
         } else if (dep === 'path') {
             // Don't mock path
-        } else if (dep === 'better-sqlite3' || dep === 'sqlite3') {
-            mockBlocks.push(`jest.mock('${dep}', () => jest.fn(() => ({
+        } else if (dep === 'better-sqlite3') {
+            mockBlocks.push(`jest.mock('better-sqlite3', () => jest.fn(() => ({
     prepare: jest.fn(() => ({ run: jest.fn(), get: jest.fn(), all: jest.fn(() => []) })),
-    exec: jest.fn(),
-    pragma: jest.fn(),
-    close: jest.fn(),
+    exec: jest.fn(), pragma: jest.fn(), close: jest.fn(),
 })));`);
+        } else if (dep === 'sqlite3') {
+            mockBlocks.push(`jest.mock('sqlite3', () => ({
+    verbose: jest.fn(() => ({
+        Database: jest.fn((path, cb) => { if (cb) cb(null); return {
+            run: jest.fn((sql, params, cb) => { if (typeof params === 'function') params(null); else if (cb) cb(null); }),
+            get: jest.fn((sql, params, cb) => { if (typeof params === 'function') params(null, {}); else if (cb) cb(null, {}); }),
+            all: jest.fn((sql, params, cb) => { if (typeof params === 'function') params(null, []); else if (cb) cb(null, []); }),
+            exec: jest.fn((sql, cb) => { if (cb) cb(null); }),
+            close: jest.fn((cb) => { if (cb) cb(null); }),
+            serialize: jest.fn(fn => { if (fn) fn(); }),
+        }; }),
+    })),
+}));`);
         } else if (dep === 'node-cron') {
             mockBlocks.push(`jest.mock('node-cron', () => ({ schedule: jest.fn() }));`);
         } else if (dep.includes('@modelcontextprotocol')) {

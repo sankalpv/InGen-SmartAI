@@ -3,12 +3,18 @@ jest.mock('../../services/logger', () => ({ child: jest.fn(() => ({ info: jest.f
 jest.mock('fs');
 jest.mock('../../services/email-search', () => ({ search: jest.fn(() => Promise.resolve([])) }));
 jest.mock('fs');
-jest.mock('sqlite3', () => jest.fn(() => ({
-    prepare: jest.fn(() => ({ run: jest.fn(), get: jest.fn(), all: jest.fn(() => []) })),
-    exec: jest.fn(),
-    pragma: jest.fn(),
-    close: jest.fn(),
-})));
+jest.mock('sqlite3', () => ({
+    verbose: jest.fn(() => ({
+        Database: jest.fn((path, cb) => { if (cb) cb(null); return {
+            run: jest.fn((sql, params, cb) => { if (typeof params === 'function') params(null); else if (cb) cb(null); }),
+            get: jest.fn((sql, params, cb) => { if (typeof params === 'function') params(null, {}); else if (cb) cb(null, {}); }),
+            all: jest.fn((sql, params, cb) => { if (typeof params === 'function') params(null, []); else if (cb) cb(null, []); }),
+            exec: jest.fn((sql, cb) => { if (cb) cb(null); }),
+            close: jest.fn((cb) => { if (cb) cb(null); }),
+            serialize: jest.fn(fn => { if (fn) fn(); }),
+        }; }),
+    })),
+}));
 jest.mock('../../services/email-search', () => ({ search: jest.fn(() => Promise.resolve([])) }));
 jest.mock('../../services/phonetool', () => ({ lookupAlias: jest.fn(() => Promise.resolve({})) }));
 jest.mock('../../services/phonetool', () => ({ lookupAlias: jest.fn(() => Promise.resolve({})) }));
