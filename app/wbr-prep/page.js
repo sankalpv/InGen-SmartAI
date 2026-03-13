@@ -1,6 +1,6 @@
 'use client';
 import { useState, useRef, useEffect, useCallback } from 'react';
-import { FileText, RefreshCw, Copy, Check, ChevronDown, ChevronUp, Settings, Sparkles, Loader2, Shield } from 'lucide-react';
+import { FileText, RefreshCw, Copy, Check, ChevronDown, ChevronUp, Settings, Sparkles, Loader2, Shield, Send, Hash, AtSign } from 'lucide-react';
 
 const DEFAULT_TASK = 'Generate weekly executive report with wins, misses, and insights';
 
@@ -87,6 +87,10 @@ export default function WbrPrepPage() {
     const [copied, setCopied] = useState(false);
     const [showPrompt, setShowPrompt] = useState(false);
     const [customPrompt, setCustomPrompt] = useState('');
+    const [slackMode, setSlackMode] = useState('channel'); // 'channel' | 'dm'
+    const [slackTarget, setSlackTarget] = useState('cpp-stores-automation-sdm');
+    const [slackStatus, setSlackStatus] = useState(null); // null | 'sending' | 'sent' | 'error'
+    const [slackError, setSlackError] = useState('');
     const timerRef = useRef(null);
     const startRef = useRef(null);
 
@@ -141,6 +145,39 @@ export default function WbrPrepPage() {
     }, [customPrompt]);
 
     const copyReport = () => { navigator.clipboard.writeText(resultText).catch(() => {}); setCopied(true); setTimeout(() => setCopied(false), 2000); };
+
+    const sendToSlack = async () => {
+        if (!resultText || !slackTarget.trim()) return;
+        setSlackStatus('sending');
+        setSlackError('');
+        try {
+            const res = await fetch('/api/slack/send', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ type: slackMode, target: slackTarget.trim(), text: resultText }),
+            });
+            const json = await res.json();
+            if (json.ok) {
+                setSlackStatus('sent');
+                setTimeout(() => setSlackStatus(null), 3000);
+            } else {
+                setSlackError(json.error || 'Send failed');
+                setSlackStatus('error');
+                setTimeout(() => setSlackStatus(null), 4000);
+            }
+        } catch (e) {
+            setSlackError(e.message);
+            setSlackStatus('error');
+            setTimeout(() => setSlackStatus(null), 4000);
+        }
+    };
+
+    const switchSlackMode = (mode) => {
+        setSlackMode(mode);
+        setSlackTarget(mode === 'channel' ? 'cpp-stores-automation-sdm' : '');
+        setSlackStatus(null);
+        setSlackError('');
+    };
 
     const progress = steps.length > 0 ? Math.round((steps.filter(s => s.status === 'done').length / steps.length) * 100) : 0;
 
@@ -240,6 +277,73 @@ export default function WbrPrepPage() {
                     <div style={{ fontSize: 14, lineHeight: 1.8, color: '#cbd5e1' }}>
                         {renderMarkdown(resultText)}
                         {phase === 'synthesizing' && <span style={{ display: 'inline-block', width: 6, height: 16, background: 'linear-gradient(180deg,#818cf8,#6366f1)', marginLeft: 2, borderRadius: 1, animation: 'blink 0.8s ease-in-out infinite', verticalAlign: 'text-bottom' }} />}
+                    </div>
+                </div>
+            )}
+
+            {/* Send to Slack — shown when report is ready */}
+            {resultText && phase === 'done' && (
+                <div style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(139,92,246,0.15)', borderRadius: 14, padding: '16px 20px', marginBottom: 20 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+                        <span style={{ fontSize: 13, fontWeight: 600, color: '#818cf8' }}>
+                            <Send size={14} style={{ verticalAlign: '-2px', marginRight: 6 }} />Send to Slack
+                        </span>
+
+                        {/* Mode toggle */}
+                        <div style={{ display: 'flex', borderRadius: 8, overflow: 'hidden', border: '1px solid rgba(139,92,246,0.2)' }}>
+                            <button onClick={() => switchSlackMode('channel')} style={{
+                                padding: '5px 12px', border: 'none', fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit',
+                                display: 'flex', alignItems: 'center', gap: 4,
+                                background: slackMode === 'channel' ? 'rgba(139,92,246,0.2)' : 'transparent',
+                                color: slackMode === 'channel' ? '#a78bfa' : 'rgba(255,255,255,0.3)',
+                            }}>
+                                <Hash size={12} /> Channel
+                            </button>
+                            <button onClick={() => switchSlackMode('dm')} style={{
+                                padding: '5px 12px', border: 'none', borderLeft: '1px solid rgba(139,92,246,0.2)',
+                                fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit',
+                                display: 'flex', alignItems: 'center', gap: 4,
+                                background: slackMode === 'dm' ? 'rgba(139,92,246,0.2)' : 'transparent',
+                                color: slackMode === 'dm' ? '#a78bfa' : 'rgba(255,255,255,0.3)',
+                            }}>
+                                <AtSign size={12} /> DM
+                            </button>
+                        </div>
+
+                        {/* Target input + send */}
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 0, borderRadius: 8, overflow: 'hidden', border: '1px solid rgba(139,92,246,0.25)', flex: '1 1 250px', maxWidth: 420 }}>
+                            <div style={{ display: 'flex', alignItems: 'center', background: 'rgba(139,92,246,0.08)', padding: '0 0 0 10px', height: 32, flex: 1 }}>
+                                <span style={{ color: 'rgba(255,255,255,0.3)', fontSize: 13, fontWeight: 600, userSelect: 'none' }}>
+                                    {slackMode === 'channel' ? '#' : '@'}
+                                </span>
+                                <input
+                                    type="text"
+                                    value={slackTarget}
+                                    onChange={e => setSlackTarget(e.target.value)}
+                                    placeholder={slackMode === 'channel' ? 'channel-name' : 'alias'}
+                                    style={{
+                                        background: 'transparent', border: 'none', outline: 'none',
+                                        color: '#a78bfa', fontSize: 13, fontWeight: 600, fontFamily: 'inherit',
+                                        width: '100%', padding: '0 8px', height: 32,
+                                    }}
+                                />
+                            </div>
+                            <button onClick={sendToSlack} disabled={slackStatus === 'sending' || !slackTarget.trim()} style={{
+                                background: slackStatus === 'sent' ? 'rgba(48,209,88,0.2)' : slackStatus === 'error' ? 'rgba(255,69,58,0.2)' : 'rgba(139,92,246,0.2)',
+                                color: slackStatus === 'sent' ? '#30d158' : slackStatus === 'error' ? '#ff453a' : '#a78bfa',
+                                border: 'none', borderLeft: '1px solid rgba(139,92,246,0.25)',
+                                padding: '0 14px', height: 32, fontSize: 13, fontWeight: 600,
+                                cursor: (slackStatus === 'sending' || !slackTarget.trim()) ? 'not-allowed' : 'pointer',
+                                display: 'flex', alignItems: 'center', gap: 6, fontFamily: 'inherit', whiteSpace: 'nowrap',
+                            }}>
+                                {slackStatus === 'sending' ? <Loader2 size={14} className="spin" /> : slackStatus === 'sent' ? <Check size={14} /> : <Send size={14} />}
+                                {slackStatus === 'sending' ? 'Sending...' : slackStatus === 'sent' ? 'Sent!' : slackStatus === 'error' ? 'Failed' : 'Send'}
+                            </button>
+                        </div>
+
+                        {slackStatus === 'error' && slackError && (
+                            <span style={{ fontSize: 11, color: '#ff453a' }} title={slackError}>⚠️ {slackError.substring(0, 50)}</span>
+                        )}
                     </div>
                 </div>
             )}
