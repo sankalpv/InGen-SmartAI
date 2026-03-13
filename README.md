@@ -23,7 +23,9 @@ tar xzf ~/Downloads/InGen.tar.gz
 bash */scripts/install-ingen.sh
 ```
 
-The installer (v2.0) automatically handles:
+The installer (v2.0) automatically handles everything — **no manual configuration needed**:
+
+**Infrastructure:**
 - ✅ Disk space check (15 GB recommended)
 - ✅ Xcode Command Line Tools
 - ✅ Homebrew (if needed)
@@ -31,8 +33,21 @@ The installer (v2.0) automatically handles:
 - ✅ Ollama AI engine (if needed)
 - ✅ AI models (~10 GB one-time download)
 - ✅ MCP tooling (`amzn-mcp`, `builder-mcp` via Amazon Toolbox)
+
+**Configuration (prompted during install):**
+- ✅ **Outlook calendar selection** — auto-detects available calendars, lets you pick
+- ✅ **Amazon alias** — auto-detects from macOS username, confirms with you
+- ✅ **Quip API token** — prompts for your token (get it from https://quip-amazon.com/dev/token)
+- ✅ **AWS Bedrock API key** — optional, for Claude Sonnet AI on WBR/Team Health pages
+- ✅ **SIM/Taskei goals folder** — paste your Taskei URL to enable Team Health tracking
+- ✅ **Org tree fetch** — auto-fetches your team hierarchy from Phonetool
+
+**Post-install:**
 - ✅ Desktop shortcut
+- ✅ Health verification (native modules, startup checks)
 - ✅ **Resume support** — if install fails, re-run and it picks up where it left off
+
+> **All settings are collected interactively during installation.** You can skip any optional setting and configure it later from the Settings page (http://localhost:3000/settings).
 
 ### Launch
 
@@ -40,70 +55,16 @@ Double-click **"InGen"** on your Desktop, then open **http://localhost:3000**
 
 ---
 
-## First-Time Setup (After Install)
+## First-Time Launch
 
-### Step 1: Allow macOS Permissions
+### Allow macOS Permissions
 
 When InGen starts for the first time, macOS will show a dialog:
 > *"Terminal wants to control Microsoft Outlook"*
 
 Click **OK** to allow. This only happens once. InGen uses AppleScript to read your local Outlook data — no internet connection is needed.
 
-### Step 2: Select Your Calendar
-
-The app needs to know which Outlook calendar to read. Find your calendar ID:
-
-```bash
-cd ~/InGen
-node -e "const {getCalendarList} = require('./services/outlook-local'); getCalendarList().then(c => console.log(JSON.stringify(c, null, 2)))"
-```
-
-This prints a list like:
-```json
-[
-  { "id": "123", "name": "Calendar", "isDefault": true },
-  { "id": "456", "name": "Team Events", "isDefault": false }
-]
-```
-
-Copy the `id` of your main calendar (usually "Calendar"), then edit:
-
-```bash
-nano ~/InGen/config/settings.json
-```
-
-Change this line:
-```json
-"outlookCalendarId": "YOUR_NUMBER_HERE"
-```
-
-Save and restart InGen.
-
-### Step 3: Verify Your Phonetool Alias
-
-1. Open http://localhost:3000/settings
-2. Under **Team Settings**, verify your Phonetool alias is correct
-3. Click **Save Alias & Fetch Team**
-
-The installer auto-detects your alias from your macOS username, but some users' unix username differs from their Amazon alias.
-
-### Step 4: Set Up Your Quip API Token
-
-InGen can automatically read Quip documents linked in your emails and include them in AI briefings. Each user needs their own Quip API token.
-
-1. Go to https://quip-amazon.com/dev/token
-2. Click **Generate Token**
-3. Copy the token
-4. In Terminal, run:
-
-```bash
-mkdir -p ~/.amazon-internal-mcp-server
-echo "QUIP_API_TOKEN=paste_your_token_here" > ~/.amazon-internal-mcp-server/.env
-```
-
-5. Restart InGen
-
-**Don't use Quip?** Go to Settings → Document Context → uncheck **Enabled**.
+> **Note:** The installer already configured your calendar, Amazon alias, Quip token, Bedrock key, and SIM goals folder during installation. If you need to change any of these later, go to **http://localhost:3000/settings**.
 
 ---
 
@@ -265,9 +226,9 @@ Creates `~/Desktop/InGen.tar.gz` (< 3 MB) ready to share via Slack. The packager
 - Check logs: `cat ~/InGen/smartai.log`
 
 ### Calendar shows 0 events
-- Verify calendar ID in `config/settings.json`
-- Run the calendar list command from Step 2 above
-- Ensure Outlook is open and signed in
+- Verify calendar ID in Settings (http://localhost:3000/settings) or `config/settings.json`
+- Ensure Outlook is open and signed in (Classic Outlook required — New Outlook does not support AppleScript)
+- Re-run the installer to re-select your calendar: `bash ~/InGen/scripts/install-ingen.sh`
 
 ### AI briefing takes too long
 - First briefing after restart takes 30-60 seconds (Ollama model loading)
