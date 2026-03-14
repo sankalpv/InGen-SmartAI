@@ -12,9 +12,20 @@
 - macOS (Apple Silicon or Intel)
 - Microsoft Outlook installed and signed in
 
-### One-Command Install
+### Install from code.amazon.com (Recommended)
 
-1. Download `InGen.tar.gz`
+Open Terminal and run:
+
+```bash
+git clone ssh://git.amazon.com/pkg/InGen-SmartAI ~/InGen
+bash ~/InGen/scripts/install-ingen.sh
+```
+
+> **Requires:** VPN + Midway auth + SSH key registered on code.amazon.com
+
+### Alternative: Install from tar.gz
+
+1. Download `InGen.tar.gz` (shared via Slack or email)
 2. Open Terminal and run:
 
 ```bash

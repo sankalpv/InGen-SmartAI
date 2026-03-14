@@ -55,5 +55,6 @@
     "staleCrThresholdDays": 5,
     "busFactorWindowDays": 90,
     "fetchDelayMs": 500
-  }
+  },
+  "test": true
 }
