@@ -141,24 +141,26 @@ function runFirstRunSync() {
     }
 }
 
-// ─── VPN / Midway / AWS Credentials Check ───
+// ─── Midway / AWS Credentials Check ───
 
 function checkMidway() {
-    console.log('[Launcher] Checking VPN + Midway authentication...');
+    console.log('[Launcher] Checking Midway authentication...');
     try {
-        // Test Midway by hitting a protected endpoint — curl follows redirects, 
-        // so if Midway cookie is valid we get 200, otherwise we get a login page
-        const result = execSync('curl -s -o /dev/null -w "%{http_code}" --max-time 5 https://midway-auth.amazon.com/SSO/redirect', {
-            timeout: 10000,
-            encoding: 'utf8'
-        }).trim();
-        // 200 = Midway cookie valid, 302/303 = redirect to login (no valid cookie)
-        if (result === '200' || result === '301') {
-            console.log('[Launcher] ✅ VPN + Midway authenticated');
-            return true;
+        // Check if mwinit cookie file exists and is recent (less than 12 hours old)
+        const cookiePath = path.join(os.homedir(), '.midway', 'cookie');
+        if (fs.existsSync(cookiePath)) {
+            const stats = fs.statSync(cookiePath);
+            const ageHours = (Date.now() - stats.mtimeMs) / (1000 * 60 * 60);
+            if (ageHours < 12) {
+                console.log('[Launcher] ✅ Midway authenticated (cookie age: ' + Math.round(ageHours) + 'h)');
+                return true;
+            } else {
+                console.log('[Launcher] ⚠️  Midway cookie expired (' + Math.round(ageHours) + 'h old)');
+                return false;
+            }
         }
     } catch (e) {
-        // Network error = no VPN
+        // Ignore errors
     }
     return false;
 }
@@ -174,35 +176,27 @@ function refreshAWSCredentials() {
         console.log('[Launcher] ✅ AWS credentials refreshed (CloudWatch telemetry enabled)');
         return true;
     } catch (e) {
-        console.log('[Launcher] ⚠️  AWS credentials refresh failed:', e.message?.split('\n')[0]);
-        console.log('[Launcher]    Telemetry will be disabled for this session.');
+        console.log('[Launcher] ⚠️  AWS credentials refresh failed — telemetry disabled for this session');
         return false;
     }
 }
 
-// Check VPN + Midway — required for MCP features and telemetry
+// Check Midway — needed for MCP features and telemetry
 const hasMidway = checkMidway();
 if (!hasMidway) {
     console.log('');
-    console.log('╔══════════════════════════════════════════════════════════════╗');
-    console.log('║  ⚠️  VPN + Midway required                                  ║');
-    console.log('║                                                              ║');
-    console.log('║  InGen needs VPN + Midway for:                               ║');
-    console.log('║    • Team Health, Code Metrics, Ticket Health                ║');
-    console.log('║    • Phonetool, Slack, Quip integration                      ║');
-    console.log('║    • Usage telemetry (CloudWatch)                            ║');
-    console.log('║                                                              ║');
-    console.log('║  Please run:                                                 ║');
-    console.log('║    1. Connect to VPN                                         ║');
-    console.log('║    2. Run: mwinit -o                                         ║');
-    console.log('║    3. Restart InGen                                          ║');
-    console.log('╚══════════════════════════════════════════════════════════════╝');
+    console.log('[Launcher] ⚠️  Midway not authenticated. Some features will be limited:');
+    console.log('[Launcher]    • Team Health, Code Metrics, Ticket Health (need builder-mcp)');
+    console.log('[Launcher]    • Phonetool, Slack, Quip integration');
+    console.log('[Launcher]    • CloudWatch telemetry');
+    console.log('[Launcher]    To enable: run "mwinit -o" and restart InGen');
     console.log('');
-    process.exit(1);
 }
 
-// Refresh AWS credentials for CloudWatch telemetry
-refreshAWSCredentials();
+// Try to refresh AWS credentials (best effort — app starts regardless)
+if (hasMidway) {
+    refreshAWSCredentials();
+}
 
 // Run startup checks before launching
 console.log('[Launcher] Running startup checks...');
