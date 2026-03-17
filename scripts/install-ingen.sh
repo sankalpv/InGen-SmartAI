@@ -10,7 +10,7 @@ set -e
 
 # ─── Configuration ───
 INSTALL_DIR="$HOME/InGen"
-REPO_URL="https://github.com/sankalpv/InGen-SmartAI.git"
+REPO_URL="ssh://git.amazon.com/pkg/InGen-SmartAI"
 DESKTOP_SHORTCUT="$HOME/Desktop/InGen.command"
 LLM_MODEL="qwen3:latest"
 EMBEDDING_MODEL="qwen3-embedding"
