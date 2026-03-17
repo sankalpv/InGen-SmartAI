@@ -1,6 +1,6 @@
 {
   "outlookCalendarId": "432",
-  "issuesFolderPath": "Inbox/Issues",
+  "issuesFolderPath": "",
   "ignoreExternalEmails": true,
   "insightConfidenceThreshold": 0.5,
   "lowPowerMode": false,
@@ -40,7 +40,7 @@
     "title": "Classification and Policy Platform - 2026 Goals and Projects Status",
     "staleAnnouncementDays": 6
   },
-  "aiTemperature": 0.25,
+  "aiTemperature": 0.05,
   "bedrock": {
     "region": "us-west-2",
     "modelId": "us.anthropic.claude-sonnet-4-20250514-v1:0",
