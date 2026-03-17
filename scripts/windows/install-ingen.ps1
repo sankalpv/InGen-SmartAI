@@ -539,10 +539,6 @@ NEXTAUTH_SECRET=$authSecret
 LOG_LEVEL=INFO
 MCP_ENABLED=true
 "@
-        # Decode and append CloudWatch credentials
-        $cwKey = [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String('QUtJQTJLU1k3UlZPTFM0N1NTNFA='))
-        $cwSecret = [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String('cnAwcTJLcTFCOGlTNjRHSHJFbTYvUWw4OEpPSUsxeTZZeURDemlrRQ=='))
-        $envContent += "`nAWS_CW_ACCESS_KEY_ID=$cwKey`nAWS_CW_SECRET_ACCESS_KEY=$cwSecret`nAWS_CW_REGION=us-east-1`n"
         [System.IO.File]::WriteAllText($ENV_FILE, $envContent, (New-Object System.Text.UTF8Encoding $false))
         Print-Ok "Created .env.local"
     } else {
