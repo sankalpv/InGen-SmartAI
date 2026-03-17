@@ -141,6 +141,69 @@ function runFirstRunSync() {
     }
 }
 
+// ─── VPN / Midway / AWS Credentials Check ───
+
+function checkMidway() {
+    console.log('[Launcher] Checking VPN + Midway authentication...');
+    try {
+        // Test Midway by hitting a protected endpoint — curl follows redirects, 
+        // so if Midway cookie is valid we get 200, otherwise we get a login page
+        const result = execSync('curl -s -o /dev/null -w "%{http_code}" --max-time 5 https://midway-auth.amazon.com/SSO/redirect', {
+            timeout: 10000,
+            encoding: 'utf8'
+        }).trim();
+        // 200 = Midway cookie valid, 302/303 = redirect to login (no valid cookie)
+        if (result === '200' || result === '301') {
+            console.log('[Launcher] ✅ VPN + Midway authenticated');
+            return true;
+        }
+    } catch (e) {
+        // Network error = no VPN
+    }
+    return false;
+}
+
+function refreshAWSCredentials() {
+    console.log('[Launcher] Refreshing AWS credentials for telemetry...');
+    try {
+        execSync('ada credentials update --account=709929962844 --role=SmartAI-CloudWatchLogs --provider=conduit --once', {
+            timeout: 30000,
+            stdio: 'pipe',
+            encoding: 'utf8'
+        });
+        console.log('[Launcher] ✅ AWS credentials refreshed (CloudWatch telemetry enabled)');
+        return true;
+    } catch (e) {
+        console.log('[Launcher] ⚠️  AWS credentials refresh failed:', e.message?.split('\n')[0]);
+        console.log('[Launcher]    Telemetry will be disabled for this session.');
+        return false;
+    }
+}
+
+// Check VPN + Midway — required for MCP features and telemetry
+const hasMidway = checkMidway();
+if (!hasMidway) {
+    console.log('');
+    console.log('╔══════════════════════════════════════════════════════════════╗');
+    console.log('║  ⚠️  VPN + Midway required                                  ║');
+    console.log('║                                                              ║');
+    console.log('║  InGen needs VPN + Midway for:                               ║');
+    console.log('║    • Team Health, Code Metrics, Ticket Health                ║');
+    console.log('║    • Phonetool, Slack, Quip integration                      ║');
+    console.log('║    • Usage telemetry (CloudWatch)                            ║');
+    console.log('║                                                              ║');
+    console.log('║  Please run:                                                 ║');
+    console.log('║    1. Connect to VPN                                         ║');
+    console.log('║    2. Run: mwinit -o                                         ║');
+    console.log('║    3. Restart InGen                                          ║');
+    console.log('╚══════════════════════════════════════════════════════════════╝');
+    console.log('');
+    process.exit(1);
+}
+
+// Refresh AWS credentials for CloudWatch telemetry
+refreshAWSCredentials();
+
 // Run startup checks before launching
 console.log('[Launcher] Running startup checks...');
 runStartupChecks().then((report) => {
