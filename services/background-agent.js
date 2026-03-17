@@ -164,23 +164,7 @@ localStore.fullSync().then(async (result) => {
         logger.info(`Initial sync complete: ${result.emails} emails, ${result.calendar} cal events, ${result.issues || 0} issues in ${result.elapsed}s`);
     }
     
-    // Parse Issues emails into SQLite (runs on cached data — no Outlook calls)
-    try {
-        const issuesCached = localStore.getIssues();
-        if (issuesCached.exists && issuesCached.data && issuesCached.data.length > 0) {
-            logger.info(`Parsing ${issuesCached.data.length} Issues emails into SQLite...`);
-            const parseResult = await issuesParser.parseIssueEmails(issuesCached.data);
-            logger.info(`Issues parsed: ${parseResult.parsed} issues, ${parseResult.newIssues} new, ${parseResult.activitiesAdded} activities`);
-            
-            // Classify activities by type (heuristic, offline)
-            await issuesParser.classifyActivities();
-            logger.info('Activity classification complete');
-        } else {
-            logger.info('No Issues data to parse (folder may not exist or first sync pending)');
-        }
-    } catch (e) {
-        logger.error('Issues parsing failed:', e.message);
-    }
+    // Issues folder parsing removed — not needed for core functionality
     
     // Delay incremental vector store sync by 30s to let Outlook recover
     logger.info('Waiting 30s before starting incremental vector store sync...');
@@ -192,23 +176,12 @@ localStore.fullSync().then(async (result) => {
 // Don't run generateInsights() on startup — wait for scheduled time to save CPU/battery
 logger.info('Insight generation deferred to scheduled time (9 AM, 1 PM weekdays)');
 
-// Schedule local store sync alongside the email cron (coalesced via Fix 3 — safe to call)
-// After each sync, parse Issues into SQLite (offline — no Outlook calls)
+// Schedule local store sync alongside the email cron
 cron.schedule(SYNC_INTERVAL_CRON, async () => {
     try {
         await localStore.fullSync();
-        
-        // Parse Issues emails into SQLite after sync
-        const issuesCached = localStore.getIssues();
-        if (issuesCached.exists && issuesCached.data && issuesCached.data.length > 0) {
-            const parseResult = await issuesParser.parseIssueEmails(issuesCached.data);
-            if (parseResult.newIssues > 0) {
-                logger.info(`Hourly Issues parse: ${parseResult.newIssues} new issues found`);
-                await issuesParser.classifyActivities();
-            }
-        }
     } catch (e) {
-        logger.error('Scheduled local sync + issues parse failed:', e.message);
+        logger.error('Scheduled local sync failed:', e.message);
     }
 });
 

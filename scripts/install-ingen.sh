@@ -465,7 +465,6 @@ AUTH_SECRET=$AUTH_SECRET
 NEXTAUTH_SECRET=$AUTH_SECRET
 LOG_LEVEL=INFO
 MCP_ENABLED=true
-SMARTAI_CW_LOGS=true
 EOF
         print_ok "Created .env.local"
     else

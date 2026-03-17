@@ -538,7 +538,6 @@ AUTH_SECRET=$authSecret
 NEXTAUTH_SECRET=$authSecret
 LOG_LEVEL=INFO
 MCP_ENABLED=true
-SMARTAI_CW_LOGS=true
 "@
         [System.IO.File]::WriteAllText($ENV_FILE, $envContent, (New-Object System.Text.UTF8Encoding $false))
         Print-Ok "Created .env.local"

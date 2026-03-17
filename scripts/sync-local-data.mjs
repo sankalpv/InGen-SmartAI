@@ -165,57 +165,8 @@ try {
     console.error('Calendar sync failed:', e.message);
 }
 
-// Fetch "Issues" folder (SIM tickets, Taskei tasks, CloudWatch alarms)
-// Supports subfolder paths like "Inbox/Issues" — configurable in settings.json
-try {
-    const { execSync: execSyncIssues } = await import('child_process');
-    
-    // Read configured folder path from settings.json (default: "Inbox/Issues")
-    let issuesFolderPath = 'Inbox/Issues';
-    try {
-        const settingsPath = path.join(__dirname, '..', 'config', 'settings.json');
-        if (fs.existsSync(settingsPath)) {
-            const settings = JSON.parse(fs.readFileSync(settingsPath, 'utf8'));
-            if (settings.issuesFolderPath) issuesFolderPath = settings.issuesFolderPath;
-        }
-    } catch (e) { /* use default */ }
-    
-    // Fetch up to 200 issues emails (most recent)
-    console.error(`[Sync] Fetching Issues folder from Outlook (${issuesFolderPath})...`);
-    
-    let issuesRaw;
-    if (IS_WINDOWS) {
-        // Windows: Use PowerShell script with COM automation
-        const psScriptPath = path.join(__dirname, '..', 'scripts', 'windows', 'fetch_outlook_folder.ps1');
-        issuesRaw = execSyncIssues(
-            `powershell -NoProfile -ExecutionPolicy Bypass -File "${psScriptPath}" "${issuesFolderPath}" 200`,
-            { timeout: 120000, maxBuffer: 10 * 1024 * 1024 }
-        ).toString();
-    } else {
-        // macOS: Use AppleScript
-        const issuesScriptPath = path.join(__dirname, '..', 'scripts', 'fetch_outlook_folder.scpt');
-        issuesRaw = execSyncIssues(
-            `osascript "${issuesScriptPath}" "${issuesFolderPath}" 200`,
-            { timeout: 120000, maxBuffer: 10 * 1024 * 1024 }
-        ).toString();
-    }
-    
-    let issuesEmails;
-    try { issuesEmails = JSON.parse(issuesRaw); } catch { issuesEmails = []; }
-    
-    if (Array.isArray(issuesEmails) && issuesEmails.length > 0 && !issuesEmails[0]?.error) {
-        writeStore(path.join(DATA_DIR, 'issues-raw.json'), issuesEmails);
-        result.issues = issuesEmails.length;
-        console.error(`[Sync] Issues: ${issuesEmails.length} emails cached`);
-    } else {
-        const errorMsg = issuesEmails[0]?.error || 'empty response';
-        console.error(`[Sync] Issues folder: ${errorMsg} (folder may not exist or Outlook not running)`);
-        result.issues = 0;
-    }
-} catch (e) {
-    console.error(`[Sync] Issues folder fetch failed: ${e.message}`);
-    result.issues = 0;
-}
+// Issues folder fetch removed — not needed for core functionality
+result.issues = 0;
 
 // Output result as JSON for parent process
 console.log(JSON.stringify(result));
