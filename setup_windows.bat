@@ -1,15 +1,17 @@
 @echo off
-:: Check for Admin
-net session >nul 2>&1
-if %errorLevel% == 0 (
-    echo Verified Admin Privileges.
-) else (
-    echo Requesting Administrative Privileges...
-    powershell -Command "Start-Process '%~f0' -Verb RunAs"
-    exit /b
-)
+:: ╔══════════════════════════════════════════════════════════════╗
+:: ║            InGen Installer for Windows (v2.0)                ║
+:: ║       Local AI-Powered Productivity Dashboard                ║
+:: ╚══════════════════════════════════════════════════════════════╝
 
+:: Set execution policy and run the PowerShell installer
 cd /d "%~dp0"
-echo Starting Dependency Installer...
-powershell -NoProfile -ExecutionPolicy Bypass -File "scripts\windows\install_dependencies.ps1"
+echo.
+echo   InGen - AI Productivity Dashboard Installer
+echo   ============================================
+echo.
+echo   Launching installer...
+echo.
+
+powershell -NoProfile -ExecutionPolicy Bypass -File "scripts\windows\install-ingen.ps1"
 pause

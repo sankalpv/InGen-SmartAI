@@ -6,6 +6,7 @@ import path from 'path';
 import { createRequire } from 'module';
 const require = createRequire(import.meta.url);
 const localStore = require('../../../services/local-store');
+const tracker = require('../../../services/usage-tracker');
 
 export const runtime = 'nodejs';
 
@@ -37,7 +38,10 @@ function filterToToday(items, dateField) {
 }
 
 function getTodayEmails(allEmails) {
-    return filterToToday(allEmails, 'received');
+    // Try 'received' (macOS) first, fall back to 'date' (Windows) for platform compatibility
+    const byReceived = filterToToday(allEmails, 'received');
+    if (byReceived.length > 0) return byReceived;
+    return filterToToday(allEmails, 'date');
 }
 
 function getTodayMeetings(allMeetings) {
@@ -98,6 +102,8 @@ export async function GET(req) {
         const streamMode = searchParams.get('stream') === 'true';
 
         console.log(`[API/Analyze] source=${source}, forceRefresh=${forceRefresh}, stream=${streamMode}`);
+        tracker.trackAPICall('/api/analyze');
+        if (streamMode) tracker.trackAIGeneration('DailyBriefing');
 
         // Phase 3: Streaming mode — stream the briefing as it generates
         if (streamMode) {

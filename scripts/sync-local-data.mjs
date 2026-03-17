@@ -9,10 +9,12 @@
 import { fetchOutlookEmails, fetchOutlookCalendar } from '../services/outlook-local.js';
 import fs from 'fs';
 import path from 'path';
+import os from 'os';
 import { fileURLToPath } from 'url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DATA_DIR = path.join(__dirname, '..', 'data');
+const IS_WINDOWS = os.platform() === 'win32';
 
 if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
 
@@ -67,7 +69,7 @@ try {
         result.emails = allEmails.length;
         console.error(`[Sync] First batch: ${firstBatch.length} fetched, ${newFromBatch.length} new, total: ${allEmails.length}`);
         
-        // Fetch additional batches using offset (JXA script supports it)
+        // Fetch additional batches using offset
         // Fix 5: Import execSync once outside the loop
         const { execSync } = await import('child_process');
         for (let offset = BATCH_SIZE; offset < TARGET_EMAILS; offset += BATCH_SIZE) {
@@ -76,8 +78,22 @@ try {
                 console.error(`[Sync] Waiting 3s before next batch (offset ${offset})...`);
                 await new Promise(r => setTimeout(r, 3000));
                 
-                const scriptPath = path.join(__dirname, '..', 'scripts', 'fetch_outlook_ui_optimized.js');
-                const raw = execSync(`osascript -l JavaScript "${scriptPath}" ${BATCH_SIZE} ${offset}`, { timeout: 60000, maxBuffer: 10 * 1024 * 1024 }).toString();
+                let raw;
+                if (IS_WINDOWS) {
+                    // Windows: Use PowerShell script with COM automation
+                    const psScriptPath = path.join(__dirname, '..', 'scripts', 'windows', 'fetch_emails_batch.ps1');
+                    raw = execSync(
+                        `powershell -NoProfile -ExecutionPolicy Bypass -File "${psScriptPath}" ${BATCH_SIZE} ${offset}`,
+                        { timeout: 60000, maxBuffer: 10 * 1024 * 1024 }
+                    ).toString();
+                } else {
+                    // macOS: Use JXA script via osascript
+                    const scriptPath = path.join(__dirname, '..', 'scripts', 'fetch_outlook_ui_optimized.js');
+                    raw = execSync(
+                        `osascript -l JavaScript "${scriptPath}" ${BATCH_SIZE} ${offset}`,
+                        { timeout: 60000, maxBuffer: 10 * 1024 * 1024 }
+                    ).toString();
+                }
                 let batch;
                 try { batch = JSON.parse(raw); } catch { batch = []; }
                 if (isValidEmailData(batch)) {
@@ -108,14 +124,42 @@ try {
     console.error('Email sync failed:', e.message);
 }
 
+// Windows: Run Python extractor to refresh outlook-cache.db before calendar fetch
+// New Outlook (M365) stores calendar in IndexedDB, not accessible via COM
+if (IS_WINDOWS) {
+    try {
+        const extractorPath = path.join(__dirname, '..', 'scripts', 'windows', 'outlook_extractor.py');
+        if (fs.existsSync(extractorPath)) {
+            console.error('[Sync] Running Outlook IndexedDB extractor (New Outlook calendar + contacts)...');
+            const { execSync: execSyncExtractor } = await import('child_process');
+            try {
+                execSyncExtractor(`python "${extractorPath}"`, {
+                    timeout: 120000,
+                    maxBuffer: 10 * 1024 * 1024,
+                    cwd: path.join(__dirname, '..'),
+                    stdio: ['pipe', 'pipe', 'pipe'] // Suppress output
+                });
+                console.error('[Sync] IndexedDB extractor completed');
+            } catch (extractErr) {
+                console.error(`[Sync] IndexedDB extractor failed (non-critical): ${extractErr.message}`);
+            }
+        }
+    } catch (e) {
+        console.error(`[Sync] Extractor setup failed: ${e.message}`);
+    }
+}
+
 // Single wide calendar fetch (30 days back, 14 days forward) — single source of truth
 // All pages filter from this one dataset
+// On Windows with New Outlook, this now reads from outlook-cache.db (populated by extractor above)
 try {
     const events = await fetchOutlookCalendar(null, 30, 14);
     if (events && events.length > 0) {
         writeStore(path.join(DATA_DIR, 'calendar.json'), events);
         result.calendar = events.length;
-        console.error(`[Sync] Calendar: ${events.length} events (30 days back, 14 forward)`);
+        console.error(`[Sync] Calendar: ${events.length} events`);
+    } else {
+        console.error('[Sync] Calendar: 0 events returned');
     }
 } catch (e) {
     console.error('Calendar sync failed:', e.message);
@@ -125,7 +169,6 @@ try {
 // Supports subfolder paths like "Inbox/Issues" — configurable in settings.json
 try {
     const { execSync: execSyncIssues } = await import('child_process');
-    const issuesScriptPath = path.join(__dirname, '..', 'scripts', 'fetch_outlook_folder.scpt');
     
     // Read configured folder path from settings.json (default: "Inbox/Issues")
     let issuesFolderPath = 'Inbox/Issues';
@@ -139,10 +182,23 @@ try {
     
     // Fetch up to 200 issues emails (most recent)
     console.error(`[Sync] Fetching Issues folder from Outlook (${issuesFolderPath})...`);
-    const issuesRaw = execSyncIssues(
-        `osascript "${issuesScriptPath}" "${issuesFolderPath}" 200`,
-        { timeout: 120000, maxBuffer: 10 * 1024 * 1024 }
-    ).toString();
+    
+    let issuesRaw;
+    if (IS_WINDOWS) {
+        // Windows: Use PowerShell script with COM automation
+        const psScriptPath = path.join(__dirname, '..', 'scripts', 'windows', 'fetch_outlook_folder.ps1');
+        issuesRaw = execSyncIssues(
+            `powershell -NoProfile -ExecutionPolicy Bypass -File "${psScriptPath}" "${issuesFolderPath}" 200`,
+            { timeout: 120000, maxBuffer: 10 * 1024 * 1024 }
+        ).toString();
+    } else {
+        // macOS: Use AppleScript
+        const issuesScriptPath = path.join(__dirname, '..', 'scripts', 'fetch_outlook_folder.scpt');
+        issuesRaw = execSyncIssues(
+            `osascript "${issuesScriptPath}" "${issuesFolderPath}" 200`,
+            { timeout: 120000, maxBuffer: 10 * 1024 * 1024 }
+        ).toString();
+    }
     
     let issuesEmails;
     try { issuesEmails = JSON.parse(issuesRaw); } catch { issuesEmails = []; }

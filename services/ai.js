@@ -6,16 +6,29 @@ const promptLoader = require('./prompt-loader');
 const quipFetcher = require('./quip-fetcher');
 // import vectorStore from './vector-store.js'; // Lazy loaded instead
 
-// Configuration — Ollama only (local AI, no cloud APIs)
+// Configuration — Ollama for Mac, Bedrock for Windows (when available)
 const OLLAMA_MODEL = process.env.LLM_MODEL || process.env.OLLAMA_MODEL || 'qwen3:latest';
 const OLLAMA_BASE_URL = process.env.OLLAMA_BASE_URL || 'http://127.0.0.1:11434';
+
+// Windows-only: Bedrock routing
+const IS_WINDOWS_AI = process.platform === 'win32';
+let _bedrockClient = null;
+let _useBedrockAI = false;
+if (IS_WINDOWS_AI) {
+    try {
+        _bedrockClient = require('./bedrock-client');
+        _useBedrockAI = _bedrockClient.isAvailable();
+    } catch (e) { /* Bedrock not available */ }
+}
 
 // SYSTEM_PROMPT is now loaded from config/prompts.json via prompt-loader (hot-reloadable)
 function getSystemPrompt() {
     return promptLoader.get('system') || "You are the AI engine for 'SmartAI', a productivity dashboard. Be helpful, concise, and proactive.";
 }
 
-// Helper: Generate Completion via Ollama (local AI only)
+// Helper: Generate Completion
+// Windows + Bedrock: routes to Claude via Bedrock
+// Mac: uses Ollama (unchanged)
 async function generateCompletion(systemPrompt, userPrompt, jsonMode = true, temperature = null) {
     // Use configured temperature from settings.json if not explicitly provided
     if (temperature === null) {
@@ -26,6 +39,27 @@ async function generateCompletion(systemPrompt, userPrompt, jsonMode = true, tem
             temperature = parseFloat(settings.aiTemperature) || 0.25;
         } catch (e) { temperature = 0.25; }
     }
+
+    // ─── Windows: Route through Bedrock if available ───
+    if (_useBedrockAI && _bedrockClient) {
+        try {
+            logger.info('[Bedrock] Generating completion via Claude...');
+            const fullPrompt = jsonMode
+                ? `${userPrompt}\n\nRespond with valid JSON only.`
+                : userPrompt;
+            const result = await _bedrockClient.generate(fullPrompt, {
+                system: systemPrompt || undefined,
+                temperature,
+                maxTokens: 4096,
+            });
+            return result;
+        } catch (error) {
+            logger.error('[Bedrock] Generation failed, falling back to Ollama:', error.message);
+            // Fall through to Ollama below
+        }
+    }
+
+    // ─── Mac / Ollama fallback (unchanged) ───
     try {
         logger.info(`Using Ollama model: '${OLLAMA_MODEL}' at ${OLLAMA_BASE_URL}`);
 

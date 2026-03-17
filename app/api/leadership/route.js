@@ -4,11 +4,13 @@ import { createRequire } from 'module';
 const require = createRequire(import.meta.url);
 const localStore = require('../../../services/local-store.js');
 const phonetool = require('../../../services/phonetool.js');
+const tracker = require('../../../services/usage-tracker.js');
 
 export async function GET(request) {
     try {
         const { searchParams } = new URL(request.url);
         const analysisType = searchParams.get('type') || 'all';
+        tracker.trackAPICall('/api/leadership');
         const dateRange = parseInt(searchParams.get('range') || '7');
 
         // Read from local store — single source of truth (no direct Outlook calls)

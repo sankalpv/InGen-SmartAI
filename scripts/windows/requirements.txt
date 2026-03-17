@@ -1,0 +1,11 @@
+# Python dependencies for Outlook IndexedDB forensic extraction
+# Install: pip install -r scripts/windows/requirements.txt
+
+# For GitHub-hosted package, install separately:
+#   pip install git+https://github.com/cclgroupltd/ccl_chrome_indexeddb.git
+
+# The CCL package auto-installs these dependencies:
+# - ccl_simplesnappy (Snappy decompression for LevelDB)
+# - ccl_leveldb (proper LevelDB reader with custom comparator support)
+# - ccl_v8_value_deserializer (V8 Blink value deserialization)
+# - ccl_blink_value_deserializer (Blink-specific deserialization)

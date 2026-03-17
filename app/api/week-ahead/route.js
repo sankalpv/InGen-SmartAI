@@ -8,6 +8,7 @@ const require = createRequire(import.meta.url);
 const ollamaClient = require('../../../services/ollama-client.js');
 const localStore = require('../../../services/local-store.js');
 const logger = require('../../../services/logger.js').child('WeekAhead');
+const tracker = require('../../../services/usage-tracker.js');
 
 const WEEK_AHEAD_CACHE = path.join(process.cwd(), 'data', 'week-ahead-computed.json');
 const CACHE_TTL = 30 * 60 * 1000; // 30 minutes
@@ -38,6 +39,7 @@ export async function GET(request) {
         const { searchParams } = new URL(request.url);
         const skipAI = searchParams.get('skipAI') === 'true';
         const aiOnly = searchParams.get('aiOnly') === 'true';
+        tracker.trackAPICall('/api/week-ahead');
 
         // Serve from cache if available (instant response)
         if (skipAI) {
@@ -48,8 +50,10 @@ export async function GET(request) {
             }
         }
 
-        // Read from single calendar.json — filter to week ahead (0 back, 8 forward)
+        // Read calendar data — strategy chain (same as /api/calendar)
         let meetings = [];
+        
+        // Strategy 1: Local store (calendar.json) — instant
         const cached = localStore.getCalendar();
         if (cached.exists && cached.data && cached.data.length > 0) {
             meetings = cached.data;
@@ -58,8 +62,38 @@ export async function GET(request) {
             if (cached.isStale) {
                 localStore.fullSync().catch(e => logger.error('Background sync failed:', e.message));
             }
-        } else {
-            // Fallback: fetch from Outlook directly
+        }
+        
+        // Strategy 2 (Windows): outlook-cache.db — primary source for New Outlook
+        if (meetings.length === 0 && process.platform === 'win32') {
+            try {
+                const idbReader = require('../../../services/outlook-indexeddb-reader');
+                if (idbReader.isAvailable()) {
+                    logger.info('Windows: Reading from outlook-cache.db for week-ahead...');
+                    const dbMeetings = await idbReader.getMeetings({ limit: 700 });
+                    if (dbMeetings && dbMeetings.length > 0) {
+                        meetings = dbMeetings.map(m => ({
+                            id: m.id,
+                            title: m.title || 'Untitled',
+                            startTime: m.start_time || new Date().toISOString(),
+                            endTime: m.end_time || new Date().toISOString(),
+                            location: m.location || '',
+                            description: m.description || '',
+                            attendees: (() => { try { return JSON.parse(m.required_attendees || '[]'); } catch { return []; } })(),
+                            organizer: m.organizer ? { name: m.organizer_name || '', email: m.organizer } : {},
+                            source: 'outlook-cache',
+                        }));
+                        logger.info(`Windows: ${meetings.length} events from outlook-cache.db`);
+                        localStore.saveCalendar(meetings);
+                    }
+                }
+            } catch (e) {
+                logger.warn('outlook-cache.db read failed:', e.message);
+            }
+        }
+        
+        // Strategy 3: Live fetch from Outlook
+        if (meetings.length === 0) {
             logger.info('No local calendar data, fetching from Outlook...');
             meetings = await fetchOutlookCalendar(null, 0, 8);
             if (meetings && meetings.length > 0) {

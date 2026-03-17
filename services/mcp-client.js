@@ -8,13 +8,63 @@ const logger = require('./logger').child('MCPClient');
 const clientCache = new Map();
 
 /**
+ * Resolve MCP server command path for the current platform.
+ * If the configured path doesn't exist, try the platform-appropriate toolbox path.
+ */
+function resolveMCPCommand(serverName, configuredCommand) {
+    if (!configuredCommand) return configuredCommand;
+    
+    // If the configured path exists, use it as-is
+    if (fs.existsSync(configuredCommand)) return configuredCommand;
+    
+    // Extract the binary name from the configured path (e.g., "amzn-mcp" from "/Users/.../amzn-mcp")
+    const binaryName = path.basename(configuredCommand).replace(/\.exe$/, '');
+    
+    // Try platform-specific toolbox paths
+    const IS_WIN = process.platform === 'win32';
+    const homedir = require('os').homedir();
+    
+    const candidates = IS_WIN
+        ? [
+            path.join(process.env.LOCALAPPDATA || '', 'Toolbox', 'bin', `${binaryName}.exe`),
+            path.join(homedir, '.toolbox', 'bin', `${binaryName}.exe`),
+            path.join(homedir, 'AppData', 'Local', 'Toolbox', 'bin', `${binaryName}.exe`),
+        ]
+        : [
+            path.join(homedir, '.toolbox', 'bin', binaryName),
+            `/opt/homebrew/bin/${binaryName}`,
+            `/usr/local/bin/${binaryName}`,
+        ];
+    
+    for (const candidate of candidates) {
+        if (fs.existsSync(candidate)) {
+            logger.info(`MCP ${serverName}: resolved path ${configuredCommand} → ${candidate}`);
+            return candidate;
+        }
+    }
+    
+    // Return original — will fail at connection time with a clear error
+    return configuredCommand;
+}
+
+/**
  * Load MCP server configuration from settings
+ * Auto-resolves command paths for the current platform
  */
 function getMCPConfig() {
     try {
         const settingsPath = path.join(process.cwd(), 'config', 'settings.json');
         const settings = JSON.parse(fs.readFileSync(settingsPath, 'utf8'));
-        return settings.mcpServers || {};
+        const servers = settings.mcpServers || {};
+        
+        // Resolve paths for current platform
+        for (const [name, config] of Object.entries(servers)) {
+            if (config.command) {
+                config.command = resolveMCPCommand(name, config.command);
+            }
+        }
+        
+        return servers;
     } catch (error) {
         logger.error('Failed to load MCP config:', error.message);
         return {};

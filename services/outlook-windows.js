@@ -15,13 +15,10 @@ const SETTINGS_PATH = path.join(process.cwd(), 'config', 'settings.json');
 async function executePowerShell(scriptName, args = []) {
     const scriptPath = path.resolve(process.cwd(), 'scripts', 'windows', scriptName);
 
-    // Construct command: powershell -NoProfile -ExecutionPolicy Bypass -File "path/to/script.ps1" -Arg1 "val1"
-    let cmd = `powershell -NoProfile -ExecutionPolicy Bypass -File "${scriptPath}"`;
-    if (args.length > 0) {
-        // Simple argument quoting
-        const safeArgs = args.map(a => `"${a}"`).join(' ');
-        cmd += ` ${safeArgs}`;
-    }
+    // Use -Command with dot-sourcing instead of -File to avoid Zone.Identifier security prompts
+    // on files extracted from downloaded zips
+    const safeArgs = args.length > 0 ? ' ' + args.map(a => a === '' ? "''" : `'${a}'`).join(' ') : '';
+    let cmd = `powershell -NoProfile -ExecutionPolicy Bypass -Command "& { . '${scriptPath}'${safeArgs} }"`;
 
     // Windows operations can be slow, especially COM instantiation
     const { stdout, stderr } = await execAsync(cmd, { timeout: 60000 });
@@ -59,18 +56,22 @@ export async function fetchOutlookEmails(count = 20) {
             ? emails.filter(e => !((e.subject || '').includes('[EXTERNAL]')))
             : emails;
 
-        // Normalize
-        return filteredEmails.map(e => ({
-            id: e.id,
-            source: 'outlook',
-            from: parseSender(e.from),
-            subject: e.subject || '(No Subject)',
-            snippet: e.snippet || '',
-            body: e.body || '',
-            date: e.date || new Date().toISOString(),
-            isUnread: false,
-            labels: []
-        }));
+        // Normalize — include 'received' alias so briefing filterToToday works on Windows
+        return filteredEmails.map(e => {
+            const emailDate = e.date || new Date().toISOString();
+            return {
+                id: e.id,
+                source: 'outlook',
+                from: parseSender(e.from),
+                subject: e.subject || '(No Subject)',
+                snippet: e.snippet || '',
+                body: e.body || '',
+                date: emailDate,
+                received: emailDate,  // Alias for macOS parity — briefing uses 'received' field
+                isUnread: false,
+                labels: []
+            };
+        });
     } catch (error) {
         logger.error('Windows Outlook Email Fetch Error:', error.message);
         return [];
@@ -97,9 +98,44 @@ export async function fetchOutlookCalendar(calendarId) {
         return calendarCache.data;
     }
 
+    // ─── Strategy 1: IndexedDB Reader (New Outlook / M365) ───
+    // New Outlook stores calendar in IndexedDB, not accessible via COM.
+    // The Python extractor populates outlook-cache.db with this data.
     try {
-        // Pass calendarId (EntryID) to script
-        // If ID is '432' (MacOS default), we pass empty string to let script find default
+        const idbReader = require('./outlook-indexeddb-reader');
+        if (idbReader.isAvailable()) {
+            logger.info('Trying IndexedDB reader for calendar (New Outlook)...');
+            const dbMeetings = await idbReader.getMeetings({ limit: 700, upcoming: false });
+            if (dbMeetings && dbMeetings.length > 0) {
+                const mappedEvents = dbMeetings.map(m => ({
+                    id: m.id,
+                    title: m.title || 'Untitled',
+                    startTime: m.start_time || new Date().toISOString(),
+                    endTime: m.end_time || new Date().toISOString(),
+                    location: m.location || '',
+                    description: m.description || '',
+                    attendees: (() => { try { return JSON.parse(m.required_attendees || '[]'); } catch { return []; } })(),
+                    organizer: m.organizer ? { name: m.organizer_name || '', email: m.organizer } : {},
+                    source: 'outlook-cache'
+                }));
+                logger.info(`IndexedDB reader: ${mappedEvents.length} calendar events`);
+
+                if (mappedEvents.length > 0) {
+                    calendarCache = {
+                        data: mappedEvents,
+                        timestamp: Date.now(),
+                        id: cacheKey
+                    };
+                }
+                return mappedEvents;
+            }
+        }
+    } catch (e) {
+        logger.warn('IndexedDB reader calendar fetch failed:', e.message);
+    }
+
+    // ─── Strategy 2: COM via PowerShell (Classic Outlook) ───
+    try {
         const actualId = (calendarId === '432' || !calendarId) ? '' : calendarId;
 
         const rawData = await executePowerShell('fetch_calendar.ps1', [actualId]);

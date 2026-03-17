@@ -37,5 +37,23 @@
     "weeklyRetro": {
         "promptTemplate": "I need a \"Weekly Retrospective\" for my productivity based on this data:\n{{DATA_SUMMARY}}\n\nTask:\n1. Analyze how I spent my time (Heavy on meetings? Deep work?).\n2. Highlight key themes from the meeting topics and email subjects.\n3. Give 1 specific recommendation for next week to improve balance.\n\nOutput Format (Markdown):\n**Weekly Vibe:** (1 sentence summary, e.g., \"Meeting Heavy\", \"Focused Execution\")\n**Time Analysis:** (2-3 sentences on where time went)\n**Key Themes:** (Bullet points of projects/topics)\n**Recommendation:** (One actionable tip)\n\nKeep it encouraging but analytical."
     },
-    "wbrPrep": {}
+    "wbrPrep": {},
+    "bulkAnalytics": {
+        "relationshipMapping": {
+            "systemSuffix": "You are an organizational network analyst. Analyze communication patterns to map professional relationships.",
+            "promptTemplate": "Based on the following conversation data extracted from Outlook, identify the top 5 people this user interacts with most and describe the nature of each relationship.\n\nCONVERSATION DATA:\n{{CONVERSATIONS}}\n\nFor each person provide: Name, Interaction frequency, Relationship type (direct report/manager/peer/cross-team/external), Key topics discussed, and a brief summary.\n\nOUTPUT: JSON with relationships array and networkInsight paragraph."
+        },
+        "conflictDetection": {
+            "systemSuffix": "You are a scheduling and priority conflict analyst.",
+            "promptTemplate": "Review these meetings and conversations for scheduling conflicts or priority misalignments.\n\nMEETINGS:\n{{MEETINGS}}\n\nCONVERSATIONS:\n{{CONVERSATIONS}}\n\nLook for: double-bookings, urgent emails during meeting times, back-to-back meetings without breaks, meetings that could be emails.\n\nOUTPUT: JSON with conflicts array and overallAssessment."
+        },
+        "actionItemSummarization": {
+            "systemSuffix": "You are an executive assistant specializing in action item extraction.",
+            "promptTemplate": "From the following conversation threads, identify the 3 most important open action items.\n\nCONVERSATIONS:\n{{CONVERSATIONS}}\n\nFor each: What needs to be done, Who requested it, Deadline, Priority, Source thread.\n\nOUTPUT: JSON with actionItems array and weekSummary."
+        },
+        "weeklyDigest": {
+            "systemSuffix": "You are a productivity analyst creating a weekly digest from bulk Outlook data.",
+            "promptTemplate": "Create a weekly digest from this data:\n\nStats: {{STATS}}\nTop Conversations: {{CONVERSATIONS}}\nMeetings: {{MEETINGS}}\n\nCover: Communication volume, Key relationships, Meeting load sustainability, Open action items, One recommendation.\n\nOUTPUT: Markdown format."
+        }
+    }
 }

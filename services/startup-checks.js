@@ -58,10 +58,64 @@ async function checkCommand(cmd) {
 async function checkHnswlib() {
     try {
         require('hnswlib-node');
-        return true;
-    } catch {
-        return false;
+        return { ok: true };
+    } catch (e) {
+        const errorMsg = e.message || '';
+        
+        // Determine if it's a missing native addon vs missing package entirely
+        const isBindingError = errorMsg.includes('Could not locate the bindings file') || 
+                               errorMsg.includes('addon.node') ||
+                               errorMsg.includes('MODULE_NOT_FOUND') && errorMsg.includes('bindings');
+        const isNotInstalled = errorMsg.includes("Cannot find module 'hnswlib-node'");
+        
+        if (isBindingError) {
+            // Package exists but native addon not compiled — try auto-rebuild
+            console.log('  ⏳ hnswlib-node native addon missing, attempting rebuild...');
+            const rebuildResult = await attemptHnswlibRebuild();
+            if (rebuildResult.ok) {
+                // Verify it actually works now
+                try {
+                    // Clear require cache and retry
+                    delete require.cache[require.resolve('hnswlib-node')];
+                    require('hnswlib-node');
+                    return { ok: true, rebuilt: true };
+                } catch {
+                    return { ok: false, reason: 'rebuild-failed', detail: 'Rebuild completed but module still fails to load' };
+                }
+            }
+            return { ok: false, reason: 'rebuild-failed', detail: rebuildResult.detail };
+        }
+        
+        if (isNotInstalled) {
+            return { ok: false, reason: 'not-installed', detail: 'Package not in node_modules' };
+        }
+        
+        return { ok: false, reason: 'unknown', detail: errorMsg };
     }
+}
+
+async function attemptHnswlibRebuild() {
+    return new Promise((resolve) => {
+        exec('npm rebuild hnswlib-node', { 
+            timeout: 120000, // 2 minutes
+            cwd: process.cwd(),
+            maxBuffer: 5 * 1024 * 1024
+        }, (err, stdout, stderr) => {
+            if (err) {
+                const combined = (stderr || '') + (stdout || '');
+                // Detect common failure reasons
+                if (combined.includes('gyp ERR!') && (combined.includes('not find') || combined.includes('cl.exe'))) {
+                    resolve({ ok: false, detail: 'C++ build tools not found (Visual Studio Build Tools required)' });
+                } else if (combined.includes('gyp ERR!')) {
+                    resolve({ ok: false, detail: `node-gyp build error: ${err.message}` });
+                } else {
+                    resolve({ ok: false, detail: err.message });
+                }
+            } else {
+                resolve({ ok: true });
+            }
+        });
+    });
 }
 
 function checkEnvVars(vars) {
@@ -72,7 +126,14 @@ function checkSettingsJson() {
     const settingsPath = path.join(process.cwd(), 'config', 'settings.json');
     try {
         if (!fs.existsSync(settingsPath)) return { ok: false, reason: 'File not found' };
-        JSON.parse(fs.readFileSync(settingsPath, 'utf8'));
+        let content = fs.readFileSync(settingsPath, 'utf8');
+        // Strip UTF-8 BOM if present (common on Windows editors)
+        if (content.charCodeAt(0) === 0xFEFF) {
+            content = content.slice(1);
+            // Auto-fix: rewrite without BOM so future reads are clean
+            try { fs.writeFileSync(settingsPath, content, 'utf8'); } catch { /* ignore write errors */ }
+        }
+        JSON.parse(content);
         return { ok: true };
     } catch (e) {
         return { ok: false, reason: e.message };
@@ -93,18 +154,34 @@ function checkPromptsJson() {
 async function runAll() {
     const results = [];
 
-    // 1. Ollama reachable
+    // 0. Bedrock (Windows-only: check for bearer token — primary AI provider on Windows)
+    if (IS_WINDOWS) {
+        const hasBedrock = !!process.env.AWS_BEARER_TOKEN_BEDROCK;
+        results.push({
+            name: 'Bedrock AI (Windows primary)',
+            severity: hasBedrock ? 'info' : 'warning',
+            ok: hasBedrock,
+            fix: 'Set AWS_BEARER_TOKEN_BEDROCK in .env.local for cloud AI (Claude). Without it, the app will use local Ollama (slower on CPU).',
+        });
+    }
+
+    // 1. Ollama reachable (on Windows with Bedrock, this is optional)
     const ollamaReachable = await checkOllamaReachable();
+    const ollamaSeverity = (IS_WINDOWS && process.env.AWS_BEARER_TOKEN_BEDROCK) ? 'info' : 'critical';
     results.push({
-        name: 'Ollama service reachable',
-        severity: 'critical',
+        name: IS_WINDOWS && process.env.AWS_BEARER_TOKEN_BEDROCK
+            ? 'Ollama service (optional — Bedrock is primary)'
+            : 'Ollama service reachable',
+        severity: ollamaSeverity,
         ok: ollamaReachable.ok,
-        fix: 'Install and start Ollama from https://ollama.com',
+        fix: IS_WINDOWS && process.env.AWS_BEARER_TOKEN_BEDROCK
+            ? 'Ollama is optional when Bedrock is configured. Install from https://ollama.com if you want local fallback.'
+            : 'Install and start Ollama from https://ollama.com',
     });
 
-    // 2. Ollama models
+    // 2. Ollama models (skip on Windows if Bedrock is available)
     const aiProvider = process.env.AI_PROVIDER || 'openai';
-    if (aiProvider === 'ollama') {
+    if (aiProvider === 'ollama' && !(IS_WINDOWS && process.env.AWS_BEARER_TOKEN_BEDROCK)) {
         const ollamaModel = process.env.OLLAMA_MODEL || 'llama3';
         const modelChecks = await checkOllamaModels([ollamaModel, 'nomic-embed-text']);
         for (const mc of modelChecks) {
@@ -150,13 +227,25 @@ async function runAll() {
         });
     }
 
-    // 6. hnswlib-node
-    const hasHnswlib = await checkHnswlib();
+    // 6. hnswlib-node (with auto-rebuild attempt)
+    const hnswlibCheck = await checkHnswlib();
+    const hnswlibFix = hnswlibCheck.ok
+        ? ''
+        : hnswlibCheck.reason === 'rebuild-failed'
+            ? IS_WINDOWS
+                ? `Native addon build failed: ${hnswlibCheck.detail || 'unknown error'}. Install Visual Studio Build Tools 2022 with "Desktop development with C++" workload, then run: npm rebuild hnswlib-node`
+                : `Native addon build failed: ${hnswlibCheck.detail || 'unknown error'}. Install Xcode Command Line Tools (xcode-select --install), then run: npm rebuild hnswlib-node`
+            : hnswlibCheck.reason === 'not-installed'
+                ? 'Run: npm install'
+                : `Run: npm rebuild hnswlib-node (Error: ${hnswlibCheck.detail || 'unknown'})`;
+    const hnswlibName = hnswlibCheck.rebuilt
+        ? 'hnswlib-node native module (auto-rebuilt ✨)'
+        : 'hnswlib-node native module';
     results.push({
-        name: 'hnswlib-node native module',
+        name: hnswlibName,
         severity: 'warning',
-        ok: hasHnswlib,
-        fix: 'Run: npm install  (may require build tools)',
+        ok: hnswlibCheck.ok,
+        fix: hnswlibFix,
     });
 
     // 7. settings.json

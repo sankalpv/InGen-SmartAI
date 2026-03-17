@@ -1,5 +1,8 @@
 import { NextResponse } from 'next/server';
 import { chatWithData } from '@/services/ai';
+import { createRequire } from 'module';
+const require = createRequire(import.meta.url);
+const tracker = require('../../../services/usage-tracker');
 
 export const runtime = 'nodejs';
 
@@ -7,6 +10,9 @@ export async function POST(req) {
     try {
         const body = await req.json();
         const { message, history, stream: useStream, pageContext } = body;
+
+        tracker.trackAPICall('/api/chat');
+        tracker.trackAIGeneration('ChatResponse');
 
         if (!message) {
             return NextResponse.json({ error: 'Message is required' }, { status: 400 });

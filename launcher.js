@@ -2,7 +2,34 @@ const { spawn, execSync } = require('child_process');
 const path = require('path');
 const os = require('os');
 const fs = require('fs');
+
+// Load .env.local (Next.js loads it for the app, but launcher.js runs standalone)
+const envLocalPath = path.join(__dirname, '.env.local');
+if (fs.existsSync(envLocalPath)) {
+    const envContent = fs.readFileSync(envLocalPath, 'utf8');
+    for (const line of envContent.split('\n')) {
+        const trimmed = line.trim();
+        if (!trimmed || trimmed.startsWith('#')) continue;
+        const eqIdx = trimmed.indexOf('=');
+        if (eqIdx > 0) {
+            const key = trimmed.substring(0, eqIdx).trim();
+            const value = trimmed.substring(eqIdx + 1).trim();
+            if (!process.env[key]) { // Don't override existing env vars
+                process.env[key] = value;
+            }
+        }
+    }
+}
+
 const { runAll: runStartupChecks } = require('./services/startup-checks');
+
+// Initialize usage tracking (auto-starts on require, sends SessionStart + DailyActiveUser)
+let usageTracker = null;
+try {
+    usageTracker = require('./services/usage-tracker');
+} catch (e) {
+    console.log('[Launcher] Usage tracking not available:', e.message);
+}
 
 // Configuration
 const IS_WINDOWS = os.platform() === 'win32';
@@ -43,6 +70,16 @@ console.log(`[Launcher] Logging to: ${LOG_FILE}`);
 // ─── First-Run Detection ───
 
 function isFirstRun() {
+    // On Windows, the installer already extracts Outlook data into outlook-cache.db
+    // via the Python extractor. Skip first-run sync if that DB exists.
+    if (IS_WINDOWS) {
+        const outlookCacheDb = path.join(DATA_DIR, 'outlook-cache.db');
+        if (fs.existsSync(outlookCacheDb)) {
+            console.log('[Launcher] Windows: outlook-cache.db found (installer already extracted data) — skipping first-run sync');
+            return false;
+        }
+    }
+
     // First run if data directory or either core data file is missing
     if (!fs.existsSync(DATA_DIR)) return true;
     if (!fs.existsSync(EMAILS_FILE)) return true;
@@ -113,6 +150,24 @@ runStartupChecks().then((report) => {
         console.log('[Launcher] ⚠️  Critical issues detected above. Starting anyway — some features may not work.\n');
     }
 
+    // Check if hnswlib-node specifically failed — provide targeted guidance
+    const hnswlibResult = report.results.find(r => r.name.includes('hnswlib-node'));
+    if (hnswlibResult && !hnswlibResult.ok) {
+        console.log('[Launcher] 📋 Vector search (email RAG) is disabled due to missing hnswlib-node native addon.');
+        if (IS_WINDOWS) {
+            console.log('[Launcher]    To enable it:');
+            console.log('[Launcher]    1. Install Visual Studio Build Tools 2022: https://visualstudio.microsoft.com/visual-cpp-build-tools/');
+            console.log('[Launcher]       (Select "Desktop development with C++" workload)');
+            console.log('[Launcher]    2. Then run: npm rebuild hnswlib-node');
+            console.log('[Launcher]    3. Restart the app');
+        } else {
+            console.log('[Launcher]    To enable it: npm rebuild hnswlib-node');
+        }
+        console.log('[Launcher]    The app will work without it — AI features just won\'t search past emails.\n');
+    } else if (hnswlibResult && hnswlibResult.ok && hnswlibResult.name.includes('auto-rebuilt')) {
+        console.log('[Launcher] ✨ hnswlib-node was auto-rebuilt successfully! Vector search is now enabled.\n');
+    }
+
     // First-run: cache data before starting the app so dashboard has data immediately
     if (isFirstRun()) {
         runFirstRunSync();
@@ -154,6 +209,12 @@ runStartupChecks().then((report) => {
     const cleanup = () => {
         console.log('\n[Launcher] Shutting down...');
         logStream.write(`[Launcher] Shutting down at ${new Date().toISOString()}\n`);
+
+        // Flush usage metrics before exit
+        if (usageTracker) {
+            try { usageTracker.stop(); } catch (e) { /* silent */ }
+        }
+
         logStream.end();
 
         if (appProcess) {

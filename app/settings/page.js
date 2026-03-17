@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { Cloud, Cpu, ExternalLink, CheckCircle2, User, FileText, Sun, Moon } from 'lucide-react';
+import { Cloud, Cpu, ExternalLink, CheckCircle2, User, FileText, Sun, Moon, Database, Download } from 'lucide-react';
 import { useTheme } from '@/components/ThemeProvider';
 
 export default function SettingsPage() {
@@ -47,6 +47,12 @@ export default function SettingsPage() {
     const [orgStatus, setOrgStatus] = useState(null);
     const [orgSyncing, setOrgSyncing] = useState(false);
     const [orgMessage, setOrgMessage] = useState('');
+
+    // Bulk Export state
+    const [bulkStatus, setBulkStatus] = useState(null);
+    const [bulkExtracting, setBulkExtracting] = useState(false);
+    const [bulkIngesting, setBulkIngesting] = useState(false);
+    const [bulkMessage, setBulkMessage] = useState('');
     
     // Load settings on mount
     useEffect(() => {
@@ -56,6 +62,7 @@ export default function SettingsPage() {
         fetchPhonetoolAlias();
         fetchWbrSettings();
         fetchOrgStatus();
+        fetchBulkStatus();
     }, []);
 
     async function fetchPhonetoolAlias() {
@@ -276,6 +283,46 @@ export default function SettingsPage() {
         } finally {
             setOrgSyncing(false);
         }
+    }
+
+    async function fetchBulkStatus() {
+        try {
+            const res = await fetch('/api/bulk-export');
+            const data = await res.json();
+            setBulkStatus(data);
+        } catch (e) { console.error('Bulk status error:', e); }
+    }
+
+    async function runBulkExtract() {
+        setBulkExtracting(true);
+        setBulkMessage('');
+        try {
+            const res = await fetch('/api/bulk-export', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+            const data = await res.json();
+            if (data.success) {
+                const s = data.stats || {};
+                setBulkMessage(`✅ Extracted: ${s.conversations_added || 0} new + ${s.conversations_updated || 0} updated conversations, ${s.meetings_added || 0} meetings, ${s.contacts_added || 0} contacts`);
+                fetchBulkStatus();
+            } else {
+                setBulkMessage(`❌ ${data.error || 'Extraction failed'}`);
+            }
+        } catch (e) { setBulkMessage(`❌ ${e.message}`); }
+        finally { setBulkExtracting(false); }
+    }
+
+    async function runBulkIngest() {
+        setBulkIngesting(true);
+        setBulkMessage('');
+        try {
+            const res = await fetch('/api/bulk-export', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'ingest' }) });
+            const data = await res.json();
+            if (data.success) {
+                setBulkMessage(`✅ Ingested ${data.ingested} conversations to vector store (${data.skipped} already indexed)`);
+            } else {
+                setBulkMessage(`❌ ${data.error || 'Ingestion failed'}`);
+            }
+        } catch (e) { setBulkMessage(`❌ ${e.message}`); }
+        finally { setBulkIngesting(false); }
     }
 
     const integrations = [
@@ -929,6 +976,83 @@ export default function SettingsPage() {
                         textAlign: 'center'
                     }}>
                         {aiTempMessage}
+                    </div>
+                )}
+            </div>
+
+            {/* Bulk Data Export Section */}
+            <div className="settings-section">
+                <div className="settings-section-title">
+                    <Database size={20} />
+                    Outlook Data Export (Windows)
+                </div>
+
+                <div className="settings-card">
+                    <div className="settings-card-info">
+                        <div className="settings-card-icon" style={{ background: 'rgba(251, 146, 60, 0.1)' }}>
+                            📦
+                        </div>
+                        <div className="settings-card-text">
+                            <h3>Step 1: Extract from Outlook</h3>
+                            <p>
+                                {!bulkStatus?.available
+                                    ? 'New Outlook database not detected on this machine.'
+                                    : 'Extract conversations, meetings, and contacts from New Outlook\'s local cache. Close Outlook first for best results.'}
+                            </p>
+                            {bulkStatus?.stats && (
+                                <div style={{ marginTop: 8, display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+                                    {[
+                                        ['💬', bulkStatus.stats.conversations, 'conversations'],
+                                        ['📅', bulkStatus.stats.meetings, 'meetings'],
+                                        ['👤', bulkStatus.stats.contacts, 'contacts'],
+                                    ].map(([icon, count, label]) => (
+                                        <span key={label} style={{ padding: '4px 10px', borderRadius: 8, background: 'var(--bg-tertiary)', fontSize: '0.8rem' }}>
+                                            {icon} {count} {label}
+                                        </span>
+                                    ))}
+                                    {bulkStatus.lastExtraction && (
+                                        <span style={{ padding: '4px 10px', borderRadius: 8, background: 'var(--bg-tertiary)', fontSize: '0.75rem', color: 'var(--text-tertiary)' }}>
+                                            🕐 {new Date(bulkStatus.lastExtraction.timestamp).toLocaleString()}
+                                        </span>
+                                    )}
+                                </div>
+                            )}
+                        </div>
+                    </div>
+                    {bulkStatus?.available && (
+                        <button className="btn btn-primary" onClick={runBulkExtract} disabled={bulkExtracting}
+                            style={{ minWidth: 170, display: 'flex', alignItems: 'center', gap: 8, justifyContent: 'center' }}>
+                            {bulkExtracting ? '⏳ Extracting...' : <><Download size={14} /> Extract Data</>}
+                        </button>
+                    )}
+                </div>
+
+                {bulkStatus?.available && bulkStatus?.stats?.conversations > 0 && (
+                    <div className="settings-card">
+                        <div className="settings-card-info">
+                            <div className="settings-card-icon" style={{ background: 'rgba(99, 102, 241, 0.1)' }}>
+                                🧠
+                            </div>
+                            <div className="settings-card-text">
+                                <h3>Step 2: Ingest to AI Vector Store</h3>
+                                <p>Index conversations into the RAG vector store for AI-powered search, briefings, and insights. Only new conversations are ingested (incremental).</p>
+                            </div>
+                        </div>
+                        <button className="btn btn-secondary" onClick={runBulkIngest} disabled={bulkIngesting}
+                            style={{ minWidth: 170, display: 'flex', alignItems: 'center', gap: 8, justifyContent: 'center' }}>
+                            {bulkIngesting ? '⏳ Ingesting...' : '🧠 Ingest to RAG'}
+                        </button>
+                    </div>
+                )}
+
+                {bulkMessage && (
+                    <div style={{
+                        padding: '12px', marginTop: '12px', borderRadius: '8px',
+                        background: bulkMessage.includes('✅') ? 'rgba(34, 197, 94, 0.1)' : 'rgba(239, 68, 68, 0.1)',
+                        border: `1px solid ${bulkMessage.includes('✅') ? 'rgba(34, 197, 94, 0.3)' : 'rgba(239, 68, 68, 0.3)'}`,
+                        fontSize: '0.9rem', textAlign: 'center'
+                    }}>
+                        {bulkMessage}
                     </div>
                 )}
             </div>

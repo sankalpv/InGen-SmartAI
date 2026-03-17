@@ -213,6 +213,45 @@ async function streamGenerate(prompt, onChunk, options = {}) {
     });
 }
 
+/**
+ * Generate embeddings using Bedrock Titan Embeddings V2
+ * Used on Windows instead of Ollama's qwen3-embedding
+ */
+async function embed(text, options = {}) {
+    const config = getConfig();
+    const embeddingModelId = options.modelId || 'amazon.titan-embed-text-v2:0';
+    const dimensions = options.dimensions || 1024; // Titan V2 supports 256, 512, 1024
+
+    // Truncate text (Titan V2 supports up to 8192 tokens)
+    const maxLength = options.maxLength || 30000;
+    const truncatedText = text.length > maxLength ? text.substring(0, maxLength) : text;
+
+    const body = {
+        inputText: truncatedText,
+        dimensions: dimensions,
+    };
+
+    const encodedModelId = encodeURIComponent(embeddingModelId);
+    logger.debug(`Generating embedding (model: ${embeddingModelId}, text: ${truncatedText.length} chars, dims: ${dimensions})`);
+
+    const result = await bedrockHttpRequest(`/model/${encodedModelId}/invoke`, body);
+    const embedding = result.embedding;
+
+    if (!embedding || !Array.isArray(embedding)) {
+        throw new Error(`Bedrock embedding failed: no embedding in response`);
+    }
+
+    logger.debug(`Embedding generated: ${embedding.length} dimensions`);
+    return embedding;
+}
+
+/**
+ * Get embedding dimensions for the configured model
+ */
+function getEmbeddingDimensions() {
+    return 1024; // Titan V2 default
+}
+
 // Log auth status on first load
 const token = getBearerToken();
 if (token) {
@@ -224,6 +263,8 @@ if (token) {
 module.exports = {
     generate,
     streamGenerate,
+    embed,
     getConfig,
+    getEmbeddingDimensions,
     isAvailable,
 };

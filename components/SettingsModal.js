@@ -34,7 +34,8 @@ export default function SettingsModal({ isOpen, onClose }) {
 
             const calRes = await fetch('/api/settings/calendars');
             const calData = await calRes.json();
-            setCalendars(calData.calendars || []);
+            const calList = calData.calendars;
+            setCalendars(Array.isArray(calList) ? calList : []);
 
             const currentId = configData.outlookCalendarId || '';
             if (currentId) setSelectedId(String(currentId));

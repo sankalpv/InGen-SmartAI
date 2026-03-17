@@ -8,11 +8,36 @@ const path = require('path');
 const logger = require('./logger').child('Phonetool');
 const mcpClient = require('./mcp-client');
 
+/**
+ * Read an internal website via MCP — tries amzn-mcp first, falls back to builder-mcp.
+ * On Windows, amzn-mcp may not be available, so builder-mcp is the primary.
+ */
+async function readInternalWebsite(url) {
+    // Try amzn-mcp first (Mac primary)
+    try {
+        const result = await mcpClient.callTool('amzn-mcp', 'read_internal_website', { url });
+        if (result && result.content) return result;
+    } catch (e) {
+        logger.debug(`amzn-mcp failed for ${url}: ${e.message}, trying builder-mcp...`);
+    }
+    
+    // Fallback: builder-mcp (Windows primary)
+    try {
+        const result = await mcpClient.callTool('builder-mcp', 'ReadInternalWebsites', { inputs: [url] });
+        if (result && result.content) return result;
+    } catch (e) {
+        logger.error(`builder-mcp also failed for ${url}: ${e.message}`);
+    }
+    
+    return null;
+}
+
 const SETTINGS_PATH = path.join(process.cwd(), 'config', 'settings.json');
 const CACHE_PATH = path.join(process.cwd(), 'brain', 'phonetool-cache.json');
 
-// In-memory cache
+// In-memory cache (keyed by alias to avoid cross-contamination during recursive org tree builds)
 let directReportsCache = null;
+let directReportsCacheAlias = null;
 let cacheTimestamp = 0;
 const CACHE_TTL = 24 * 60 * 60 * 1000; // 24 hours
 
@@ -56,9 +81,9 @@ async function fetchDirectReports(alias) {
         return [];
     }
 
-    // Check in-memory cache
-    if (directReportsCache && (Date.now() - cacheTimestamp < CACHE_TTL)) {
-        logger.info(`Returning cached direct reports (${directReportsCache.length} reports)`);
+    // Check in-memory cache (must match alias to avoid cross-contamination during recursive builds)
+    if (directReportsCache && directReportsCacheAlias === alias && (Date.now() - cacheTimestamp < CACHE_TTL)) {
+        logger.info(`Returning cached direct reports for ${alias} (${directReportsCache.length} reports)`);
         return directReportsCache;
     }
 
@@ -82,7 +107,7 @@ async function fetchDirectReports(alias) {
         logger.info(`Fetching Phonetool data for alias: ${alias}`);
         
         const url = `https://phonetool.amazon.com/users/${alias}`;
-        const result = await mcpClient.callTool('amzn-mcp', 'read_internal_website', { url });
+        const result = await readInternalWebsite(url);
 
         if (!result || !result.content) {
             logger.error('Empty response from Phonetool');
@@ -102,7 +127,9 @@ async function fetchDirectReports(alias) {
             const jsonMatch = content.match(/^\s*(\{[\s\S]*\})\s*(?:⚠|$)/);
             const jsonStr = jsonMatch ? jsonMatch[1] : content;
             const parsed = JSON.parse(jsonStr);
-            const userData = parsed.content || parsed;
+            let userData = parsed.content || parsed;
+            // builder-mcp wraps in content.content; unwrap until we find direct_reports
+            if (userData.content && !userData.direct_reports) userData = userData.content;
             
             if (userData.direct_reports && Array.isArray(userData.direct_reports)) {
                 logger.info(`Found ${userData.direct_reports.length} direct reports in JSON response`);
@@ -116,7 +143,7 @@ async function fetchDirectReports(alias) {
                     let name = login; // Default to login
                     try {
                         const reportUrl = `https://phonetool.amazon.com/users/${login}`;
-                        const reportResult = await mcpClient.callTool('amzn-mcp', 'read_internal_website', { url: reportUrl });
+                        const reportResult = await readInternalWebsite(reportUrl);
                         const reportContent = typeof reportResult.content === 'string'
                             ? reportResult.content
                             : reportResult.content.map(c => c.text || '').join('\n');
@@ -124,7 +151,8 @@ async function fetchDirectReports(alias) {
                         const rJsonMatch = reportContent.match(/^\s*(\{[\s\S]*\})\s*(?:⚠|$)/);
                         const rJsonStr = rJsonMatch ? rJsonMatch[1] : reportContent;
                         const reportData = JSON.parse(rJsonStr);
-                        const rd = reportData.content || reportData;
+                        let rd = reportData.content || reportData;
+                        if (rd.content && !rd.name) rd = rd.content; // unwrap builder-mcp double nesting
                         name = rd.name || rd.first_name || login;
                     } catch (e) {
                         logger.warn(`Failed to fetch name for ${login}: ${e.message}`);
@@ -145,8 +173,9 @@ async function fetchDirectReports(alias) {
         
         logger.info(`Found ${reports.length} direct reports for ${alias}`);
 
-        // Cache results
+        // Cache results (with alias for cross-contamination prevention)
         directReportsCache = reports;
+        directReportsCacheAlias = alias;
         cacheTimestamp = Date.now();
 
         // Save to file cache
@@ -273,7 +302,7 @@ async function fetchPersonName(alias) {
     
     try {
         const url = `https://phonetool.amazon.com/users/${alias}`;
-        const result = await mcpClient.callTool('amzn-mcp', 'read_internal_website', { url });
+        const result = await readInternalWebsite(url);
         
         if (!result || !result.content) return null;
         
@@ -287,7 +316,8 @@ async function fetchPersonName(alias) {
             const jsonMatch = content.match(/^\s*(\{[\s\S]*\})\s*(?:⚠|$)/);
             const jsonStr = jsonMatch ? jsonMatch[1] : content;
             const parsed = JSON.parse(jsonStr);
-            const userData = parsed.content || parsed;
+            let userData = parsed.content || parsed;
+            if (userData.content && !userData.name) userData = userData.content; // unwrap builder-mcp double nesting
             name = userData.name || userData.first_name || null;
         } catch (jsonError) {
             // Try markdown parsing: look for name in heading
@@ -366,12 +396,12 @@ const ORG_TREE_CACHE_PATH = path.join(process.cwd(), 'brain', 'org-tree-cache.js
 async function fetchOrgTree(alias, maxDepth = 3) {
     if (!alias) return null;
 
-    // Check file cache first
+    // Check file cache first (must match both alias AND maxDepth to avoid shallow cache poisoning)
     try {
         if (fs.existsSync(ORG_TREE_CACHE_PATH)) {
             const cached = JSON.parse(fs.readFileSync(ORG_TREE_CACHE_PATH, 'utf8'));
-            if (cached.alias === alias && (Date.now() - cached.timestamp < CACHE_TTL)) {
-                logger.info(`Returning cached org tree for ${alias} (${cached.totalPeople} people)`);
+            if (cached.alias === alias && cached.maxDepth >= maxDepth && (Date.now() - cached.timestamp < CACHE_TTL)) {
+                logger.info(`Returning cached org tree for ${alias} (${cached.totalPeople} people, depth=${cached.maxDepth})`);
                 return cached.tree;
             }
         }
@@ -385,12 +415,13 @@ async function fetchOrgTree(alias, maxDepth = 3) {
     // Count total people
     const totalPeople = _countPeople(tree);
 
-    // Cache to disk
+    // Cache to disk (include maxDepth so shallow caches don't poison deep requests)
     try {
         const brainDir = path.join(process.cwd(), 'brain');
         if (!fs.existsSync(brainDir)) fs.mkdirSync(brainDir, { recursive: true });
         fs.writeFileSync(ORG_TREE_CACHE_PATH, JSON.stringify({
             alias,
+            maxDepth,
             tree,
             totalPeople,
             timestamp: Date.now(),

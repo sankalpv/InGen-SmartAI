@@ -3,6 +3,7 @@ import { createRequire } from 'module';
 
 const require = createRequire(import.meta.url);
 const engMetrics = require('../../../services/eng-metrics');
+const tracker = require('../../../services/usage-tracker');
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -11,6 +12,7 @@ export async function GET(request) {
     try {
         const { searchParams } = new URL(request.url);
         const view = searchParams.get('view') || 'dashboard';
+        tracker.trackAPICall('/api/eng-metrics');
         const alias = searchParams.get('alias');
         const weeks = parseInt(searchParams.get('weeks') || '8');
 

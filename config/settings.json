@@ -8,24 +8,24 @@
   "logUploadUrl": "",
   "promptUpdateUrl": "https://gist.githubusercontent.com/sankalpv/3ceed22582916bbe0c3d22e27e10790c/raw/3bd7b948d80d89c6bcc8a0cd0fdc4d5b08b0bf12/%257B%257D%2520prompts.json",
   "quip": {
-    "enabled": true,
+    "enabled": false,
     "baseUrl": "https://quip-amazon.com",
     "maxDocsPerEmail": 5,
     "timeoutSeconds": 30
   },
   "mcpServers": {
     "amzn-mcp": {
-      "command": "/Users/sankalpv/.toolbox/bin/amzn-mcp",
+      "command": "D:\\Users\\sankalpv\\AppData\\Local/Toolbox/bin/amzn-mcp.exe",
       "args": [],
       "env": {}
     },
     "builder-mcp": {
-      "command": "/Users/sankalpv/.toolbox/bin/builder-mcp",
+      "command": "D:/Users/sankalpv/AppData/Local/Toolbox/bin/builder-mcp.exe",
       "args": [],
       "env": {}
     },
     "slack-mcp": {
-      "command": "/Users/sankalpv/.aim/mcp-servers/slack-mcp",
+      "command": "D:\\Users\\sankalpv\\AppData\\Local/Toolbox/bin/slack-mcp.exe",
       "args": [],
       "env": {
         "SSB_INSTANCE_ID": "496484ad-130b-4eb6-8903-a1d6643b7336",
@@ -55,6 +55,11 @@
     "staleCrThresholdDays": 5,
     "busFactorWindowDays": 90,
     "fetchDelayMs": 500
+  },
+  "telemetry": {
+    "enabled": true,
+    "namespace": "InGen/Usage",
+    "flushIntervalMs": 300000
   },
   "test": true
 }

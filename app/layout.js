@@ -1,6 +1,7 @@
 import './globals.css';
 import Sidebar from '@/components/Sidebar';
 import ThemeProvider from '@/components/ThemeProvider';
+import PageTracker from '@/components/PageTracker';
 import { SessionProvider } from 'next-auth/react';
 
 export const metadata = {
@@ -30,6 +31,7 @@ export default function RootLayout({ children }) {
             <body>
                 <SessionProvider>
                     <ThemeProvider>
+                        <PageTracker />
                         <div className="app-layout">
                             <Sidebar />
                             <main className="main-content">
