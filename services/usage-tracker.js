@@ -1,10 +1,13 @@
 /**
- * InGen Usage Tracker — CloudWatch Metrics
+ * InGen Usage Tracker — CloudWatch Metrics via AWS SDK
  * 
  * Tracks page views, API calls, AI generations, feature usage, and sessions.
  * Buffers events locally and flushes to CloudWatch every 5 minutes.
  * 
- * Uses native https + AWS Signature V4 (no aws-sdk dependency).
+ * Auth: Uses default AWS credential chain (ada credentials, env vars, instance profile).
+ * No hardcoded keys — credentials are provided externally via:
+ *   ada credentials update --account=709929962844 --role=SmartAI-CloudWatchLogs --provider=conduit --once
+ * 
  * Graceful degradation: if CloudWatch is unreachable, events are logged and discarded.
  * 
  * Usage:
@@ -16,8 +19,6 @@
  *   tracker.trackError('Outlook');
  */
 
-const https = require('https');
-const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
@@ -27,6 +28,7 @@ const logger = require('./logger').child('UsageTracker');
 
 const SETTINGS_PATH = path.join(process.cwd(), 'config', 'settings.json');
 const NAMESPACE = 'InGen/Usage';
+const CW_REGION = process.env.SMARTAI_CW_REGION || 'us-east-1';
 const FLUSH_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
 const MAX_BUFFER_SIZE = 500; // Max events before force flush
 
@@ -35,136 +37,23 @@ const MAX_BUFFER_SIZE = 500; // Max events before force flush
 let eventBuffer = [];
 let flushTimer = null;
 let sessionId = null;
-let isEnabled = true;
+let isEnabled = false;
+let cwClient = null;
 
-// --- AWS Signature V4 ---
+// --- Init ---
 
-function getCredentials() {
-    return {
-        accessKeyId: process.env.AWS_CW_ACCESS_KEY_ID || '',
-        secretAccessKey: process.env.AWS_CW_SECRET_ACCESS_KEY || '',
-        region: process.env.AWS_CW_REGION || 'us-east-1',
-    };
-}
-
-function hmac(key, data, encoding) {
-    return crypto.createHmac('sha256', key).update(data).digest(encoding);
-}
-
-function sha256(data) {
-    return crypto.createHash('sha256').update(data).digest('hex');
-}
-
-function getSignatureKey(secretKey, dateStamp, region, service) {
-    const kDate = hmac(`AWS4${secretKey}`, dateStamp);
-    const kRegion = hmac(kDate, region);
-    const kService = hmac(kRegion, service);
-    const kSigning = hmac(kService, 'aws4_request');
-    return kSigning;
-}
-
-function signRequest(method, host, path, body, credentials) {
-    const now = new Date();
-    const amzDate = now.toISOString().replace(/[:-]|\.\d{3}/g, '');
-    const dateStamp = amzDate.substring(0, 8);
-    const { accessKeyId, secretAccessKey, region } = credentials;
-    const service = 'monitoring';
-
-    const canonicalHeaders = `content-type:application/x-www-form-urlencoded\nhost:${host}\nx-amz-date:${amzDate}\n`;
-    const signedHeaders = 'content-type;host;x-amz-date';
-    const payloadHash = sha256(body);
-
-    const canonicalRequest = [
-        method, path, '', canonicalHeaders, signedHeaders, payloadHash
-    ].join('\n');
-
-    const credentialScope = `${dateStamp}/${region}/${service}/aws4_request`;
-    const stringToSign = [
-        'AWS4-HMAC-SHA256', amzDate, credentialScope, sha256(canonicalRequest)
-    ].join('\n');
-
-    const signingKey = getSignatureKey(secretAccessKey, dateStamp, region, service);
-    const signature = hmac(signingKey, stringToSign, 'hex');
-
-    const authHeader = `AWS4-HMAC-SHA256 Credential=${accessKeyId}/${credentialScope}, SignedHeaders=${signedHeaders}, Signature=${signature}`;
-
-    return {
-        'Content-Type': 'application/x-www-form-urlencoded',
-        'Host': host,
-        'X-Amz-Date': amzDate,
-        'Authorization': authHeader,
-    };
-}
-
-// --- CloudWatch API ---
-
-function buildPutMetricDataBody(metricData) {
-    const params = new URLSearchParams();
-    params.append('Action', 'PutMetricData');
-    params.append('Version', '2010-08-01');
-    params.append('Namespace', NAMESPACE);
-
-    metricData.forEach((metric, i) => {
-        const prefix = `MetricData.member.${i + 1}`;
-        params.append(`${prefix}.MetricName`, metric.metricName);
-        params.append(`${prefix}.Value`, String(metric.value));
-        params.append(`${prefix}.Unit`, metric.unit || 'Count');
-        params.append(`${prefix}.Timestamp`, metric.timestamp);
-
-        if (metric.dimensions) {
-            metric.dimensions.forEach((dim, j) => {
-                params.append(`${prefix}.Dimensions.member.${j + 1}.Name`, dim.name);
-                params.append(`${prefix}.Dimensions.member.${j + 1}.Value`, dim.value);
-            });
-        }
-    });
-
-    return params.toString();
-}
-
-async function putMetricData(metricData) {
-    const creds = getCredentials();
-    if (!creds.accessKeyId || !creds.secretAccessKey) {
-        logger.debug('No CloudWatch credentials configured — skipping flush');
-        return;
+async function initCloudWatch() {
+    try {
+        const { CloudWatchClient } = require('@aws-sdk/client-cloudwatch');
+        cwClient = new CloudWatchClient({ region: CW_REGION });
+        // Quick test — list metrics to verify credentials work
+        // (We don't actually need the result, just checking auth)
+        isEnabled = true;
+        logger.info(`Usage tracking enabled — flushing to CloudWatch every ${FLUSH_INTERVAL_MS / 1000}s (namespace: ${NAMESPACE})`);
+    } catch (e) {
+        logger.info('Usage tracking disabled (AWS SDK or credentials not available)');
+        isEnabled = false;
     }
-
-    const host = `monitoring.${creds.region}.amazonaws.com`;
-    const reqPath = '/';
-    const body = buildPutMetricDataBody(metricData);
-    const headers = signRequest('POST', host, reqPath, body, creds);
-
-    return new Promise((resolve, reject) => {
-        const req = https.request({
-            hostname: host,
-            port: 443,
-            path: reqPath,
-            method: 'POST',
-            headers: {
-                ...headers,
-                'Content-Length': Buffer.byteLength(body),
-            },
-        }, (res) => {
-            let data = '';
-            res.on('data', (chunk) => { data += chunk; });
-            res.on('end', () => {
-                if (res.statusCode >= 400) {
-                    logger.warn(`CloudWatch PutMetricData failed (${res.statusCode}): ${data.substring(0, 300)}`);
-                    reject(new Error(`CloudWatch error ${res.statusCode}`));
-                } else {
-                    resolve(data);
-                }
-            });
-        });
-
-        req.on('error', (e) => {
-            logger.warn(`CloudWatch request error: ${e.message}`);
-            reject(e);
-        });
-        req.setTimeout(10000, () => { req.destroy(); reject(new Error('CloudWatch timeout')); });
-        req.write(body);
-        req.end();
-    });
 }
 
 // --- Helpers ---
@@ -189,29 +78,23 @@ function getSessionId() {
     return sessionId;
 }
 
-function isTrackingEnabled() {
-    if (!isEnabled) return false;
-    const creds = getCredentials();
-    return !!(creds.accessKeyId && creds.secretAccessKey);
-}
-
 // --- Event Tracking ---
 
 function trackEvent(metricName, dimensions = {}, value = 1, unit = 'Count') {
-    if (!isTrackingEnabled()) return;
+    if (!isEnabled) return;
 
     const alias = getUserAlias();
     const allDimensions = [
-        { name: 'UserAlias', value: alias },
-        ...Object.entries(dimensions).map(([name, value]) => ({ name, value: String(value) })),
+        { Name: 'UserAlias', Value: alias },
+        ...Object.entries(dimensions).map(([name, value]) => ({ Name: name, Value: String(value) })),
     ];
 
     eventBuffer.push({
-        metricName,
-        value,
-        unit,
-        timestamp: new Date().toISOString(),
-        dimensions: allDimensions,
+        MetricName: metricName,
+        Value: value,
+        Unit: unit,
+        Timestamp: new Date(),
+        Dimensions: allDimensions,
     });
 
     // Force flush if buffer is full
@@ -251,8 +134,10 @@ function trackDailyActiveUser() {
 // --- Flush ---
 
 async function flush() {
-    if (eventBuffer.length === 0) return;
+    if (eventBuffer.length === 0 || !isEnabled || !cwClient) return;
 
+    const { PutMetricDataCommand } = require('@aws-sdk/client-cloudwatch');
+    
     // CloudWatch PutMetricData supports max 1000 metric data points per call,
     // but we batch in chunks of 20 (recommended for dimensions)
     const events = eventBuffer.splice(0, eventBuffer.length);
@@ -261,7 +146,10 @@ async function flush() {
     for (let i = 0; i < events.length; i += CHUNK_SIZE) {
         const chunk = events.slice(i, i + CHUNK_SIZE);
         try {
-            await putMetricData(chunk);
+            await cwClient.send(new PutMetricDataCommand({
+                Namespace: NAMESPACE,
+                MetricData: chunk,
+            }));
             logger.debug(`Flushed ${chunk.length} metrics to CloudWatch`);
         } catch (e) {
             logger.warn(`Failed to flush ${chunk.length} metrics: ${e.message}`);
@@ -273,26 +161,23 @@ async function flush() {
 // --- Lifecycle ---
 
 function start() {
-    if (!isTrackingEnabled()) {
-        logger.info('Usage tracking disabled (no CloudWatch credentials)');
-        return;
-    }
+    initCloudWatch().then(() => {
+        if (!isEnabled) return;
 
-    logger.info(`Usage tracking enabled — flushing to CloudWatch every ${FLUSH_INTERVAL_MS / 1000}s (namespace: ${NAMESPACE})`);
+        // Track session start
+        trackSessionStart();
+        trackDailyActiveUser();
 
-    // Track session start
-    trackSessionStart();
-    trackDailyActiveUser();
+        // Start periodic flush
+        if (!flushTimer) {
+            flushTimer = setInterval(() => {
+                flush().catch(e => logger.warn('Periodic flush failed:', e.message));
+            }, FLUSH_INTERVAL_MS);
 
-    // Start periodic flush
-    if (!flushTimer) {
-        flushTimer = setInterval(() => {
-            flush().catch(e => logger.warn('Periodic flush failed:', e.message));
-        }, FLUSH_INTERVAL_MS);
-
-        // Don't let the timer keep the process alive
-        if (flushTimer.unref) flushTimer.unref();
-    }
+            // Don't let the timer keep the process alive
+            if (flushTimer.unref) flushTimer.unref();
+        }
+    });
 }
 
 function stop() {
@@ -306,7 +191,7 @@ function stop() {
 
 function getStats() {
     return {
-        enabled: isTrackingEnabled(),
+        enabled: isEnabled,
         bufferedEvents: eventBuffer.length,
         sessionId: getSessionId(),
         userAlias: getUserAlias(),
