@@ -12,7 +12,7 @@ const mcpClient = require('./mcp-client');
 const SETTINGS_PATH = path.join(process.cwd(), 'config', 'settings.json');
 const CACHE_PATH = path.join(process.cwd(), 'brain', 'wbr-cache.json');
 const ECD_HISTORY_PATH = path.join(process.cwd(), 'brain', 'ecd-history.json');
-const CACHE_TTL = 60 * 60 * 1000; // 1 hour
+const CACHE_TTL = 6 * 24 * 60 * 60 * 1000; // 6 days — goals don't change often; Refresh button forces fresh fetch
 
 // Status sections in order
 const STATUS_SECTIONS = [
