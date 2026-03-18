@@ -172,68 +172,12 @@ export const mockMeetings = [
     }
 ];
 
-export const mockSlackMessages = [
-    {
-        id: 'slack-1',
-        channel: '#engineering',
-        from: { name: 'Alex Johnson', avatar: '👨‍💻' },
-        message: 'Hey team, the post-mortem for yesterday\'s latency incident is scheduled for Thursday at 3 PM. Please review the incident timeline before the meeting.',
-        timestamp: new Date(today.getTime() - 1 * 60 * 60 * 1000).toISOString(),
-        isDirectMessage: false,
-        needsResponse: false,
-        actionItem: 'Review incident timeline before Thursday 3 PM post-mortem',
-    },
-    {
-        id: 'slack-2',
-        channel: 'DM',
-        from: { name: 'Priya Sharma', avatar: '👩‍💼' },
-        message: 'Quick question — do you have the updated headcount numbers for the budget meeting tomorrow? Sarah is asking.',
-        timestamp: new Date(today.getTime() - 30 * 60 * 1000).toISOString(),
-        isDirectMessage: true,
-        needsResponse: true,
-        actionItem: 'Respond with updated headcount numbers',
-        aiSuggestedReply: 'Yes! I have them ready — 3 new hires starting March 3rd (2 SWEs + 1 ML engineer). I\'m updating the deck now and will share by EOD.',
-    },
-    {
-        id: 'slack-3',
-        channel: '#general',
-        from: { name: 'Lisa Park', avatar: '🎉' },
-        message: 'Reminder: Team offsite activity vote closes Friday! We\'re tied between hiking and cooking class. Cast your vote in the thread! 🗳️',
-        timestamp: new Date(today.getTime() - 4 * 60 * 60 * 1000).toISOString(),
-        isDirectMessage: false,
-        needsResponse: false,
-        actionItem: 'Vote on team offsite activity by Friday',
-    },
-    {
-        id: 'slack-4',
-        channel: '#deployments',
-        from: { name: 'CI/CD Bot', avatar: '🤖' },
-        message: '✅ Production deploy successful: api-gateway v2.14.3 — includes connection pool monitoring (hotfix for yesterday\'s incident)',
-        timestamp: new Date(today.getTime() - 2 * 60 * 60 * 1000).toISOString(),
-        isDirectMessage: false,
-        needsResponse: false,
-        actionItem: null,
-    },
-    {
-        id: 'slack-5',
-        channel: 'DM',
-        from: { name: 'Marcus Rodriguez', avatar: '🤝' },
-        message: 'Hey! Just sent you an email about the partnership next steps. Would be great to get the technical deep-dive scheduled ASAP. Our team is really excited about this.',
-        timestamp: new Date(today.getTime() - 45 * 60 * 1000).toISOString(),
-        isDirectMessage: true,
-        needsResponse: true,
-        actionItem: 'Schedule technical deep-dive with Marcus\'s team',
-        aiSuggestedReply: 'Hey Marcus! Just saw the email — great questions. I\'m aligning with our engineering lead and will propose a few time slots for next week. Expect calendar invites by tomorrow!',
-    },
-];
 
 export const mockBriefing = {
     summary: {
         totalEmails: 6,
         needResponse: 3,
         urgentCount: 2,
-        meetingsToday: 3,
-        slackActionItems: 4,
         generatedAt: new Date().toISOString(),
     },
     greeting: `Good morning. You have a high-leverage day ahead with 3 strategic meetings and 2 urgent decisions pending. Your primary focus should be finalizing the Q1 Budget for Sarah Chen's board presentation and reviewing the Architecture Doc v4 to unblock the engineering team. The partnership with Marcus Rodriguez is also gaining momentum and requires your steer.`,

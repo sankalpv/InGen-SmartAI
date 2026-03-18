@@ -330,6 +330,95 @@ async function fetchUrlsChunked(mcpClient, urls, chunkSize = BATCH_CHUNK_SIZE) {
 }
 
 /**
+ * Deeply unwrap a single MCP content item to get the actual text content.
+ * MCP returns items like: { text: '{"content":{"status":"success","content":"actual markdown..."}}' }
+ * or: { content: { status: "success", content: "actual markdown..." } }
+ * This function drills through all layers to get the real text.
+ */
+function unwrapMcpContentItem(item) {
+    if (!item) return '';
+    // Start with .text or .content
+    let raw = item.text || item.content || item;
+    // If it's a string that looks like JSON, parse it
+    if (typeof raw === 'string') {
+        try {
+            const parsed = JSON.parse(raw);
+            if (parsed && typeof parsed === 'object') raw = parsed;
+        } catch (e) { /* not JSON, use as-is */ }
+    }
+    // If it's an object, look for nested .content
+    if (typeof raw === 'object' && raw !== null) {
+        // Handle { content: { status: "success", content: "..." } }
+        if (raw.content && typeof raw.content === 'object' && raw.content.content) {
+            return typeof raw.content.content === 'string' ? raw.content.content : JSON.stringify(raw.content.content);
+        }
+        // Handle { content: "..." }
+        if (raw.content && typeof raw.content === 'string') return raw.content;
+        // Handle { status: "success", content: "..." }
+        if (raw.status === 'success' && raw.content) return typeof raw.content === 'string' ? raw.content : JSON.stringify(raw.content);
+        return JSON.stringify(raw);
+    }
+    return typeof raw === 'string' ? raw : String(raw);
+}
+
+/**
+ * Extract all unique CR IDs and their snippets from a markdown table text.
+ * The text is a markdown table with columns like: ID | Revision | Summary | ...
+ * Each row contains a CR-XXXXXXX ID and a summary/title.
+ */
+function extractCrDetailsFromMarkdown(text, type) {
+    const details = [];
+    const seenIds = new Set();
+    // Split on real newlines (the unwrapped content has real \n characters)
+    const lines = text.split('\n');
+    for (const line of lines) {
+        // Skip header/separator lines
+        if (line.includes('---') && !line.includes('CR-')) continue;
+        const crMatch = line.match(/CR-(\d+)/);
+        if (crMatch && !seenIds.has(crMatch[0])) {
+            seenIds.add(crMatch[0]);
+            // Extract the summary/title from the table row
+            // Typical format: "    CR-258769116 1 fix: Use lazy %-style formatting for logger   Shipped 2026-03-06"
+            // Or with pipes: " | CR-258769116 | 1 | fix: Use lazy... | | Shipped | 2026-03-06 |"
+            let snippet = '';
+            // Try pipe-delimited table: split by |, find the summary column (usually 3rd or 4th)
+            const cells = line.split('|').map(c => c.trim()).filter(Boolean);
+            if (cells.length >= 3) {
+                // Find the cell after the CR ID cell — summary is usually the 3rd column
+                const crCellIdx = cells.findIndex(c => c.includes('CR-'));
+                if (crCellIdx !== -1 && cells.length > crCellIdx + 2) {
+                    snippet = cells[crCellIdx + 2] || ''; // Skip revision number column
+                }
+                if (!snippet && cells.length > crCellIdx + 1) {
+                    snippet = cells[crCellIdx + 1] || '';
+                }
+            }
+            // Fallback: extract text after CR-ID and a number (revision)
+            if (!snippet) {
+                const afterCr = line.substring(line.indexOf(crMatch[0]) + crMatch[0].length).trim();
+                // Skip revision number (first number after CR ID)
+                const parts = afterCr.split(/\s+/);
+                if (parts.length > 1 && /^\d+$/.test(parts[0])) {
+                    snippet = parts.slice(1).join(' ');
+                } else {
+                    snippet = afterCr;
+                }
+            }
+            // Clean up snippet — remove status/date suffixes
+            snippet = snippet
+                .replace(/\s*(Shipped|OPEN|Approved|Merged)\s*\d{4}-\d{2}-\d{2}.*$/i, '')
+                .replace(/\[.*?\]/g, '')
+                .replace(/\\\\_/g, '_')
+                .trim()
+                .substring(0, 200);
+
+            details.push({ id: crMatch[0], type, snippet });
+        }
+    }
+    return details;
+}
+
+/**
  * Fetch code activity for ALL engineers using chunked batched calls.
  * Sends ~10 URLs per MCP call to stay well within the 60s timeout.
  */
@@ -391,29 +480,24 @@ async function fetchOrgCodeActivityBatched(aliases, startDate, endDate) {
 
         for (let idx = 0; idx < fromContent.length && idx < aliases.length; idx++) {
             const alias = aliases[idx];
-            const text = fromContent[idx]?.text || fromContent[idx]?.content || '';
-            const textStr = typeof text === 'string' ? text : JSON.stringify(text);
+            // Unwrap nested MCP response to get actual markdown text
+            const unwrapped = unwrapMcpContentItem(fromContent[idx]);
+            // Also keep raw stringified version for metadata extraction
+            const rawStr = typeof fromContent[idx] === 'string' ? fromContent[idx] : JSON.stringify(fromContent[idx]);
 
             // Use cr_count from Metadata as authoritative source
-            const metaMatch = textStr.match(/"cr_count"\s*:\s*"?\((\d+)\)"?/);
+            const metaMatch = rawStr.match(/"cr_count"\s*:\s*"?\((\d+)\)"?/);
             if (metaMatch) {
                 results[alias].crs_created = parseInt(metaMatch[1]);
             } else {
-                // Fallback: count unique CR IDs
-                const crMatches = textStr.match(/CR-(\d+)/g) || [];
+                // Fallback: count unique CR IDs from unwrapped text
+                const crMatches = unwrapped.match(/CR-(\d+)/g) || [];
                 results[alias].crs_created = [...new Set(crMatches)].length;
             }
 
-            // Extract CR details
-            for (const line of textStr.split('\n')) {
-                const crIdMatch = line.match(/CR-(\d+)/);
-                if (crIdMatch) {
-                    results[alias].cr_details.push({
-                        id: crIdMatch[0], type: 'created',
-                        snippet: line.replace(/\|/g, ' ').replace(/\[.*?\]/g, '').trim().substring(0, 150)
-                    });
-                }
-            }
+            // Extract CR details from the properly unwrapped markdown table
+            const crDetails = extractCrDetailsFromMarkdown(unwrapped, 'created');
+            results[alias].cr_details.push(...crDetails);
         }
 
         await new Promise(r => setTimeout(r, 300));
@@ -427,29 +511,24 @@ async function fetchOrgCodeActivityBatched(aliases, startDate, endDate) {
 
         for (let idx = 0; idx < toContent.length && idx < aliases.length; idx++) {
             const alias = aliases[idx];
-            const text = toContent[idx]?.text || toContent[idx]?.content || '';
-            const textStr = typeof text === 'string' ? text : JSON.stringify(text);
+            // Unwrap nested MCP response to get actual markdown text
+            const unwrapped = unwrapMcpContentItem(toContent[idx]);
+            // Also keep raw stringified version for metadata extraction
+            const rawStr = typeof toContent[idx] === 'string' ? toContent[idx] : JSON.stringify(toContent[idx]);
 
             // Use cr_count from Metadata as authoritative source
-            const metaMatch = textStr.match(/"cr_count"\s*:\s*"?\((\d+)\)"?/);
+            const metaMatch = rawStr.match(/"cr_count"\s*:\s*"?\((\d+)\)"?/);
             if (metaMatch) {
                 results[alias].crs_reviewed = parseInt(metaMatch[1]);
             } else {
-                // Fallback: count unique CR IDs
-                const crMatches = textStr.match(/CR-(\d+)/g) || [];
+                // Fallback: count unique CR IDs from unwrapped text
+                const crMatches = unwrapped.match(/CR-(\d+)/g) || [];
                 results[alias].crs_reviewed = [...new Set(crMatches)].length;
             }
 
-            // Extract CR details
-            for (const line of textStr.split('\n')) {
-                const crIdMatch = line.match(/CR-(\d+)/);
-                if (crIdMatch) {
-                    results[alias].cr_details.push({
-                        id: crIdMatch[0], type: 'reviewed',
-                        snippet: line.replace(/\|/g, ' ').replace(/\[.*?\]/g, '').trim().substring(0, 150)
-                    });
-                }
-            }
+            // Extract CR details from the properly unwrapped markdown table
+            const crDetails = extractCrDetailsFromMarkdown(unwrapped, 'reviewed');
+            results[alias].cr_details.push(...crDetails);
         }
 
     } catch (error) {
@@ -1347,14 +1426,19 @@ async function getEngineerDetail(alias, weeks = 12) {
             turnaroundDisplay: `${currentWeek.avg_turnaround_hours.toFixed(1)}h`,
             staleCrs: currentWeek.stale_crs
         } : null,
-        weeklyHistory: history.map(h => ({
-            weekId: h.week_id,
-            weekLabel: h.week_id.split('-')[1],
-            crsCreated: h.crs_created,
-            crsReviewed: h.crs_reviewed,
-            linesChanged: h.lines_changed,
-            linesDisplay: formatLines(h.lines_changed)
-        })),
+        weeklyHistory: history.map(h => {
+            let crDetails = [];
+            try { crDetails = JSON.parse(h.cr_details_json || '[]'); } catch (e) { /* ignore */ }
+            return {
+                weekId: h.week_id,
+                weekLabel: h.week_id.split('-')[1],
+                crsCreated: h.crs_created,
+                crsReviewed: h.crs_reviewed,
+                linesChanged: h.lines_changed,
+                linesDisplay: formatLines(h.lines_changed),
+                crDetails,
+            };
+        }),
         recentCrs,
         goals: goals.map(g => ({ goalId: g.goal_id, title: g.goal_title, status: g.status }))
     };

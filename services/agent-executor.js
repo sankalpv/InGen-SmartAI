@@ -233,7 +233,6 @@ Otherwise, ALWAYS include at least 1-2 clarifying questions.`;
             'goals': 'goal_status', 'goal_search': 'goal_status', 'search_goals': 'goal_status', 'goal_lookup': 'goal_status',
             'tickets': 'ticket_search', 'ticket': 'ticket_search', 'search_tickets': 'ticket_search', 'issue_search': 'ticket_search',
             'knowledge': 'knowledge_search', 'knowledge_base': 'knowledge_search', 'rag_search': 'knowledge_search', 'search_knowledge': 'knowledge_search', 'semantic_search': 'knowledge_search',
-            'slack': 'slack_search', 'search_slack': 'slack_search', 'slack_messages': 'slack_search',
         };
         const allToolNames = new Set(toolRegistry.listAll().map(t => t.name));
         plan.plan = plan.plan.filter(step => {
@@ -359,7 +358,6 @@ function resolveToolDef(toolName) {
         const TOOL_ALIASES = {
             'calendar': 'calendar_search', 'email': 'email_search', 'emails': 'email_search',
             'people': 'people_lookup', 'goals': 'goal_status', 'tickets': 'ticket_search',
-            'knowledge': 'knowledge_search', 'slack': 'slack_search',
         };
         const alias = TOOL_ALIASES[toolName.toLowerCase()];
         if (alias) { resolvedName = alias; def = toolRegistry.get(alias); }

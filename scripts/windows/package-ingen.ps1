@@ -41,9 +41,6 @@ if (Test-Path $settingsFile) {
         $settings.logUploadUrl = ''
         if ($settings.mcpServers.'builder-mcp') { $settings.mcpServers.'builder-mcp'.command = 'builder-mcp' }
         if ($settings.mcpServers.'amzn-mcp') { $settings.mcpServers.'amzn-mcp'.command = 'amzn-mcp' }
-        if ($settings.mcpServers.'slack-mcp') {
-            $settings.mcpServers.'slack-mcp'.command = 'slack-mcp'
-            $settings.mcpServers.'slack-mcp'.env = [PSCustomObject]@{}
         }
         $jsonOut = $settings | ConvertTo-Json -Depth 10
         [System.IO.File]::WriteAllText($settingsFile, $jsonOut, (New-Object System.Text.UTF8Encoding $false))

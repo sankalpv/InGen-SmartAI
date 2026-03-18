@@ -191,9 +191,7 @@ try {
     Write-Host "    pip install git+https://github.com/cclgroupltd/ccl_chrome_indexeddb.git" -ForegroundColor Yellow
 }
 
-# --- Amazon Toolbox + MCP Tools (builder-mcp, amzn-mcp, slack-mcp) ---
 Write-Host "`n=== Amazon Toolbox & MCP Tools ===" -ForegroundColor White
-Write-Host "MCP tools enable Phonetool, code.amazon.com, Taskei, Quip, and Slack integration." -ForegroundColor Cyan
 
 $toolboxPath = "$env:LOCALAPPDATA\Toolbox\bin\toolbox.exe"
 $toolboxBinDir = "$env:LOCALAPPDATA\Toolbox\bin"
@@ -262,7 +260,6 @@ if (Test-Path $toolboxPath) {
     Write-Host "`nInstalling MCP tools..." -ForegroundColor Cyan
     Install-ToolboxTool "builder-mcp" "Phonetool, code.amazon.com, Taskei, Quip"
     Install-ToolboxTool "amzn-mcp" "Amazon internal MCP server"
-    Install-ToolboxTool "slack-mcp" "Slack messaging integration"
     Install-ToolboxTool "mcp-registry" "MCP tool registry"
 
     # --- Update config/settings.json with resolved MCP paths ---
@@ -299,15 +296,8 @@ if (Test-Path $toolboxPath) {
                 Write-Host "  amzn-mcp path: $amznPath" -ForegroundColor Green
             }
 
-            # Update slack-mcp path
-            $slackPath = "$toolboxBinDir\slack-mcp.exe"
-            if (Test-Path $slackPath) {
-                if (-not $settings.mcpServers.'slack-mcp') {
-                    $settings.mcpServers | Add-Member -NotePropertyName "slack-mcp" -NotePropertyValue ([PSCustomObject]@{ command = $slackPath; args = @(); env = [PSCustomObject]@{} }) -Force
                 } else {
-                    $settings.mcpServers.'slack-mcp'.command = $slackPath
                 }
-                Write-Host "  slack-mcp path: $slackPath" -ForegroundColor Green
             }
 
             # Write back settings.json with proper formatting
@@ -322,13 +312,11 @@ if (Test-Path $toolboxPath) {
     }
 } else {
     Write-Host "`nToolbox not available — skipping MCP tool installation." -ForegroundColor Yellow
-    Write-Host "  Team Health, Code Metrics, Ticket Health, and Slack features will not work." -ForegroundColor Yellow
     Write-Host "  Install Toolbox later:" -ForegroundColor Yellow
     Write-Host "    iwr -useb https://toolbox.a2z.com/install.ps1 | iex" -ForegroundColor Cyan
     Write-Host "  Then install MCP tools:" -ForegroundColor Yellow
     Write-Host "    toolbox install builder-mcp" -ForegroundColor Cyan
     Write-Host "    toolbox install amzn-mcp" -ForegroundColor Cyan
-    Write-Host "    toolbox install slack-mcp" -ForegroundColor Cyan
 }
 
 Write-Host "`n=== Setup Complete! ===" -ForegroundColor Green

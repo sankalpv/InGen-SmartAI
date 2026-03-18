@@ -4,7 +4,6 @@ import { useState, useEffect, useCallback } from 'react';
 import {
     Mail,
     Calendar,
-    MessageSquare,
     Sparkles,
     AlertTriangle,
     Clock,
@@ -15,7 +14,6 @@ import {
 import Header from '@/components/Header';
 import EmailCard from '@/components/EmailCard';
 import MeetingCard from '@/components/MeetingCard';
-import SlackCard from '@/components/SlackCard';
 import WeeklyRetroModal from '@/components/WeeklyRetroModal'; // Added
 import InsightNotifications from '@/components/InsightNotifications'; // Added
 
@@ -249,8 +247,7 @@ export default function Dashboard() {
     const [briefing, setBriefing] = useState(null);
     const [emails, setEmails] = useState([]);
     const [meetings, setMeetings] = useState([]);
-    const [slackMessages, setSlackMessages] = useState([]);
-    const [stats, setStats] = useState({ emails: 0, meetings: 0, slack: 0 }); // Added
+    const [stats, setStats] = useState({ emails: 0, meetings: 0 }); // Added
     const [isLoading, setIsLoading] = useState(true);
     const [isBriefingLoading, setIsBriefingLoading] = useState(false);
     const [isRefreshing, setIsRefreshing] = useState(false);
@@ -302,11 +299,6 @@ export default function Dashboard() {
             // PHASE 2: Background lazy loading (non-blocking)
             // Note: Phase 1 now requests full cache (count=200), so no need for a second email fetch
 
-            // Slack — fire and forget
-            fetch('/api/slack')
-                .then(r => r.json())
-                .then(data => { if (!data.error) setSlackMessages(data.messages || []); })
-                .catch(() => { });
 
             // Briefing — try cached first (instant), then use streaming for fresh generation
             try {
@@ -402,7 +394,6 @@ export default function Dashboard() {
         return pA - pB;
     });
 
-    const actionSlack = slackMessages.filter(m => m.needsResponse || m.actionItem);
 
     // Filter to last 3 days (today + 2 previous days) for stats and default view
     const threeDaysAgo = new Date(new Date().toDateString());
@@ -732,20 +723,6 @@ export default function Dashboard() {
                 </div>
             )}
 
-            {activeTab === 'slack' && (
-                <div>
-                    {slackMessages.length === 0 ? (
-                        <div className="empty-state">
-                            <div className="empty-state-icon">💬</div>
-                            <div className="empty-state-text">No Slack messages to show</div>
-                        </div>
-                    ) : (
-                        slackMessages.map((msg) => (
-                            <SlackCard key={msg.id} message={msg} />
-                        ))
-                    )}
-                </div>
-            )}
             {/* Chat Interface */}
             <AIChat />
 

@@ -402,7 +402,7 @@ function Step-05-AIModels {
 function Step-06-MCPTooling {
     if (Is-StepDone "step_06") { Print-Step 6 "MCP Tooling [OK] (cached)"; return }
     Print-Step 6 "Checking Amazon MCP tools"
-    Print-Info "MCP tools enable Phonetool, code.amazon.com, Taskei, Quip, and Slack"
+    Print-Info "MCP tools enable Phonetool, code.amazon.com, Taskei, Quip"
 
     $toolboxExe = "$TOOLBOX_BIN\toolbox.exe"
     $mcpOk = $true
@@ -438,13 +438,11 @@ function Step-06-MCPTooling {
     # --- Install MCP tools via Toolbox ---
     $script:MCP_BUILDER_PATH = ""
     $script:MCP_AMZN_PATH = ""
-    $script:MCP_SLACK_PATH = ""
 
     if (Test-Path $toolboxExe) {
         $mcpTools = @(
             @{ Name = "builder-mcp"; Desc = "Phonetool, code.amazon.com, Taskei, Quip" },
             @{ Name = "amzn-mcp";    Desc = "Amazon internal MCP server" },
-            @{ Name = "slack-mcp";   Desc = "Slack messaging integration" },
             @{ Name = "mcp-registry"; Desc = "MCP tool registry" }
         )
 
@@ -473,10 +471,9 @@ function Step-06-MCPTooling {
         # Save resolved paths
         if (Test-Path "$TOOLBOX_BIN\builder-mcp.exe") { $script:MCP_BUILDER_PATH = "$TOOLBOX_BIN\builder-mcp.exe" }
         if (Test-Path "$TOOLBOX_BIN\amzn-mcp.exe")    { $script:MCP_AMZN_PATH = "$TOOLBOX_BIN\amzn-mcp.exe" }
-        if (Test-Path "$TOOLBOX_BIN\slack-mcp.exe")    { $script:MCP_SLACK_PATH = "$TOOLBOX_BIN\slack-mcp.exe" }
     } else {
         Print-Warn "Toolbox not available - skipping MCP tool installation"
-        Print-Info "Team Health, Code Metrics, Ticket Health, and Slack will not work"
+        Print-Info "Team Health, Code Metrics, Ticket Health will not work"
         Print-Info "Install Toolbox later: iwr -useb https://toolbox.a2z.com/install.ps1 | iex"
         $mcpOk = $false
     }
@@ -554,9 +551,6 @@ MCP_ENABLED=true
         Node-JsonSet $SETTINGS_FILE "mcpServers.amzn-mcp.command" $script:MCP_AMZN_PATH
         Print-Ok "amzn-mcp path: $($script:MCP_AMZN_PATH)"
     }
-    if ($script:MCP_SLACK_PATH) {
-        Node-JsonSet $SETTINGS_FILE "mcpServers.slack-mcp.command" $script:MCP_SLACK_PATH
-        Print-Ok "slack-mcp path: $($script:MCP_SLACK_PATH)"
     }
 
     # --- Amazon Alias ---

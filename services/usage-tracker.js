@@ -6,7 +6,7 @@
  * 
  * Auth: Uses default AWS credential chain (ada credentials, env vars, instance profile).
  * No hardcoded keys — credentials are provided externally via:
- *   ada credentials update --account=709929962844 --role=SmartAI-CloudWatchLogs --provider=conduit --once
+ *   ada credentials update --account=709929962844 --role=InGen-CloudWatchLogs --provider=conduit --once
  * 
  * Graceful degradation: if CloudWatch is unreachable, events are logged and discarded.
  * 
@@ -22,6 +22,7 @@
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
+const { execSync } = require('child_process');
 const logger = require('./logger').child('UsageTracker');
 
 // --- Configuration ---
@@ -31,14 +32,37 @@ const NAMESPACE = 'InGen/Usage';
 const CW_REGION = process.env.SMARTAI_CW_REGION || 'us-east-1';
 const FLUSH_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
 const MAX_BUFFER_SIZE = 500; // Max events before force flush
+const CREDENTIAL_REFRESH_MS = 50 * 60 * 1000; // 50 minutes (before 1h STS expiry)
+const ADA_COMMAND = 'ada credentials update --account=709929962844 --role=InGen-CloudWatchLogs --provider=conduit --once';
 
 // --- State ---
 
 let eventBuffer = [];
 let flushTimer = null;
+let credentialRefreshTimer = null;
 let sessionId = null;
 let isEnabled = false;
 let cwClient = null;
+
+// --- Credential Refresh ---
+
+/**
+ * Refresh AWS credentials by running `ada` and recreating the CloudWatch client.
+ * Called proactively every 50 minutes and reactively on token expiry errors.
+ */
+function refreshCredentials() {
+    try {
+        execSync(ADA_COMMAND, { timeout: 30000, stdio: 'pipe', encoding: 'utf8' });
+        // Recreate client to pick up fresh credentials from ~/.aws/credentials
+        const { CloudWatchClient } = require('@aws-sdk/client-cloudwatch');
+        cwClient = new CloudWatchClient({ region: CW_REGION });
+        logger.info('AWS credentials refreshed — CloudWatch client recreated');
+        return true;
+    } catch (e) {
+        logger.warn(`Credential refresh failed: ${e.message?.substring(0, 100)}`);
+        return false;
+    }
+}
 
 // --- Init ---
 
@@ -46,10 +70,17 @@ async function initCloudWatch() {
     try {
         const { CloudWatchClient } = require('@aws-sdk/client-cloudwatch');
         cwClient = new CloudWatchClient({ region: CW_REGION });
-        // Quick test — list metrics to verify credentials work
-        // (We don't actually need the result, just checking auth)
         isEnabled = true;
         logger.info(`Usage tracking enabled — flushing to CloudWatch every ${FLUSH_INTERVAL_MS / 1000}s (namespace: ${NAMESPACE})`);
+
+        // Start proactive credential refresh timer (every 50 min)
+        if (!credentialRefreshTimer) {
+            credentialRefreshTimer = setInterval(() => {
+                logger.debug('Proactive credential refresh...');
+                refreshCredentials();
+            }, CREDENTIAL_REFRESH_MS);
+            if (credentialRefreshTimer.unref) credentialRefreshTimer.unref();
+        }
     } catch (e) {
         logger.info('Usage tracking disabled (AWS SDK or credentials not available)');
         isEnabled = false;
@@ -142,6 +173,7 @@ async function flush() {
     // but we batch in chunks of 20 (recommended for dimensions)
     const events = eventBuffer.splice(0, eventBuffer.length);
     const CHUNK_SIZE = 20;
+    let tokenRefreshed = false;
 
     for (let i = 0; i < events.length; i += CHUNK_SIZE) {
         const chunk = events.slice(i, i + CHUNK_SIZE);
@@ -152,6 +184,26 @@ async function flush() {
             }));
             logger.debug(`Flushed ${chunk.length} metrics to CloudWatch`);
         } catch (e) {
+            // Reactive refresh: if token expired, refresh once and retry this chunk
+            const isTokenExpired = e.message?.includes('security token') || 
+                                   e.message?.includes('expired') ||
+                                   e.name === 'ExpiredTokenException';
+            if (isTokenExpired && !tokenRefreshed) {
+                logger.info('Token expired — attempting credential refresh and retry...');
+                tokenRefreshed = true; // Only try once per flush cycle
+                if (refreshCredentials()) {
+                    try {
+                        await cwClient.send(new PutMetricDataCommand({
+                            Namespace: NAMESPACE,
+                            MetricData: chunk,
+                        }));
+                        logger.info(`Retry succeeded — flushed ${chunk.length} metrics after credential refresh`);
+                        continue; // Success, move to next chunk
+                    } catch (retryErr) {
+                        logger.warn(`Retry failed after credential refresh: ${retryErr.message?.substring(0, 100)}`);
+                    }
+                }
+            }
             logger.warn(`Failed to flush ${chunk.length} metrics: ${e.message}`);
             // Don't re-buffer — just log and move on to avoid infinite growth
         }
@@ -184,6 +236,10 @@ function stop() {
     if (flushTimer) {
         clearInterval(flushTimer);
         flushTimer = null;
+    }
+    if (credentialRefreshTimer) {
+        clearInterval(credentialRefreshTimer);
+        credentialRefreshTimer = null;
     }
     // Final flush
     return flush();

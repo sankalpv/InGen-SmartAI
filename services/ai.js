@@ -217,22 +217,8 @@ OUTPUT JSON:
     }
 }
 
-export async function summarizeSlack(messages) {
-    const systemSuffix = promptLoader.get('slackSummary.systemSuffix') || 'Summarize Slack messages in JSON: { "messages": [{ "id", "summary", "actionItem" }] }';
-    const system = `${getSystemPrompt()}\n${systemSuffix}`;
-    const prompt = `Messages: ${JSON.stringify(messages)}`;
 
-    try {
-        const resultRaw = await withRetry(() => generateCompletion(system, prompt, true));
-        const result = JSON.parse(resultRaw);
-        return result.messages;
-    } catch (error) {
-        logger.error('Slack summarization failed:', error.message);
-        return messages.map(msg => ({ ...msg, summary: msg.text, actionItem: false }));
-    }
-}
-
-export async function generateDailyBriefing(emails, meetings, slackMessages) {
+export async function generateDailyBriefing(emails, meetings) {
     const system = getSystemPrompt();
 
     // ─── Filter to Today Only (safety filter for daily briefing) ───
@@ -256,7 +242,6 @@ export async function generateDailyBriefing(emails, meetings, slackMessages) {
 
     // Optimize context for local LLM (Modern models have 8k+ context)
     const limitedEmails = todayEmails.slice(0, 5).map(e => ({ from: e.from, subject: e.subject, snippet: (e.snippet || '').substring(0, 2000) }));
-    const limitedSlack = slackMessages.slice(0, 5).map(m => ({ user: m.user, text: (m.text || '').substring(0, 200) }));
 
     // NEW: Quip Document Context for Daily Briefing
     const quipSettings = quipFetcher.getQuipSettings();
@@ -421,7 +406,6 @@ CRITICAL INSTRUCTIONS FOR QUIP DOCUMENTS:
                 needResponse: 0,
                 urgentCount: 0,
                 meetingsToday: todayMeetings.length,
-                slackActionItems: slackMessages.length,
                 generatedAt: new Date().toISOString()
             },
             greeting: greeting || "Here is your daily briefing.",
@@ -439,7 +423,6 @@ CRITICAL INSTRUCTIONS FOR QUIP DOCUMENTS:
                 needResponse: 0,
                 urgentCount: 0,
                 meetingsToday: todayMeetings.length,
-                slackActionItems: slackMessages.length,
                 generatedAt: new Date().toISOString()
             },
             greeting: `Unable to generate AI summary (Ollama error).`,

@@ -289,63 +289,6 @@ class VectorStore {
      * Ingest a Slack message into the vector store
      * @param {Object} msg - Slack message { id, channel, from: {name}, message, timestamp, isDirectMessage }
      */
-    async ingestSlackMessage(msg) {
-        if (!VECTOR_STORE_AVAILABLE) {
-            logger.warn('Skipping Slack ingestion — vector store unavailable.');
-            return;
-        }
-        if (!this.loaded) await this.init();
-
-        // Skip empty messages
-        if (!msg.message || msg.message.trim().length < 5) return;
-
-        // Check for duplicates via Slack message ID
-        const existingId = Object.keys(this.metadata).find(
-            key => this.metadata[key].slackId === msg.id && this.metadata[key].type === 'slack'
-        );
-        if (existingId) return;
-
-        const fromName = msg.from?.name || 'Unknown';
-        const channel = msg.channel || 'Unknown';
-        const textToEmbed = `Slack message from ${fromName} in ${channel}\nDate: ${msg.timestamp}\n\n${msg.message}`;
-
-        try {
-            const vector = await this.getEmbedding(textToEmbed);
-            if (vector.length !== VECTOR_DIMENSION) {
-                logger.error(`Slack: Dimension mismatch: ${vector.length} vs ${VECTOR_DIMENSION}`);
-                return;
-            }
-
-            const internalId = this.currentId++;
-            this.index.addPoint(vector, internalId);
-
-            this.metadata[internalId] = {
-                type: 'slack',
-                slackId: msg.id,
-                channel,
-                from: fromName,
-                sender: fromName,
-                message: msg.message,
-                snippet: msg.message.substring(0, 500),
-                fullBody: msg.message,
-                subject: `Slack: ${fromName} in ${channel}`,
-                date: msg.timestamp,
-                received: msg.timestamp,
-                timestamp: msg.timestamp,
-                isDirectMessage: msg.isDirectMessage || false,
-                hasActionItem: false,
-                hasDecision: false,
-                hasBlocker: false,
-                sentiment: null,
-                topics: [],
-            };
-
-            this.save();
-            logger.info(`Ingested Slack: ${fromName} in ${channel} (${msg.message.substring(0, 40)}...)`);
-        } catch (e) {
-            logger.error(`Slack ingestion failed:`, e.message);
-        }
-    }
 
     /**
      * Get statistics about the vector store
@@ -357,7 +300,6 @@ class VectorStore {
             byType: {
                 email: docs.filter(d => d.type === 'email').length,
                 meeting: docs.filter(d => d.type === 'meeting').length,
-                slack: docs.filter(d => d.type === 'slack').length
             },
             withActionItems: docs.filter(d => d.hasActionItem).length,
             withBlockers: docs.filter(d => d.hasBlocker).length,

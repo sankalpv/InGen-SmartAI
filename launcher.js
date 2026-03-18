@@ -168,7 +168,7 @@ function checkMidway() {
 function refreshAWSCredentials() {
     console.log('[Launcher] Refreshing AWS credentials for telemetry...');
     try {
-        execSync('ada credentials update --account=709929962844 --role=SmartAI-CloudWatchLogs --provider=conduit --once', {
+        execSync('ada credentials update --account=709929962844 --role=InGen-CloudWatchLogs --provider=conduit --once', {
             timeout: 30000,
             stdio: 'pipe',
             encoding: 'utf8'

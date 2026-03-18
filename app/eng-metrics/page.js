@@ -337,6 +337,7 @@ function EngineerPanel({ alias, onClose }) {
     const [summaryLoading, setSummaryLoading] = useState(false);
     const [summaryPhase, setSummaryPhase] = useState(''); // 'fetching' | 'generating' | 'done' | 'error'
     const [crDetails, setCrDetails] = useState(null);
+    const [expandedWeek, setExpandedWeek] = useState(null); // weekId of expanded row
 
     useEffect(() => {
         if (!alias) return;
@@ -511,7 +512,7 @@ function EngineerPanel({ alias, onClose }) {
                         <div style={{ fontSize: '12px', fontWeight: 700, color: 'rgba(255,255,255,0.5)', textTransform: 'uppercase', letterSpacing: '1px', margin: '24px 0 14px', display: 'flex', alignItems: 'center', gap: '6px' }}>
                             📊 Weekly History ({detail.weeklyHistory?.length || 0} weeks)
                             <span style={{ fontWeight: 400, fontSize: '10px', color: 'rgba(255,255,255,0.25)', textTransform: 'none', letterSpacing: 0 }}>
-                                — CRs created vs reviewed per week
+                                — click a week to see CRs
                             </span>
                         </div>
                         <div>
@@ -520,28 +521,115 @@ function EngineerPanel({ alias, onClose }) {
                                 const maxRv = Math.max(...detail.weeklyHistory.map(w => w.crsReviewed), 1);
                                 const maxVal = Math.max(maxCr, maxRv);
                                 const isCurrent = i === 0;
+                                const isExpanded = expandedWeek === h.weekId;
+                                const weekCrs = h.crDetails || [];
+                                const hasCrs = weekCrs.length > 0;
                                 return (
-                                    <div key={i} style={{
-                                        display: 'flex', alignItems: 'center', gap: '10px', padding: '8px 0',
-                                        borderBottom: '1px solid rgba(255,255,255,0.03)', fontSize: '12px',
-                                        background: isCurrent ? 'rgba(10,132,255,0.04)' : 'transparent',
-                                        borderRadius: isCurrent ? '6px' : 0, paddingLeft: isCurrent ? '8px' : 0,
-                                    }}>
-                                        <span style={{ width: '50px', color: isCurrent ? '#0a84ff' : 'rgba(255,255,255,0.35)', flexShrink: 0, fontWeight: isCurrent ? 700 : 400 }}>{h.weekLabel}</span>
-                                        <div style={{ flex: 1, display: 'flex', gap: '4px', alignItems: 'center' }}>
-                                            <div style={{
-                                                height: '14px', borderRadius: '3px', display: 'flex', alignItems: 'center', paddingLeft: '6px',
-                                                fontSize: '9px', fontWeight: 600, color: '#fff', minWidth: '20px',
-                                                width: `${Math.max(20, (h.crsCreated / maxVal) * 160)}px`,
-                                                background: 'rgba(10,132,255,0.5)',
-                                            }}>{h.crsCreated}</div>
-                                            <div style={{
-                                                height: '14px', borderRadius: '3px', display: 'flex', alignItems: 'center', paddingLeft: '6px',
-                                                fontSize: '9px', fontWeight: 600, color: '#fff', minWidth: '20px',
-                                                width: `${Math.max(20, (h.crsReviewed / maxVal) * 160)}px`,
-                                                background: 'rgba(48,209,88,0.4)',
-                                            }}>{h.crsReviewed}</div>
+                                    <div key={h.weekId}>
+                                        <div
+                                            onClick={() => setExpandedWeek(isExpanded ? null : h.weekId)}
+                                            style={{
+                                                display: 'flex', alignItems: 'center', gap: '10px', padding: '8px 0',
+                                                borderBottom: isExpanded ? 'none' : '1px solid rgba(255,255,255,0.03)', fontSize: '12px',
+                                                background: isExpanded ? 'rgba(10,132,255,0.06)' : isCurrent ? 'rgba(10,132,255,0.04)' : 'transparent',
+                                                borderRadius: isExpanded || isCurrent ? '6px' : 0,
+                                                paddingLeft: '8px', paddingRight: '8px',
+                                                cursor: hasCrs ? 'pointer' : 'default',
+                                                transition: 'background 0.15s',
+                                            }}
+                                            onMouseEnter={e => { if (hasCrs) e.currentTarget.style.background = 'rgba(10,132,255,0.06)'; }}
+                                            onMouseLeave={e => { if (!isExpanded) e.currentTarget.style.background = isCurrent ? 'rgba(10,132,255,0.04)' : 'transparent'; }}
+                                        >
+                                            <span style={{ width: '14px', flexShrink: 0, color: 'rgba(255,255,255,0.2)', fontSize: '10px' }}>
+                                                {hasCrs ? (isExpanded ? '▾' : '▸') : ' '}
+                                            </span>
+                                            <span style={{ width: '40px', color: isCurrent ? '#0a84ff' : 'rgba(255,255,255,0.35)', flexShrink: 0, fontWeight: isCurrent ? 700 : 400 }}>{h.weekLabel}</span>
+                                            <div style={{ flex: 1, display: 'flex', gap: '4px', alignItems: 'center' }}>
+                                                <div style={{
+                                                    height: '14px', borderRadius: '3px', display: 'flex', alignItems: 'center', paddingLeft: '6px',
+                                                    fontSize: '9px', fontWeight: 600, color: '#fff', minWidth: '20px',
+                                                    width: `${Math.max(20, (h.crsCreated / maxVal) * 140)}px`,
+                                                    background: 'rgba(10,132,255,0.5)',
+                                                }}>{h.crsCreated}</div>
+                                                <div style={{
+                                                    height: '14px', borderRadius: '3px', display: 'flex', alignItems: 'center', paddingLeft: '6px',
+                                                    fontSize: '9px', fontWeight: 600, color: '#fff', minWidth: '20px',
+                                                    width: `${Math.max(20, (h.crsReviewed / maxVal) * 140)}px`,
+                                                    background: 'rgba(48,209,88,0.4)',
+                                                }}>{h.crsReviewed}</div>
+                                            </div>
+                                            {hasCrs && (
+                                                <span style={{ fontSize: '10px', color: 'rgba(255,255,255,0.2)', flexShrink: 0 }}>
+                                                    {weekCrs.length} CRs
+                                                </span>
+                                            )}
                                         </div>
+                                        {/* Expanded CR list for this week */}
+                                        {isExpanded && weekCrs.length > 0 && (
+                                            <div style={{
+                                                background: 'rgba(10,132,255,0.03)',
+                                                borderLeft: '2px solid rgba(10,132,255,0.2)',
+                                                borderBottom: '1px solid rgba(255,255,255,0.03)',
+                                                borderRadius: '0 0 6px 6px',
+                                                padding: '6px 12px 10px 28px',
+                                                marginBottom: '4px',
+                                                animation: 'fadeIn 0.15s ease-out',
+                                            }}>
+                                                {weekCrs.map((cr, ci) => (
+                                                    <div key={ci} style={{
+                                                        display: 'flex', alignItems: 'center', gap: '8px',
+                                                        padding: '5px 0',
+                                                        borderBottom: ci < weekCrs.length - 1 ? '1px solid rgba(255,255,255,0.02)' : 'none',
+                                                    }}>
+                                                        <span style={{
+                                                            fontSize: '10px', flexShrink: 0,
+                                                            padding: '1px 6px', borderRadius: '4px', fontWeight: 600,
+                                                            background: cr.type === 'created' ? 'rgba(10,132,255,0.12)' : 'rgba(48,209,88,0.12)',
+                                                            color: cr.type === 'created' ? '#60a5fa' : '#34d399',
+                                                        }}>
+                                                            {cr.type === 'created' ? '📝' : '👀'}
+                                                        </span>
+                                                        <a
+                                                            href={`https://code.amazon.com/reviews/${cr.id}`}
+                                                            target="_blank"
+                                                            rel="noopener noreferrer"
+                                                            style={{
+                                                                color: '#818cf8', textDecoration: 'none', fontSize: '11px',
+                                                                fontWeight: 600, flexShrink: 0,
+                                                            }}
+                                                            onClick={e => e.stopPropagation()}
+                                                        >
+                                                            {cr.id}
+                                                        </a>
+                                                        <span style={{
+                                                            flex: 1, fontSize: '11px', color: 'rgba(255,255,255,0.45)',
+                                                            overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                                                        }}>
+                                                            {cr.title || cr.snippet || ''}
+                                                        </span>
+                                                        {cr.status && (
+                                                            <span style={{
+                                                                fontSize: '9px', flexShrink: 0, padding: '1px 5px', borderRadius: '3px',
+                                                                background: cr.status === 'Shipped' ? 'rgba(48,209,88,0.1)' : cr.status === 'OPEN' ? 'rgba(255,159,10,0.1)' : 'rgba(255,255,255,0.04)',
+                                                                color: cr.status === 'Shipped' ? '#30d158' : cr.status === 'OPEN' ? '#ff9f0a' : 'rgba(255,255,255,0.3)',
+                                                                fontWeight: 600,
+                                                            }}>
+                                                                {cr.status}
+                                                            </span>
+                                                        )}
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        )}
+                                        {isExpanded && weekCrs.length === 0 && (
+                                            <div style={{
+                                                padding: '8px 12px 10px 28px', fontSize: '11px',
+                                                color: 'rgba(255,255,255,0.2)', fontStyle: 'italic',
+                                                borderBottom: '1px solid rgba(255,255,255,0.03)',
+                                            }}>
+                                                No CR details stored for this week
+                                            </div>
+                                        )}
                                     </div>
                                 );
                             })}
@@ -550,24 +638,6 @@ function EngineerPanel({ alias, onClose }) {
                             <span><span style={{ display: 'inline-block', width: '8px', height: '8px', borderRadius: '2px', background: 'rgba(10,132,255,0.5)', verticalAlign: 'middle', marginRight: '4px' }} />CRs Created</span>
                             <span><span style={{ display: 'inline-block', width: '8px', height: '8px', borderRadius: '2px', background: 'rgba(48,209,88,0.4)', verticalAlign: 'middle', marginRight: '4px' }} />CRs Reviewed</span>
                         </div>
-
-                        {/* Recent CRs */}
-                        {detail.recentCrs?.length > 0 && (
-                            <>
-                                <div style={{ fontSize: '12px', fontWeight: 700, color: 'rgba(255,255,255,0.5)', textTransform: 'uppercase', letterSpacing: '1px', margin: '24px 0 12px' }}>
-                                    📝 Recent Code Reviews
-                                </div>
-                                {detail.recentCrs.slice(0, 5).map((cr, i) => (
-                                    <div key={i} style={{ fontSize: '12px', color: 'rgba(255,255,255,0.5)', padding: '8px 0', borderBottom: '1px solid rgba(255,255,255,0.03)', display: 'flex', gap: '8px', alignItems: 'center' }}>
-                                        <a href={`https://code.amazon.com/reviews/${cr.id}`} target="_blank" rel="noopener noreferrer" style={{ color: '#818cf8', textDecoration: 'none', flexShrink: 0, fontWeight: 600 }}>{cr.id}</a>
-                                        <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{cr.snippet}</span>
-                                        <span style={{ color: cr.type === 'reviewed' ? '#30d158' : '#0a84ff', flexShrink: 0, fontSize: '11px' }}>
-                                            {cr.type === 'reviewed' ? '✅ Reviewed' : '📝 Created'}
-                                        </span>
-                                    </div>
-                                ))}
-                            </>
-                        )}
 
                         <div style={{ marginTop: '28px', paddingTop: '16px', borderTop: '1px solid rgba(255,255,255,0.06)', fontSize: '11px', color: 'rgba(255,255,255,0.2)' }}>
                             Data stored in data/eng-metrics.db · 52 weeks retention · Updated weekly via amzn-mcp

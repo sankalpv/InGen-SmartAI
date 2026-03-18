@@ -485,12 +485,18 @@ async function generateWbrReport(forceRefresh = false) {
     const announcementCount = goals.filter(g => g.announcement?.text && !g.announcement.text.includes('In 2026')).length;
     logger.info(`Announcements loaded: ${announcementCount}/${goals.length} goals have latest team updates`);
 
-    // Step 3: Organize into sections
+    // Step 3: Filter out subtasks from top level — only goals matching goalPrefix are top-level
+    // Child tasks (e.g. CDS-*) are already nested under their parent's subtasks array
+    const goalPrefixFilter = config.goalPrefix || 'Goal';
+    const topLevelGoals = goals.filter(g => g.id.startsWith(goalPrefixFilter));
+    logger.info(`Filtered to ${topLevelGoals.length} top-level goals (from ${goals.length} total, removed ${goals.length - topLevelGoals.length} child tasks)`);
+
+    // Step 4: Organize into sections
     const weekNum = getWeekNumber();
     const weekRange = getWeekRange();
 
     const sections = STATUS_SECTIONS.map(sectionName => {
-        const sectionGoals = goals
+        const sectionGoals = topLevelGoals
             .filter(g => g.status === sectionName)
             .sort((a, b) => {
                 const aOrder = GOAL_TYPE_ORDER[a.goalType] ?? 99;
@@ -520,19 +526,19 @@ async function generateWbrReport(forceRefresh = false) {
         weekNumber: weekNum,
         weekRange,
         generatedAt: new Date().toISOString(),
-        totalGoals: goals.length,
+        totalGoals: topLevelGoals.length,
         sections,
         projectTasks,
         summary: {
-            total: goals.length,
+            total: topLevelGoals.length,
             byStatus: {},
             byColor: { Green: 0, Yellow: 0, Red: 0, Missing: 0 },
             byGoalType: {}
         }
     };
 
-    // Compute summary stats
-    for (const g of goals) {
+    // Compute summary stats (from top-level goals only — excludes child tasks like CDS-*)
+    for (const g of topLevelGoals) {
         report.summary.byStatus[g.status] = (report.summary.byStatus[g.status] || 0) + 1;
         report.summary.byColor[g.statusColor] = (report.summary.byColor[g.statusColor] || 0) + 1;
         report.summary.byGoalType[g.goalType] = (report.summary.byGoalType[g.goalType] || 0) + 1;

@@ -8,7 +8,6 @@ const localStore = require('./local-store'); // Local data cache
 const issuesParser = require('./issues-parser'); // Issues folder parser
 const issuesStore = require('./issues-store'); // Issues SQLite store
 const logger = require('./logger').child('Agent');
-const SLACK_SYNC_CRON = '15 * * * *'; // Every hour at :15 (offset from email sync at :00)
 
 // Configuration
 const SYNC_INTERVAL_CRON = '0 * * * *'; // Every 60 minutes (was 15 - battery optimization)
@@ -185,42 +184,26 @@ cron.schedule(SYNC_INTERVAL_CRON, async () => {
     }
 });
 
-// Slack message sync — fetch DMs, mentions, and watch channels, then ingest into vector store
-async function syncSlackMessages() {
     try {
-        const { fetchAllSlackMessages, getWatchChannels } = require('./slack');
         const watchChannels = getWatchChannels();
-        logger.info(`Slack sync starting (watch channels: ${watchChannels.length > 0 ? watchChannels.join(', ') : 'none'})...`);
 
-        const messages = await fetchAllSlackMessages(watchChannels);
         if (messages.length === 0) {
-            logger.info('Slack sync: no messages found');
             return;
         }
 
         let ingested = 0;
         for (const msg of messages) {
             try {
-                await vectorStore.ingestSlackMessage(msg);
                 ingested++;
             } catch (e) {
                 // Skip individual failures silently (dedup hits are expected)
             }
         }
-        logger.info(`Slack sync complete: ${messages.length} fetched, ${ingested} processed for ingestion`);
     } catch (error) {
-        logger.error('Slack sync failed:', error.message);
     }
 }
 
-// Slack sync cron — every hour at :15 (offset from email sync at :00)
-logger.info('Slack Sync Schedule:', SLACK_SYNC_CRON);
-cron.schedule(SLACK_SYNC_CRON, () => {
-    syncSlackMessages();
 });
 
-// Initial Slack sync — deferred 60s after startup to let email sync settle
 setTimeout(() => {
-    logger.info('Starting initial Slack message sync...');
-    syncSlackMessages();
 }, 60000);

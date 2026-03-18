@@ -514,23 +514,16 @@ register({
     },
 });
 
-// 7. Slack Search
 register({
-    name: 'slack_search',
-    description: 'Search recent Slack messages (DMs and channels) by keyword. Returns matching messages with sender, channel, timestamp, and text.',
     icon: '💬',
     parameters: {
         query: { type: 'string', description: 'Search keyword (topic, person name, channel)' },
         limit: { type: 'number', description: 'Max results (default: 10)' },
     },
     async execute({ query, limit = 10 }) {
-        const token = process.env.SLACK_BOT_TOKEN;
         if (!token) {
-            return { data: [], summary: 'Slack not configured. Add SLACK_BOT_TOKEN to .env.local.', count: 0 };
         }
         try {
-            const { fetchSlackMessages } = await import('./slack.js');
-            const allMessages = await fetchSlackMessages(token);
             const queryLower = (query || '').toLowerCase();
             const keywords = queryLower.split(/\s+/).filter(w => w.length > 2);
 
@@ -547,11 +540,9 @@ register({
                     text: (m.text || '').substring(0, 300),
                     timestamp: m.timestamp || m.id,
                 })),
-                summary: matches.length ? `Found ${matches.length} Slack message(s) matching "${query}".` : `No Slack messages found matching "${query}".`,
                 count: matches.length,
             };
         } catch (e) {
-            return { data: [], summary: `Slack search failed: ${e.message}`, count: 0, _error: true };
         }
     },
 });

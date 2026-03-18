@@ -114,7 +114,6 @@ Write-Host "  Remove VS Build Tools (~2-4 GB):" -ForegroundColor Gray
 Write-Host "    Uninstall from Settings > Apps > Visual Studio Build Tools" -ForegroundColor Cyan
 Write-Host ""
 Write-Host "  Remove Amazon Toolbox + MCP tools:" -ForegroundColor Gray
-Write-Host "    toolbox uninstall builder-mcp amzn-mcp slack-mcp mcp-registry" -ForegroundColor Cyan
 Write-Host ""
 Write-Host "  Remove Quip token:" -ForegroundColor Gray
 Write-Host "    Remove-Item `"$env:USERPROFILE\.amazon-internal-mcp-server`" -Recurse" -ForegroundColor Cyan

@@ -163,7 +163,7 @@ export async function streamCompletion(systemPrompt, userPrompt, onChunk, option
 /**
  * Stream a daily briefing — calls onChunk as tokens arrive
  */
-export async function streamDailyBriefing(emails, meetings, slackMessages, onChunk) {
+export async function streamDailyBriefing(emails, meetings, onChunk) {
     const system = promptLoader.get('system') || "You are the AI engine for 'SmartAI', a productivity dashboard. Be helpful, concise, and proactive.";
 
     // Safety filter: only use today's emails and meetings for the daily briefing

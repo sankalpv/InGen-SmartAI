@@ -40,7 +40,6 @@ async function generateCompletion(systemPrompt, userPrompt, jsonMode = true, tem
     }
 }
 
-async function generateDailyBriefing(emails, meetings, slackMessages) {
     const limitedEmails = emails.slice(0, 3).map(e => ({ from: e.from, subject: e.subject, snippet: (e.snippet || '').substring(0, 50) }));
 
     const prompt = `You are my executive productivity assistant.

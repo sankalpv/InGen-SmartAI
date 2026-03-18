@@ -97,7 +97,7 @@ export default function SettingsModal({ isOpen, onClose }) {
             const res = await fetch('/api/logs/upload', { method: 'POST' });
             const data = await res.json();
             if (!res.ok) throw new Error(data.error || 'Upload failed');
-            setGistUrl(data.gistUrl);
+            if(data.content){const b=new Blob([data.content],{type:"text/plain"});const u=URL.createObjectURL(b);const a=document.createElement("a");a.href=u;a.download=data.filename;document.body.appendChild(a);a.click();document.body.removeChild(a);URL.revokeObjectURL(u)} setGistUrl("downloaded");
             setLogUploadStatus('success');
         } catch (err) {
             setLogUploadStatus('error');
@@ -224,7 +224,7 @@ export default function SettingsModal({ isOpen, onClose }) {
                                 Prompts URL
                             </label>
                             <input type="text" value={promptUrl} onChange={(e) => setPromptUrl(e.target.value)}
-                                placeholder="https://gist.githubusercontent.com/..." style={inputStyle} />
+                                placeholder="https://code.amazon.com/packages/InGen-SmartAI/blobs/mainline/--/config/prompts.json" style={inputStyle} />
                         </div>
                         <button onClick={handleUpdatePrompts} disabled={isUpdatingPrompts || !promptUrl} style={{
                             padding: '10px 14px', borderRadius: '10px', border: '1px solid rgba(255,255,255,0.1)',
@@ -259,17 +259,15 @@ export default function SettingsModal({ isOpen, onClose }) {
                             display: 'flex', alignItems: 'center', gap: '6px', fontFamily: 'inherit', fontSize: '13px', fontWeight: 500,
                         }}>
                             {isUploadingLogs ? <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> : <Upload size={14} />}
-                            {isUploadingLogs ? 'Uploading...' : 'Send Logs to Gist'}
+                            {isUploadingLogs ? 'Uploading...' : 'Download Logs'}
                         </button>
                         {logUploadStatus === 'success' && gistUrl && (
-                            <a href={gistUrl} target="_blank" rel="noopener noreferrer" style={{ fontSize: '12px', color: '#818cf8' }}>
-                                ✅ View Gist →
-                            </a>
+                            <span style={{ fontSize: '12px', color: '#30d158' }}>✅ Log downloaded</span>
                         )}
                     </div>
                     {logUploadStatus === 'error' && (
                         <div style={{ marginTop: '6px', fontSize: '12px', color: '#ff453a' }}>
-                            <AlertTriangle size={12} /> Upload failed — check GITHUB_GIST_TOKEN
+                            <AlertTriangle size={12} /> Upload failed — ensure Midway is active
                         </div>
                     )}
                 </div>
