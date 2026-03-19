@@ -390,15 +390,46 @@ register({
         }).slice(0, 5);
 
         return {
-            data: matches.map(g => {
-                // Extract subtasks with assignees (depth-2 and depth-3 data from WBR)
-                const subtasks = (g.subtasks || g.children || []).map(s => ({
+            data: await Promise.all(matches.map(async (g) => {
+                // Extract subtasks from WBR cache
+                let subtasks = (g.subtasks || g.children || []).map(s => ({
                     id: s.id || s.shortId,
                     title: s.title || s.name || '',
                     status: s.status || 'Open',
                     assignee: s.assignee || s.assigneeName || 'unassigned',
                     ecd: s.ecd || 'Not set',
                 }));
+
+                // If subtasks have no assignees (all "unassigned"), do live MCP fetch
+                const hasAssignees = subtasks.some(s => s.assignee && s.assignee !== 'unassigned');
+                if (!hasAssignees && subtasks.length > 0) {
+                    try {
+                        const mcpClient = require('./mcp-client');
+                        // Fetch each subtask individually to get assignee (same as Team Health expansion)
+                        for (let i = 0; i < Math.min(subtasks.length, 20); i++) {
+                            try {
+                                const result = await mcpClient.callTool('builder-mcp', 'TaskeiGetTask', {
+                                    taskId: subtasks[i].id,
+                                    includeCustomAttributes: false,
+                                    commentLimit: 0,
+                                });
+                                const text = result.content?.map(c => c.text || '').join('') || '{}';
+                                const taskData = JSON.parse(text);
+                                const task = taskData.task || {};
+                                if (task.assignee?.username) {
+                                    subtasks[i].assignee = task.assignee.username;
+                                    subtasks[i].assigneeName = task.assignee.name || task.assignee.username;
+                                }
+                                if (task.estimatedCompletionDate) {
+                                    try {
+                                        const d = new Date(task.estimatedCompletionDate);
+                                        subtasks[i].ecd = `${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}-${d.getFullYear()}`;
+                                    } catch (e) { /* skip */ }
+                                }
+                            } catch (e) { /* skip individual task fetch failures */ }
+                        }
+                    } catch (e) { /* MCP not available */ }
+                }
 
                 // Collect unique engineers working on this goal
                 const engineers = [...new Set(subtasks.map(s => s.assignee).filter(a => a && a !== 'unassigned'))];
@@ -416,7 +447,7 @@ register({
                     engineers,
                     engineerCount: engineers.length,
                 };
-            }),
+            })),
             summary: matches.length
                 ? matches.map(g => {
                     const subs = g.subtasks || g.children || [];
