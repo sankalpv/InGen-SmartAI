@@ -514,38 +514,7 @@ register({
     },
 });
 
-register({
-    icon: '💬',
-    parameters: {
-        query: { type: 'string', description: 'Search keyword (topic, person name, channel)' },
-        limit: { type: 'number', description: 'Max results (default: 10)' },
-    },
-    async execute({ query, limit = 10 }) {
-        if (!token) {
-        }
-        try {
-            const queryLower = (query || '').toLowerCase();
-            const keywords = queryLower.split(/\s+/).filter(w => w.length > 2);
-
-            const matches = allMessages.filter(m => {
-                if (keywords.length === 0) return true;
-                const text = `${m.text || ''} ${m.from?.name || ''} ${m.channel || ''}`.toLowerCase();
-                return keywords.some(kw => text.includes(kw));
-            }).slice(0, limit);
-
-            return {
-                data: matches.map(m => ({
-                    from: m.from?.name || m.from || 'Unknown',
-                    channel: m.channel || 'DM',
-                    text: (m.text || '').substring(0, 300),
-                    timestamp: m.timestamp || m.id,
-                })),
-                count: matches.length,
-            };
-        } catch (e) {
-        }
-    },
-});
+// (Slack search tool removed — no Slack integration currently)
 
 // 8. Goal Wins — Derive insights from tasks closed against goals in the last week (depth 3)
 register({
@@ -760,7 +729,7 @@ register({
     name: 'goal_misses',
     description: 'Extract misses and risks from at-risk goals, ECD slips, blocked items, and ticket health. Quantifies impact with dollars, timeline slips, and resource costs.',
     icon: '⚠️',
-    parameters: { days: { type: 'number', description: 'Lookback days (default: 7)' } },
+                parameters: { days: { type: 'number', description: 'Lookback days (default: 7)' } },
     execute: goalNarrative.executeGoalMisses,
 });
 
