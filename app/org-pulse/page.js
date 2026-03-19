@@ -1,6 +1,6 @@
 'use client';
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { Activity, Users, Code2, GitPullRequest, Ticket, Target, RefreshCw, ChevronDown, ChevronUp, ExternalLink, Clock } from 'lucide-react';
+import { Activity, Users, Code2, GitPullRequest, Ticket, Target, RefreshCw, ChevronDown, ChevronUp, ExternalLink, Clock, X, User } from 'lucide-react';
 
 // ─── Activity level color ───
 function getActivityColor(crs) {
@@ -26,8 +26,200 @@ function timeSince(dateStr) {
     return `${Math.round(mins / 1440)}d ago`;
 }
 
+// ─── Engineer Detail Slide-Out Panel ───
+function EngineerDetailPanel({ member, metrics, tickets, goals, onClose }) {
+    if (!member) return null;
+    const crs = metrics?.crsCreated || 0;
+    const reviews = metrics?.crsReviewed || 0;
+    const actColor = getActivityColor(crs);
+    const goalList = goals || [];
+    const ticketList = tickets?.tickets || [];
+
+    // Cross-data observation (factual only)
+    const observations = [];
+    if (crs === 0 && reviews === 0 && ticketList.length === 0 && goalList.length === 0) {
+        observations.push({ icon: 'ℹ️', text: 'No code, ticket, or goal signals this week. May be on PTO, design work, or investigation.' });
+    }
+    if (crs > 0 && goalList.length > 0) {
+        const goalIds = [...new Set(goalList.map(g => g.parentGoal || g.id))];
+        observations.push({ icon: '🔗', text: `${crs} CRs this week · Assigned to ${goalIds.length} goal${goalIds.length !== 1 ? 's' : ''}: ${goalIds.join(', ')}` });
+    }
+    if (metrics?.declining3w) {
+        observations.push({ icon: '📉', text: '3-week declining trend in code review output.' });
+    }
+    if (tickets?.aging14d > 0) {
+        observations.push({ icon: '⏰', text: `${tickets.aging14d} ticket${tickets.aging14d > 1 ? 's' : ''} aging over 14 days.` });
+    }
+    const redGoals = goalList.filter(g => g.statusColor === 'Red');
+    if (redGoals.length > 0) {
+        observations.push({ icon: '🔴', text: `Assigned to ${redGoals.length} Red goal${redGoals.length > 1 ? 's' : ''}: ${redGoals.map(g => g.id).join(', ')}` });
+    }
+
+    return (
+        <>
+            {/* Backdrop */}
+            <div onClick={onClose} style={{
+                position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 999,
+                animation: 'fadeIn 0.2s ease',
+            }} />
+            {/* Panel */}
+            <div className="slide-panel" style={{
+                position: 'fixed', top: 0, right: 0, bottom: 0, width: '480px', zIndex: 1000,
+                background: 'rgba(15,15,22,0.97)', backdropFilter: 'blur(30px)', WebkitBackdropFilter: 'blur(30px)',
+                borderLeft: '1px solid rgba(255,255,255,0.08)',
+                boxShadow: '-20px 0 60px rgba(0,0,0,0.5)',
+                animation: 'slideInRight 0.3s cubic-bezier(0.16, 1, 0.3, 1)',
+                overflowY: 'auto', padding: '28px',
+            }}>
+                {/* Header */}
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 24 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+                        <div style={{
+                            width: 48, height: 48, borderRadius: 14,
+                            background: `linear-gradient(135deg, ${actColor.text}30, ${actColor.text}10)`,
+                            display: 'flex', alignItems: 'center', justifyContent: 'center',
+                            fontSize: 20, fontWeight: 700, color: actColor.text,
+                        }}>
+                            {(member.name || member.alias || '?').charAt(0).toUpperCase()}
+                        </div>
+                        <div>
+                            <div style={{ fontSize: 20, fontWeight: 700, color: 'var(--text-primary)' }}>{member.name || member.alias}</div>
+                            <div style={{ fontSize: 13, color: 'var(--text-tertiary)' }}>{member.alias}{member.team ? ` · ${member.team}` : ''}</div>
+                        </div>
+                    </div>
+                    <button onClick={onClose} style={{
+                        background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)',
+                        borderRadius: 10, padding: 8, cursor: 'pointer', color: 'rgba(255,255,255,0.5)',
+                        display: 'flex', alignItems: 'center',
+                    }}><X size={16} /></button>
+                </div>
+
+                {/* Summary Stats */}
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10, marginBottom: 24 }}>
+                    {[
+                        { value: crs, label: 'CRs Created', color: '#a78bfa', icon: '💻' },
+                        { value: reviews, label: 'Reviews', color: '#60a5fa', icon: '👀' },
+                        { value: tickets?.open || 0, label: 'Tickets', color: '#22d3ee', icon: '🎫' },
+                    ].map((s, i) => (
+                        <div key={i} style={{
+                            background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)',
+                            borderRadius: 12, padding: '14px 12px', textAlign: 'center',
+                        }}>
+                            <div style={{ fontSize: 16, marginBottom: 2 }}>{s.icon}</div>
+                            <div style={{ fontSize: 24, fontWeight: 800, color: s.color }}>{s.value}</div>
+                            <div style={{ fontSize: 10, color: 'var(--text-tertiary)', textTransform: 'uppercase', fontWeight: 600 }}>{s.label}</div>
+                        </div>
+                    ))}
+                </div>
+
+                {/* Cross-Data Observations */}
+                {observations.length > 0 && (
+                    <div style={{
+                        background: 'rgba(139,92,246,0.06)', border: '1px solid rgba(139,92,246,0.15)',
+                        borderRadius: 14, padding: '14px 16px', marginBottom: 24,
+                    }}>
+                        <div style={{ fontSize: 11, fontWeight: 700, color: '#a78bfa', textTransform: 'uppercase', marginBottom: 8, letterSpacing: '0.5px' }}>
+                            Cross-Data Observations
+                        </div>
+                        {observations.map((obs, i) => (
+                            <div key={i} style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 4, lineHeight: 1.6 }}>
+                                {obs.icon} {obs.text}
+                            </div>
+                        ))}
+                    </div>
+                )}
+
+                {/* Section: Code Reviews */}
+                <div style={{ marginBottom: 24 }}>
+                    <div style={{ fontSize: 13, fontWeight: 700, color: '#a78bfa', display: 'flex', alignItems: 'center', gap: 6, marginBottom: 10 }}>
+                        <Code2 size={14} /> Code Reviews ({crs} created, {reviews} reviewed)
+                    </div>
+                    {metrics?.recentCrs?.length > 0 ? metrics.recentCrs.map((cr, i) => (
+                        <div key={i} style={{
+                            background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.05)',
+                            borderRadius: 10, padding: '10px 14px', marginBottom: 6,
+                        }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                                <span style={{ color: '#818cf8', fontSize: 12, fontWeight: 600 }}>{cr.id}</span>
+                                <span style={{ fontSize: 10, padding: '1px 6px', borderRadius: 4, background: 'rgba(139,92,246,0.12)', color: '#a78bfa' }}>{cr.type}</span>
+                            </div>
+                            <div style={{ fontSize: 13, color: 'var(--text-secondary)', marginTop: 4 }}>{cr.title}</div>
+                        </div>
+                    )) : (
+                        <div style={{ fontSize: 13, color: 'var(--text-tertiary)', fontStyle: 'italic' }}>No code reviews this week</div>
+                    )}
+                </div>
+
+                {/* Section: Goals */}
+                <div style={{ marginBottom: 24 }}>
+                    <div style={{ fontSize: 13, fontWeight: 700, color: '#10b981', display: 'flex', alignItems: 'center', gap: 6, marginBottom: 10 }}>
+                        <Target size={14} /> Goals ({goalList.length} assigned)
+                    </div>
+                    {goalList.length > 0 ? goalList.map((g, i) => (
+                        <div key={i} style={{
+                            background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.05)',
+                            borderRadius: 10, padding: '10px 14px', marginBottom: 6,
+                        }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                <span style={{ width: 10, height: 10, borderRadius: '50%', background: getGoalColor(g.statusColor), flexShrink: 0, boxShadow: `0 0 6px ${getGoalColor(g.statusColor)}40` }} />
+                                <span style={{ color: '#818cf8', fontSize: 12, fontWeight: 600 }}>{g.id}</span>
+                                <span style={{ fontSize: 11, color: getGoalColor(g.statusColor), fontWeight: 600 }}>{g.statusColor || g.status}</span>
+                            </div>
+                            <div style={{ fontSize: 13, color: 'var(--text-secondary)', marginTop: 4 }}>{g.title}</div>
+                            <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginTop: 2 }}>
+                                ECD: {g.ecd || 'Not set'}{g.parentGoal ? ` · Parent: ${g.parentGoal}` : ''}
+                            </div>
+                        </div>
+                    )) : (
+                        <div style={{ fontSize: 13, color: 'var(--text-tertiary)', fontStyle: 'italic' }}>No goals assigned</div>
+                    )}
+                </div>
+
+                {/* Section: Tickets */}
+                <div style={{ marginBottom: 24 }}>
+                    <div style={{ fontSize: 13, fontWeight: 700, color: '#22d3ee', display: 'flex', alignItems: 'center', gap: 6, marginBottom: 10 }}>
+                        <Ticket size={14} /> Tickets ({tickets?.open || 0} open)
+                    </div>
+                    {ticketList.length > 0 ? ticketList.map((t, i) => (
+                        <div key={i} style={{
+                            background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.05)',
+                            borderRadius: 10, padding: '10px 14px', marginBottom: 6,
+                        }}>
+                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                                <span style={{ color: '#22d3ee', fontSize: 12, fontWeight: 600 }}>{t.id}</span>
+                                <span style={{ fontSize: 11, color: t.age > 14 ? '#ff9f0a' : 'var(--text-tertiary)' }}>{t.age}d old</span>
+                            </div>
+                            <div style={{ fontSize: 13, color: 'var(--text-secondary)', marginTop: 4 }}>{t.title}</div>
+                        </div>
+                    )) : (
+                        <div style={{ fontSize: 13, color: 'var(--text-tertiary)', fontStyle: 'italic' }}>No open tickets</div>
+                    )}
+                </div>
+
+                {/* Links */}
+                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                    <a href={`https://phonetool.amazon.com/users/${member.alias}`} target="_blank" rel="noopener noreferrer"
+                        style={{ fontSize: 12, color: '#818cf8', display: 'flex', alignItems: 'center', gap: 4, textDecoration: 'none',
+                            padding: '6px 12px', borderRadius: 8, background: 'rgba(139,92,246,0.08)', border: '1px solid rgba(139,92,246,0.15)' }}>
+                        <User size={12} /> Phonetool <ExternalLink size={10} />
+                    </a>
+                    <a href={`https://code.amazon.com/reviews/from-user/${member.alias}`} target="_blank" rel="noopener noreferrer"
+                        style={{ fontSize: 12, color: '#60a5fa', display: 'flex', alignItems: 'center', gap: 4, textDecoration: 'none',
+                            padding: '6px 12px', borderRadius: 8, background: 'rgba(59,130,246,0.08)', border: '1px solid rgba(59,130,246,0.15)' }}>
+                        <Code2 size={12} /> Code Reviews <ExternalLink size={10} />
+                    </a>
+                </div>
+            </div>
+            <style>{`
+                @keyframes slideInRight { from { transform: translateX(100%); } to { transform: translateX(0); } }
+                @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+            `}</style>
+        </>
+    );
+}
+
 // ─── Engineer Card ───
-function EngineerCard({ member, metrics, tickets, goals, index }) {
+function EngineerCard({ member, metrics, tickets, goals, index, onSelect }) {
     const [expanded, setExpanded] = useState(false);
     const crs = metrics?.crsCreated || 0;
     const reviews = metrics?.crsReviewed || 0;
@@ -42,7 +234,8 @@ function EngineerCard({ member, metrics, tickets, goals, index }) {
 
     return (
         <div
-            onClick={() => setExpanded(!expanded)}
+            onClick={(e) => { e.stopPropagation(); setExpanded(!expanded); }}
+            onDoubleClick={(e) => { e.stopPropagation(); if (onSelect) onSelect(member); }}
             style={{
                 background: actColor.bg,
                 border: `1px solid ${actColor.border}`,
@@ -174,7 +367,7 @@ function EngineerCard({ member, metrics, tickets, goals, index }) {
 }
 
 // ─── Team Section ───
-function TeamSection({ managerAlias, team, engMetrics, engTickets, engGoals, teamIndex }) {
+function TeamSection({ managerAlias, team, engMetrics, engTickets, engGoals, teamIndex, onSelectEngineer }) {
     const [collapsed, setCollapsed] = useState(false);
     const members = team.members || [];
     const totalCrs = members.reduce((s, m) => s + (engMetrics?.[m.alias]?.crsCreated || 0), 0);
@@ -241,6 +434,7 @@ function TeamSection({ managerAlias, team, engMetrics, engTickets, engGoals, tea
                             tickets={engTickets?.[member.alias]}
                             goals={engGoals?.[member.alias]}
                             index={i}
+                            onSelect={onSelectEngineer}
                         />
                     ))}
                 </div>
@@ -258,6 +452,7 @@ export default function OrgPulsePage() {
     const [loadedSources, setLoadedSources] = useState([]);
     const [totalElapsed, setTotalElapsed] = useState(null);
     const [isLoading, setIsLoading] = useState(true);
+    const [selectedEngineer, setSelectedEngineer] = useState(null);
 
     const fetchData = useCallback(async () => {
         setIsLoading(true);
@@ -419,6 +614,7 @@ export default function OrgPulsePage() {
                         engTickets={ticketData?.engineerTickets}
                         engGoals={goalData?.engineerGoals}
                         teamIndex={i}
+                        onSelectEngineer={setSelectedEngineer}
                     />
                 ))
             ) : (
@@ -432,6 +628,17 @@ export default function OrgPulsePage() {
                         {isLoading ? 'Loading your org data...' : 'Sync your org first: go to Settings → Org Sync to fetch your team from Phonetool.'}
                     </p>
                 </div>
+            )}
+
+            {/* Engineer Detail Panel — opens on double-click of an engineer card */}
+            {selectedEngineer && (
+                <EngineerDetailPanel
+                    member={selectedEngineer}
+                    metrics={em[selectedEngineer.alias]}
+                    tickets={ticketData?.engineerTickets?.[selectedEngineer.alias]}
+                    goals={goalData?.engineerGoals?.[selectedEngineer.alias]}
+                    onClose={() => setSelectedEngineer(null)}
+                />
             )}
 
             <style>{`
