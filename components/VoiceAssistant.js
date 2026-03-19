@@ -296,7 +296,7 @@ export default function VoiceAssistant() {
                 res = await fetch('/api/agent', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ task: text }),
+                    body: JSON.stringify({ task: text, preferences: { skipClarify: true } }),
                 });
             } else {
                 // Route to Chat for email/calendar RAG

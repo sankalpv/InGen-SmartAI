@@ -586,8 +586,9 @@ export async function executeAgent(task, preferences = {}, onEvent = () => {}) {
             customSynthesisPrompt = null;
         }
 
-        // If there are clarifying questions and no preferences given, return them
-        if (clarifyingQuestions && clarifyingQuestions.length > 0 && Object.keys(preferences).length === 0) {
+        // If there are clarifying questions, no preferences given, AND skipClarify is not set, return them
+        // Voice Assistant sets skipClarify=true to bypass this and execute immediately
+        if (clarifyingQuestions && clarifyingQuestions.length > 0 && Object.keys(preferences).length === 0 && !preferences.skipClarify) {
             onEvent({ type: 'clarify', questions: clarifyingQuestions, plan });
             return { plan, clarifyingQuestions, evidence: [], result: null };
         }
