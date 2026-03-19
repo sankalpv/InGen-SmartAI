@@ -383,9 +383,9 @@ register({
             return { data: [], summary: 'No goals data available.', count: 0 };
         }
 
-        const queryLower = (query || '').toLowerCase();
+        const queryLower = (query || '').toLowerCase().replace(/[-_]/g, ' ');
         const matches = goals.filter(g => {
-            const text = `${g.title || ''} ${g.id || ''} ${g.theme || ''} ${g.owner || ''} ${g.goalType || ''}`.toLowerCase();
+            const text = `${g.title || ''} ${g.id || ''} ${g.theme || ''} ${g.owner || ''} ${g.goalType || ''}`.toLowerCase().replace(/[-_]/g, ' ');
             return !queryLower || text.includes(queryLower);
         }).slice(0, 5);
 
