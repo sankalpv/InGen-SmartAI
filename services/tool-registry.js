@@ -343,7 +343,7 @@ register({
 // 4. Goal Status
 register({
     name: 'goal_status',
-    description: 'Search team goals/OKRs by keyword. Returns goal status (Green/Yellow/Red), ECD, and owner.',
+    description: 'Search team goals/OKRs by keyword. Returns goal status (Green/Yellow/Red), ECD, owner, AND all subtasks with their assignees (engineers working on the goal).',
     icon: '🎯',
     parameters: {
         query: { type: 'string', description: 'Goal title, ID, or keyword' },
@@ -352,20 +352,21 @@ register({
         const fs = require('fs');
         const path = require('path');
 
-        // Try fetching from the team API data cache
+        // Try fetching from WBR cache first (has subtasks with assignees), then goals.json
+        const wbrCachePath = path.join(process.cwd(), 'brain', 'wbr-cache.json');
         const wbrPath = path.join(process.cwd(), 'data', 'wbr-cache.json');
         const goalsPath = path.join(process.cwd(), 'data', 'goals.json');
 
         let goals = [];
 
-        // Try multiple data sources
-        for (const p of [goalsPath, wbrPath]) {
+        for (const p of [wbrCachePath, goalsPath, wbrPath]) {
             if (fs.existsSync(p)) {
                 try {
                     const raw = JSON.parse(fs.readFileSync(p, 'utf8'));
-                    // WBR format has sections with goals
-                    if (raw.sections) {
-                        for (const section of raw.sections) {
+                    // WBR cache format: { report: { sections: [...] } }
+                    const sections = raw.report?.sections || raw.sections;
+                    if (sections) {
+                        for (const section of sections) {
                             goals.push(...(section.goals || []));
                         }
                     } else if (raw.data) {
@@ -389,16 +390,40 @@ register({
         }).slice(0, 5);
 
         return {
-            data: matches.map(g => ({
-                id: g.id,
-                title: g.title,
-                status: g.statusColor || g.status || 'Unknown',
-                ecd: g.ecd || 'Not set',
-                owner: g.owner || '',
-                theme: g.theme || '',
-                pathToGreen: g.pathToGreen || null,
-            })),
-            summary: matches.length ? `Found ${matches.length} goal(s) matching "${query}".` : `No goals found matching "${query}".`,
+            data: matches.map(g => {
+                // Extract subtasks with assignees (depth-2 and depth-3 data from WBR)
+                const subtasks = (g.subtasks || g.children || []).map(s => ({
+                    id: s.id || s.shortId,
+                    title: s.title || s.name || '',
+                    status: s.status || 'Open',
+                    assignee: s.assignee || s.assigneeName || 'unassigned',
+                    ecd: s.ecd || 'Not set',
+                }));
+
+                // Collect unique engineers working on this goal
+                const engineers = [...new Set(subtasks.map(s => s.assignee).filter(a => a && a !== 'unassigned'))];
+
+                return {
+                    id: g.id,
+                    title: g.title,
+                    status: g.statusColor || g.status || 'Unknown',
+                    ecd: g.ecd || 'Not set',
+                    owner: g.owner || g.assigneeName || '',
+                    theme: g.theme || '',
+                    pathToGreen: g.pathToGreen || null,
+                    subtaskCount: subtasks.length,
+                    subtasks: subtasks.slice(0, 20),
+                    engineers,
+                    engineerCount: engineers.length,
+                };
+            }),
+            summary: matches.length
+                ? matches.map(g => {
+                    const subs = g.subtasks || g.children || [];
+                    const engineers = [...new Set(subs.map(s => s.assignee || s.assigneeName).filter(Boolean))];
+                    return `${g.id} "${(g.title || '').substring(0, 40)}" [${g.statusColor || g.status}] — ${subs.length} tasks, ${engineers.length} engineer(s): ${engineers.join(', ') || 'none assigned'}`;
+                }).join('\n')
+                : `No goals found matching "${query}".`,
             count: matches.length,
         };
     },
