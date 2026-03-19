@@ -266,6 +266,16 @@ export default function VoiceAssistant() {
     }, []);
 
     // Send voice transcript to AI chat endpoint
+    // Detect if a question needs the agent (goals, tickets, CRs, engineers) vs simple chat (emails, calendar)
+    const needsAgent = useCallback((text) => {
+        const lower = text.toLowerCase();
+        const agentKeywords = ['goal', 'goals', 'objective', 'ecd', 'wbr', 'ticket', 'tickets', 'sev-', 'resolver',
+            'code review', 'cr ', 'crs', 'stale cr', 'engineer', 'who is working', 'who works', 'who\'s working',
+            'assignee', 'assigned to', 'red goal', 'green goal', 'yellow goal', 'blocked', 'org pulse',
+            'team health', 'code metric', 'how many cr', 'how many ticket'];
+        return agentKeywords.some(kw => lower.includes(kw));
+    }, []);
+
     const handleVoiceInput = useCallback(async (text) => {
         if (!text.trim()) return;
         setIsListening(false);
@@ -274,21 +284,33 @@ export default function VoiceAssistant() {
         setError(null);
 
         const pageContext = getPageContext(pathname);
-
-        // Add to conversation history
         conversationHistory.current.push({ role: 'user', content: text });
 
+        // Smart routing: goal/ticket/CR questions → Agent, email/calendar → Chat
+        const useAgent = needsAgent(text);
+
         try {
-            const res = await fetch('/api/chat', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    message: text,
-                    history: conversationHistory.current.slice(-6),
-                    stream: true,
-                    pageContext,
-                }),
-            });
+            let res;
+            if (useAgent) {
+                // Route to Agent for tool-powered answers (goals, tickets, CRs)
+                res = await fetch('/api/agent', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ task: text }),
+                });
+            } else {
+                // Route to Chat for email/calendar RAG
+                res = await fetch('/api/chat', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        message: text,
+                        history: conversationHistory.current.slice(-6),
+                        stream: true,
+                        pageContext,
+                    }),
+                });
+            }
 
             if (!res.ok) throw new Error(`HTTP ${res.status}`);
 
