@@ -79,6 +79,39 @@ Click **OK** to allow. This only happens once. InGen uses AppleScript to read yo
 
 ---
 
+## What's New 🆕
+
+### 🔊 Morning Briefing — Your Personal Jarvis
+
+Open the dashboard, tap one button, and InGen delivers a **cinematic spoken briefing** of your entire day — pulling data from all five sources simultaneously:
+
+> *"Good morning. You've got 15 emails — 3 need immediate attention from Alice and Bob. Six meetings today, starting with CPP Sync at 9. Your goals look solid: 8 green, 2 yellow, 1 red. That ticket from last week is 16 days old — it's developing opinions. Your team pushed 23 code reviews, though 3 are going stale. That's your day. Go make it count."*
+
+**How it works:**
+1. Click **🔊 Morning Briefing** on the dashboard
+2. A cinematic full-screen overlay appears with a glowing orb animation
+3. Data cards fly in showing real-time stats from emails, calendar, goals, code metrics, and tickets
+4. **Bedrock Claude Sonnet** synthesizes everything into a natural, Jarvis-style spoken narrative
+5. Text appears word-by-word in a teleprompter style with purple glow highlighting
+6. High-quality **Text-to-Speech** reads the briefing aloud (Zoe Premium voice)
+7. Cards pulse and highlight as InGen mentions each data source
+
+**Features:** Mute toggle, replay, auto-scroll, ascending/descending chime bookends, 30-minute cache, Ollama fallback if Bedrock isn't configured.
+
+### 🎙️ Voice Assistant — Talk to InGen
+
+Press **V** anywhere in InGen (or click the floating mic button) to ask questions with your voice:
+
+- *"What are my red goals?"*
+- *"How many tickets are open?"*
+- *"Summarize my emails from Alice"*
+
+InGen listens via speech recognition, sends your question to the AI chat (with full RAG context), and **speaks the answer back** with a natural voice. Responses are rewritten by Bedrock into conversational spoken English before TTS playback.
+
+**Features:** Real-time mic waveform visualization, conversation history (multi-turn), page-aware context, keyboard shortcut (V), interruption support (start talking to stop InGen speaking).
+
+---
+
 ## Features
 
 ### 📊 AI Daily Briefing
@@ -173,7 +206,10 @@ All processing happens locally. No data leaves your machine.
 | Component | Technology |
 |---|---|
 | Frontend | Next.js 16, React 19, Liquid Glass UI |
-| AI/LLM | Ollama (qwen3:latest, 8.2B params); optional Amazon Bedrock (Claude Sonnet) for WBR summaries + key page chats |
+| AI/LLM | Ollama (qwen3:latest, 8.2B params); optional Amazon Bedrock (Claude Sonnet) for WBR summaries, Morning Briefing + key page chats |
+| Voice TTS | Web Speech API (`SpeechSynthesis`) with smart voice selection (Zoe Premium → Siri → Samantha Enhanced) |
+| Voice STT | Web Speech API (`SpeechRecognition`) for voice-to-text in Voice Assistant |
+| Voice Rewrite | Bedrock Claude Sonnet rewrites AI responses into natural spoken English before TTS |
 | Embeddings | qwen3-embedding (4096 dimensions) |
 | Vector DB | hnswlib-node (local, in-process) |
 | Data Bridge | AppleScript/JXA → local JSON cache |
