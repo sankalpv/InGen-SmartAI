@@ -93,8 +93,8 @@ function streamOrgPulse() {
                             linesChanged: eng.linesChanged || 0,
                             reviewRatio: eng.reviewRatioDisplay || '—',
                             trend: eng.trend || 0,
-                            declining3w: !!eng.declining3w,
-                            recentCrs: (eng.recentCrs || []).slice(0, 3).map(cr => ({
+                            declining3w: !!eng.declining3w || !!eng.decliningStreak,
+                            recentCrs: (eng.crDetails || eng.recentCrs || []).filter(cr => cr.type === 'created').slice(0, 5).map(cr => ({
                                 id: cr.id,
                                 title: cr.title || cr.id,
                                 type: cr.type || 'unknown',
