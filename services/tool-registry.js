@@ -400,35 +400,80 @@ register({
                     ecd: s.ecd || 'Not set',
                 }));
 
-                // If subtasks have no assignees (all "unassigned"), do live MCP fetch
-                const hasAssignees = subtasks.some(s => s.assignee && s.assignee !== 'unassigned');
-                if (!hasAssignees && subtasks.length > 0) {
-                    try {
-                        const mcpClient = require('./mcp-client');
-                        // Fetch each subtask individually to get assignee (same as Team Health expansion)
-                        for (let i = 0; i < Math.min(subtasks.length, 20); i++) {
+                // Depth-3 fetch: milestones are "unassigned" — engineer tasks are one level deeper
+                // Check cache first (6-day TTL matching WBR cache)
+                const DEPTH3_CACHE_PATH = path.join(process.cwd(), 'brain', 'goal-depth3-cache.json');
+                const DEPTH3_TTL = 6 * 24 * 60 * 60 * 1000; // 6 days
+                let depth3Cache = {};
+                try { if (fs.existsSync(DEPTH3_CACHE_PATH)) depth3Cache = JSON.parse(fs.readFileSync(DEPTH3_CACHE_PATH, 'utf8')); } catch (e) { /* fresh */ }
+
+                const cachedGoal = depth3Cache[g.id];
+                if (cachedGoal && (Date.now() - cachedGoal.timestamp < DEPTH3_TTL)) {
+                    // Use cached depth-3 data
+                    subtasks = cachedGoal.subtasks;
+                } else {
+                    // Live MCP fetch: for each milestone, get ITS subtasks (engineer tasks)
+                    const hasAssignees = subtasks.some(s => s.assignee && s.assignee !== 'unassigned');
+                    if (!hasAssignees && subtasks.length > 0) {
+                        try {
+                            const mcpClient = require('./mcp-client');
+                            const allEngineerTasks = [];
+                            for (let i = 0; i < Math.min(subtasks.length, 20); i++) {
+                                try {
+                                    const result = await mcpClient.callTool('builder-mcp', 'TaskeiGetTask', {
+                                        taskId: subtasks[i].id,
+                                        includeCustomAttributes: true,
+                                        commentLimit: 2,
+                                    });
+                                    const text = result.content?.map(c => c.text || '').join('') || '{}';
+                                    const taskData = JSON.parse(text);
+                                    const task = taskData.task || {};
+
+                                    // Update milestone assignee if available
+                                    if (task.assignee?.username) {
+                                        subtasks[i].assignee = task.assignee.username;
+                                        subtasks[i].assigneeName = task.assignee.name || task.assignee.username;
+                                    }
+
+                                    // Depth-3: collect engineer tasks inside this milestone
+                                    const children = task.subtasks || [];
+                                    for (const child of children) {
+                                        const fmtDate = (d) => { if (!d) return 'Missing'; try { const dt = new Date(d); return `${String(dt.getMonth()+1).padStart(2,'0')}-${String(dt.getDate()).padStart(2,'0')}-${dt.getFullYear()}`; } catch(e) { return 'Missing'; } };
+                                        const latestComment = (task.combinedThread?.items || []).filter(ti => ti.payload?.type === 'COMMENT').slice(0, 1).map(ti => ({ message: ti.payload?.comment?.message?.substring(0, 200), author: ti.payload?.comment?.author?.name }));
+
+                                        allEngineerTasks.push({
+                                            id: child.shortId || child.id,
+                                            title: child.name || '',
+                                            status: child.status || 'Open',
+                                            assignee: child.assignee?.username || 'unassigned',
+                                            assigneeName: child.assignee?.name || '',
+                                            ecd: fmtDate(child.estimatedCompletionDate),
+                                            description: (child.description || '').substring(0, 300),
+                                            blocked: child.blocked || false,
+                                            blockedReason: child.blockedReason || null,
+                                            priority: child.priority || null,
+                                            labels: (child.labels || []).map(l => l.name || l),
+                                            parentMilestone: subtasks[i].id,
+                                            parentMilestoneTitle: subtasks[i].title,
+                                        });
+                                    }
+                                } catch (e) { /* skip individual milestone fetch failures */ }
+                            }
+
+                            // If we found engineer tasks, replace subtasks with them
+                            if (allEngineerTasks.length > 0) {
+                                subtasks = allEngineerTasks;
+                            }
+
+                            // Cache depth-3 results
                             try {
-                                const result = await mcpClient.callTool('builder-mcp', 'TaskeiGetTask', {
-                                    taskId: subtasks[i].id,
-                                    includeCustomAttributes: false,
-                                    commentLimit: 0,
-                                });
-                                const text = result.content?.map(c => c.text || '').join('') || '{}';
-                                const taskData = JSON.parse(text);
-                                const task = taskData.task || {};
-                                if (task.assignee?.username) {
-                                    subtasks[i].assignee = task.assignee.username;
-                                    subtasks[i].assigneeName = task.assignee.name || task.assignee.username;
-                                }
-                                if (task.estimatedCompletionDate) {
-                                    try {
-                                        const d = new Date(task.estimatedCompletionDate);
-                                        subtasks[i].ecd = `${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}-${d.getFullYear()}`;
-                                    } catch (e) { /* skip */ }
-                                }
-                            } catch (e) { /* skip individual task fetch failures */ }
-                        }
-                    } catch (e) { /* MCP not available */ }
+                                depth3Cache[g.id] = { timestamp: Date.now(), subtasks };
+                                const brainDir = path.join(process.cwd(), 'brain');
+                                if (!fs.existsSync(brainDir)) fs.mkdirSync(brainDir, { recursive: true });
+                                fs.writeFileSync(DEPTH3_CACHE_PATH, JSON.stringify(depth3Cache, null, 2));
+                            } catch (e) { /* cache write failure is non-fatal */ }
+                        } catch (e) { /* MCP not available */ }
+                    }
                 }
 
                 // Collect unique engineers working on this goal
