@@ -243,12 +243,6 @@ export default function WbrPrepPage() {
                 </div>
             )}
 
-            </span>
-                        )}
-                    </div>
-                </div>
-            )}
-
             {/* Error */}
             {error && (
                 <div style={{ background: 'rgba(255,69,58,0.08)', border: '1px solid rgba(255,69,58,0.2)', borderRadius: 14, padding: 20, textAlign: 'center' }}>

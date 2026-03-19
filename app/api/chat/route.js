@@ -6,6 +6,130 @@ const tracker = require('../../../services/usage-tracker');
 
 export const runtime = 'nodejs';
 
+/**
+ * Parse natural language date references from a query string.
+ * Handles: "March 23", "23rd March", "March 23rd", "3/23", "tomorrow", "today",
+ * "next Monday", "this Friday", "day after tomorrow", etc.
+ * Returns a Date object (date only, no time) or null if no date found.
+ */
+function parseDateFromQuery(query) {
+    const now = new Date();
+    const q = query.toLowerCase();
+
+    // "today"
+    if (/\btoday\b/.test(q)) return new Date(now.getFullYear(), now.getMonth(), now.getDate());
+
+    // "tomorrow"
+    if (/\btomorrow\b/.test(q)) return new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1);
+
+    // "day after tomorrow"
+    if (/\bday after tomorrow\b/.test(q)) return new Date(now.getFullYear(), now.getMonth(), now.getDate() + 2);
+
+    // "yesterday"
+    if (/\byesterday\b/.test(q)) return new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1);
+
+    // "next Monday", "this Friday", etc.
+    const dayNames = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
+    const dayMatch = q.match(/\b(?:next|this|coming)\s+(monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b/i);
+    if (dayMatch) {
+        const targetDay = dayNames.indexOf(dayMatch[1].toLowerCase());
+        const currentDay = now.getDay();
+        let daysAhead = targetDay - currentDay;
+        if (daysAhead <= 0) daysAhead += 7; // always go forward
+        return new Date(now.getFullYear(), now.getMonth(), now.getDate() + daysAhead);
+    }
+
+    // Just a day name without "next"/"this" — assume nearest future occurrence
+    const bareDayMatch = q.match(/\b(monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b/i);
+    if (bareDayMatch) {
+        const targetDay = dayNames.indexOf(bareDayMatch[1].toLowerCase());
+        const currentDay = now.getDay();
+        let daysAhead = targetDay - currentDay;
+        if (daysAhead <= 0) daysAhead += 7;
+        return new Date(now.getFullYear(), now.getMonth(), now.getDate() + daysAhead);
+    }
+
+    // Month name + day: "March 23", "March 23rd", "23 March", "23rd March", "23rd of March"
+    const months = { january: 0, february: 1, march: 2, april: 3, may: 4, june: 5, july: 6, august: 7, september: 8, october: 9, november: 10, december: 11 };
+    const monthNames = Object.keys(months).join('|');
+
+    // "March 23" or "March 23rd"
+    const monthFirstMatch = q.match(new RegExp(`\\b(${monthNames})\\s+(\\d{1,2})(?:st|nd|rd|th)?\\b`, 'i'));
+    if (monthFirstMatch) {
+        const month = months[monthFirstMatch[1].toLowerCase()];
+        const day = parseInt(monthFirstMatch[2], 10);
+        const year = now.getFullYear();
+        return new Date(year, month, day);
+    }
+
+    // "23 March" or "23rd March" or "23rd of March"
+    const dayFirstMatch = q.match(new RegExp(`\\b(\\d{1,2})(?:st|nd|rd|th)?\\s+(?:of\\s+)?(${monthNames})\\b`, 'i'));
+    if (dayFirstMatch) {
+        const day = parseInt(dayFirstMatch[1], 10);
+        const month = months[dayFirstMatch[2].toLowerCase()];
+        const year = now.getFullYear();
+        return new Date(year, month, day);
+    }
+
+    // Numeric: "3/23", "03/23", "3/23/2026"
+    const numericMatch = q.match(/\b(\d{1,2})\/(\d{1,2})(?:\/(\d{2,4}))?\b/);
+    if (numericMatch) {
+        const month = parseInt(numericMatch[1], 10) - 1;
+        const day = parseInt(numericMatch[2], 10);
+        const year = numericMatch[3] ? (numericMatch[3].length === 2 ? 2000 + parseInt(numericMatch[3]) : parseInt(numericMatch[3])) : now.getFullYear();
+        return new Date(year, month, day);
+    }
+
+    return null;
+}
+
+/**
+ * Detect the intent/domain of a query regardless of which page the user is on.
+ * Returns an array of detected intents (can be multiple for cross-domain queries).
+ * Possible values: 'ticket-health', 'eng-metrics', 'my-team', 'team-pulse', 'calendar', 'email'
+ */
+function detectQueryIntent(query) {
+    const q = query.toLowerCase();
+    const intents = [];
+
+    // Ticket health patterns
+    if (/\b(ticket|tickets|sla|aging\s+ticket|resolver\s+group|sev\s*\d|severity|tt\b|trouble\s+ticket|open\s+ticket|ticket\s+health|baseline)/i.test(q)) {
+        intents.push('ticket-health');
+    }
+
+    // Eng metrics patterns  
+    if (/\b(code\s+review|cr\b|crs?\b|review\s+ratio|engineering\s+metric|eng\s+metric|commits?|code\s+velocity|declining\s+streak|crs?\s+created|crs?\s+reviewed)/i.test(q)) {
+        intents.push('eng-metrics');
+    }
+
+    // My team / goals patterns
+    if (/\b(goal|goals|ecd|red\s+goal|green\s+goal|yellow\s+goal|path\s+to\s+green|missed\s+ecd|goal\s+status|wbr|quad\b|deliverable|milestone)/i.test(q)) {
+        intents.push('my-team');
+    }
+
+    // Team pulse / issues patterns
+    if (/\b(issue|issues|team\s+pulse|sla\s+violation|alarm|who\s+is\s+working|team\s+activity|owner|assignee|taskei|sim\b)/i.test(q)) {
+        intents.push('team-pulse');
+    }
+
+    // Calendar patterns
+    if (/\b(meeting|meetings|calendar|schedule|when\s+is|agenda|attendees?|invite|1:1|1-on-1|prep\s+for|prepare\s+for|debrief|prebrief|interview)\b/i.test(q)) {
+        intents.push('calendar');
+    }
+
+    // Email patterns (explicit detection, not just fallback)
+    if (/\b(email|emails|inbox|mail|sent\s+me|received|from\s+\w+|wrote|message)\b/i.test(q)) {
+        intents.push('email');
+    }
+
+    // Default to email if no specific intent detected
+    if (intents.length === 0) {
+        intents.push('email');
+    }
+
+    return intents;
+}
+
 export async function POST(req) {
     try {
         const body = await req.json();
@@ -35,9 +159,33 @@ export async function POST(req) {
 async function streamChat(query, history, pageContext) {
     const encoder = new TextEncoder();
 
-    // If pageContext is set, use page-specific data fetching
+    // Smart cross-page routing: detect what the user is actually asking about
+    const intents = detectQueryIntent(query);
+    const pageSpecificIntents = intents.filter(i => ['ticket-health', 'eng-metrics', 'my-team', 'team-pulse'].includes(i));
+
+    // If user is on a page with context, check if query matches that page or a different one
     if (pageContext && pageContext !== 'default') {
-        return streamPageChat(query, history, pageContext, encoder);
+        // Email or calendar intent → bypass page context, use general email/calendar search below
+        const hasEmailOrCalendarIntent = intents.some(i => i === 'email' || i === 'calendar');
+        if (hasEmailOrCalendarIntent && pageSpecificIntents.length === 0) {
+            console.log(`[Chat] Cross-page routing: user on "${pageContext}" but asking about "${intents[0]}" — falling through to general search`);
+            // Fall through to general email/calendar search below
+        }
+        // Query matches a DIFFERENT page than where the user is — re-route
+        else if (pageSpecificIntents.length > 0 && !pageSpecificIntents.includes(pageContext)) {
+            console.log(`[Chat] Cross-page routing: user on "${pageContext}" but asking about "${pageSpecificIntents[0]}" — re-routing`);
+            return streamPageChat(query, history, pageSpecificIntents[0], encoder);
+        }
+        // Query matches current page or is ambiguous — use current page's data
+        else {
+            return streamPageChat(query, history, pageContext, encoder);
+        }
+    }
+
+    // No page context (dashboard) — check if query is about a specific page's data
+    if (pageSpecificIntents.length > 0) {
+        console.log(`[Chat] Dashboard smart-routing: query about "${pageSpecificIntents[0]}" — fetching page data`);
+        return streamPageChat(query, history, pageSpecificIntents[0], encoder);
     }
 
     // Detect broad queries that need full email context (not just RAG top-5)
@@ -131,6 +279,42 @@ async function streamChat(query, history, pageContext) {
                     if (newHits.length > 0) console.log(`[Chat] Keyword search added ${newHits.length} results`);
                 }
             }
+
+            // Also search local store (data/emails.json) for fresh emails not yet in vector store
+            try {
+                const emailsFile = path.default.join(process.cwd(), 'data', 'emails.json');
+                if (fs.default.existsSync(emailsFile)) {
+                    const cached = JSON.parse(fs.default.readFileSync(emailsFile, 'utf8'));
+                    const localEmails = cached.data || [];
+                    if (localEmails.length > 0) {
+                        const queryLower = query.toLowerCase();
+                        const queryWords = queryLower.split(/\s+/).filter(w => w.length > 2);
+                        // For "latest" queries, sort by date and take most recent
+                        const isLatestQuery = /latest|recent|newest|last|today/i.test(query);
+                        let localHits;
+                        if (isLatestQuery) {
+                            localHits = [...localEmails]
+                                .sort((a, b) => new Date(b.received || b.date || 0) - new Date(a.received || a.date || 0))
+                                .slice(0, 5);
+                        } else {
+                            localHits = localEmails.filter(e => {
+                                const text = `${e.subject || ''} ${e.from || ''} ${e.snippet || ''}`.toLowerCase();
+                                return queryWords.some(w => text.includes(w));
+                            }).slice(0, 5);
+                        }
+                        const existingSubjects = new Set(contextDocs.map(d => (d.subject || '').toLowerCase()));
+                        const freshHits = localHits
+                            .filter(h => !existingSubjects.has((h.subject || '').toLowerCase()))
+                            .map(e => ({ ...e, source: 'local-store' }));
+                        if (freshHits.length > 0) {
+                            contextDocs = [...freshHits, ...contextDocs].slice(0, 12);
+                            console.log(`[Chat] Local store added ${freshHits.length} fresh emails`);
+                        }
+                    }
+                }
+            } catch (e) {
+                console.warn('[Chat] Local store search failed:', e.message);
+            }
         } catch (e) {
             console.error('Keyword search failed:', e.message);
         }
@@ -145,24 +329,58 @@ async function streamChat(query, history, pageContext) {
                 if (fs.default.existsSync(calPath)) {
                     const raw = JSON.parse(fs.default.readFileSync(calPath, 'utf8'));
                     const events = raw.data || [];
-                    const queryWords = query.toLowerCase().split(/\s+/).filter(w => w.length > 3 && !stopWords.has(w));
-                    
-                    const calHits = events.filter(e => {
-                        const title = (e.title || '').toLowerCase();
-                        return queryWords.some(w => title.includes(w));
-                    }).slice(0, 3).map(e => ({
-                        id: `cal-${e.id}`,
-                        subject: `📅 ${e.title}`,
-                        sender: 'Calendar',
-                        received: e.startTime,
-                        snippet: `Meeting: ${e.title} on ${new Date(e.startTime).toLocaleString()} (${e.location || 'No location'})`,
-                        similarity: 0.7,
-                        source: 'calendar'
-                    }));
+
+                    // --- Date-aware calendar search ---
+                    // Parse natural language dates from the query
+                    const targetDate = parseDateFromQuery(query);
+                    let calHits = [];
+
+                    if (targetDate) {
+                        // Date-based search: return ALL events on that date
+                        const targetStr = targetDate.toISOString().slice(0, 10); // "2026-03-23"
+                        calHits = events.filter(e => {
+                            if (!e.startTime) return false;
+                            const eventDate = e.startTime.slice(0, 10);
+                            return eventDate === targetStr;
+                        }).sort((a, b) => new Date(a.startTime) - new Date(b.startTime))
+                        .map(e => ({
+                            id: `cal-${e.id}`,
+                            subject: `📅 ${e.title}`,
+                            sender: 'Calendar',
+                            received: e.startTime,
+                            snippet: `Meeting: ${e.title} on ${new Date(e.startTime).toLocaleString()} – ${new Date(e.endTime).toLocaleTimeString()} (${e.location || 'No location'})${e.attendees?.length ? ` · ${e.attendees.length} attendees` : ''}`,
+                            similarity: 0.95,
+                            source: 'calendar'
+                        }));
+                        console.log(`[Chat] Calendar date search for ${targetStr}: found ${calHits.length} events`);
+                    }
+
+                    // Title-based search (for "when is my 1:1 with Fardeen" type queries)
+                    if (calHits.length === 0) {
+                        const calStopWords = new Set(['what', 'about', 'with', 'from', 'that', 'this', 'have', 'been', 'they', 'their', 'does', 'said', 'tell', 'when', 'where', 'which', 'there', 'would', 'could', 'should', 'into', 'some', 'than', 'then', 'very', 'just', 'only', 'also', 'been', 'being', 'will', 'each', 'make', 'like', 'many', 'most', 'over', 'such', 'take', 'long', 'come', 'made', 'meeting', 'meetings', 'calendar', 'schedule', 'agenda', 'march', 'april', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'today', 'tomorrow', 'next', 'week']);
+                        const calQueryWords = query.toLowerCase().split(/\s+/).filter(w => w.length > 2 && !calStopWords.has(w));
+
+                        if (calQueryWords.length > 0) {
+                            calHits = events.filter(e => {
+                                const title = (e.title || '').toLowerCase();
+                                return calQueryWords.some(w => title.includes(w));
+                            }).sort((a, b) => new Date(a.startTime) - new Date(b.startTime))
+                            .slice(0, 5)
+                            .map(e => ({
+                                id: `cal-${e.id}`,
+                                subject: `📅 ${e.title}`,
+                                sender: 'Calendar',
+                                received: e.startTime,
+                                snippet: `Meeting: ${e.title} on ${new Date(e.startTime).toLocaleString()} (${e.location || 'No location'})`,
+                                similarity: 0.7,
+                                source: 'calendar'
+                            }));
+                        }
+                    }
 
                     if (calHits.length > 0) {
                         contextDocs = [...contextDocs, ...calHits];
-                        console.log(`[Chat] Calendar search (triggered) added ${calHits.length} meeting results`);
+                        console.log(`[Chat] Calendar search added ${calHits.length} meeting results`);
                     }
                 }
             } catch (e) {

@@ -19,6 +19,7 @@ import InsightNotifications from '@/components/InsightNotifications'; // Added
 
 import AIChat from '@/components/AIChat'; // Added
 import StreamingBriefing from '@/components/StreamingBriefing'; // Phase 3: ChatGPT-style streaming
+import MorningBriefing from '@/components/MorningBriefing'; // Cinematic voice briefing
 
 // Email Priority Lanes Component - Visual swim lanes by urgency
 const PAGE_SIZE = 20;
@@ -257,6 +258,7 @@ export default function Dashboard() {
     const [selectedInsight, setSelectedInsight] = useState(null); // Added
     const [emailSource, setEmailSource] = useState('outlook');
     const [isStreamingBriefing, setIsStreamingBriefing] = useState(false);
+    const [showMorningBriefing, setShowMorningBriefing] = useState(false);
 
     const fetchData = useCallback(async (sourceOverride) => {
         const currentSource = sourceOverride || emailSource;
@@ -521,6 +523,51 @@ export default function Dashboard() {
 
             {/* Stats Bar */}
             <div className="stats-bar">
+                {/* 🔊 Morning Briefing Button — Cinematic Voice Briefing */}
+                <div
+                    className="stat-card animate-in"
+                    onClick={() => setShowMorningBriefing(true)}
+                    style={{
+                        cursor: 'pointer',
+                        background: 'linear-gradient(135deg, rgba(139, 92, 246, 0.12) 0%, rgba(59, 130, 246, 0.08) 100%)',
+                        border: '1px solid rgba(139, 92, 246, 0.2)',
+                        transition: 'all 0.3s cubic-bezier(0.68, -0.6, 0.32, 1.6)',
+                        position: 'relative',
+                        overflow: 'hidden',
+                    }}
+                    onMouseEnter={e => {
+                        e.currentTarget.style.transform = 'translateY(-5px) scale(1.03)';
+                        e.currentTarget.style.boxShadow = '0 12px 40px rgba(139, 92, 246, 0.25), 0 0 60px rgba(139, 92, 246, 0.1)';
+                        e.currentTarget.style.borderColor = 'rgba(139, 92, 246, 0.4)';
+                    }}
+                    onMouseLeave={e => {
+                        e.currentTarget.style.transform = '';
+                        e.currentTarget.style.boxShadow = '';
+                        e.currentTarget.style.borderColor = 'rgba(139, 92, 246, 0.2)';
+                    }}
+                >
+                    <div style={{
+                        width: '44px', height: '44px', borderRadius: '14px',
+                        background: 'linear-gradient(135deg, #8b5cf6, #3b82f6)',
+                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        boxShadow: '0 4px 15px rgba(139, 92, 246, 0.4)',
+                        fontSize: '20px',
+                    }}>
+                        🔊
+                    </div>
+                    <div>
+                        <div style={{
+                            fontSize: '1rem', fontWeight: '700', color: 'var(--text-primary)',
+                            letterSpacing: '-0.3px',
+                        }}>
+                            Morning Briefing
+                        </div>
+                        <div className="stat-label" style={{ color: '#a78bfa' }}>
+                            ☕ Tap to hear InGen
+                        </div>
+                    </div>
+                </div>
+
                 <div className="stat-card animate-in">
                     <div className="stat-icon blue">
                         <Inbox size={22} />
@@ -549,6 +596,12 @@ export default function Dashboard() {
                     </div>
                 </div>
             </div>
+
+            {/* Cinematic Morning Briefing Overlay */}
+            <MorningBriefing
+                isOpen={showMorningBriefing}
+                onClose={() => setShowMorningBriefing(false)}
+            />
 
             <WeeklyRetroModal isOpen={showRetro} onClose={() => setShowRetro(false)} />
 

@@ -221,24 +221,81 @@ export async function streamDailyBriefing(emails, meetings, onChunk) {
         logger.warn('Failed to fetch issues for briefing:', e.message);
     }
 
-    let prompt = `You are my executive productivity assistant.
+    // ─── Fetch Ticket Health Summary (non-blocking) ───
+    let ticketContext = '';
+    try {
+        const ticketHealth = require('./ticket-health');
+        const dashboard = await ticketHealth.buildDashboard();
+        if (dashboard && !dashboard.empty) {
+            const s = dashboard.summary;
+            const topGroups = (dashboard.groups || []).filter(g => g.open > 0).slice(0, 5)
+                .map(g => `${g.name}: ${g.open} open (oldest ${g.oldestAge}d)`).join(', ');
+            ticketContext = `\nTICKET HEALTH:
+Total open: ${s.totalOpen} across ${s.totalGroups} resolver groups
+Aging >14d: ${s.aging14d}, >30d: ${s.aging30d}
+Resolved last 30d: ${s.totalResolved30d}
+Your tickets: ${s.myTicketsCount}
+Top groups: ${topGroups}`;
+        }
+    } catch (e) {
+        logger.warn('Failed to fetch ticket health for briefing:', e.message);
+    }
+
+    // ─── Fetch Goals Summary (non-blocking) ───
+    let goalsContext = '';
+    try {
+        const fs2 = require('fs');
+        const path2 = require('path');
+        const baseUrl = process.env.NEXTAUTH_URL || `http://localhost:${process.env.PORT || 3000}`;
+        const goalRes = await fetch(`${baseUrl}/api/team?view=wbr`);
+        if (goalRes.ok) {
+            const goalJson = await goalRes.json();
+            const report = goalJson.data;
+            if (report && report.totalGoals > 0) {
+                const summary = report.summary || {};
+                const sections = (report.sections || []).map(s => `${s.name}: ${s.count}`).join(', ');
+                const redGoals = [];
+                for (const section of (report.sections || [])) {
+                    for (const goal of (section.goals || [])) {
+                        if (goal.statusColor === 'Red') redGoals.push(`"${goal.title}" (ECD: ${goal.ecd || 'none'})`);
+                    }
+                }
+                goalsContext = `\nGOALS STATUS:
+Total: ${report.totalGoals} goals (${sections})
+${redGoals.length > 0 ? `RED GOALS (${redGoals.length}): ${redGoals.slice(0, 5).join('; ')}` : 'No red goals — all looking good.'}
+Missed ECDs: ${summary.missedEcd?.length || 0}, ECDs this week: ${summary.ecdSoon?.length || 0}`;
+            }
+        }
+    } catch (e) {
+        logger.warn('Failed to fetch goals for briefing:', e.message);
+    }
+
+    // Time-of-day awareness
+    const hour = new Date().getHours();
+    const timeGreeting = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening';
+    const dayOfWeek = new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' });
+
+    let prompt = `You are InGen — an elite AI executive assistant (think Jarvis). You're delivering the morning briefing to a busy senior engineering manager. It's ${timeGreeting.toLowerCase()} on ${dayOfWeek}.
 
 INPUT:
-Emails: ${JSON.stringify(limitedEmails)}
-Meetings: ${JSON.stringify(todayMeetings.map(m => ({ title: m.title, time: m.start?.dateTime || m.date || 'All Day' })))}${issuesContext}
+Emails (today): ${JSON.stringify(limitedEmails)}
+Meetings (today): ${JSON.stringify(todayMeetings.map(m => ({ title: m.title, time: m.start?.dateTime || m.startTime || m.date || 'All Day', attendees: m.attendees?.length || 0 })))}${issuesContext}${ticketContext}${goalsContext}
 
-TASK: Analyze the emails, meetings, and open issues/tickets to produce a comprehensive Daily Briefing.
+TASK: Deliver a Jarvis-caliber Daily Briefing. Be direct, data-driven, slightly witty. Every sentence should earn its place.
 
 OUTPUT FORMAT:
 ## EXECUTIVE SUMMARY
-(3-5 sentences summarizing the day, including any critical open tickets or SLA issues)
+Start with "${timeGreeting}, boss." then 3-5 sentences covering: meeting load, critical emails needing response, any red flags in tickets or goals. Be specific — names, numbers, deadlines. If it's a light day, say so with a touch of humor.
 
 ## TOP PRIORITIES
-- [URGENCY: HIGH] Title | Reason
+- [URGENCY: HIGH] Title | Reason (be specific about what needs action)
 - [URGENCY: MEDIUM] Title | Reason
 
-## OPS HEALTH
-(Brief summary of open tickets, SLA status, aging issues — only if there are noteworthy issues)`;
+## MEETING PREP
+For each meeting today, one sentence: what it's about and if there's anything to prep. Flag any back-to-backs or meetings that could be skipped.
+
+## OPS & GOALS HEALTH
+Brief summary of ticket health (aging tickets, SLA issues) and goal status (red goals, missed ECDs). Only if noteworthy — don't pad.`;
 
     if (quipContext) {
         prompt += `\n\n## LINKED DOCUMENTS\n${quipContext}`;
@@ -254,7 +311,7 @@ OUTPUT FORMAT:
  * Stream a chat response — calls onChunk as tokens arrive
  */
 export async function streamChatResponse(query, contextDocs, history, onChunk) {
-    const system = `${promptLoader.get('system') || "You are the AI engine for 'SmartAI', a productivity dashboard."}\nYou are a helpful assistant with access to the user's email and calendar data. Answer questions based on the provided context. Cite your sources.`;
+    const system = `${promptLoader.get('system') || "You are InGen — an elite AI executive assistant with a Jarvis-like personality."}\nYou have access to the user's emails, calendar, goals, tickets, and engineering metrics. Answer questions using ONLY the provided context. Be direct, specific, and slightly witty. Cite sources by sender name or date. If data isn't available, say so honestly — don't guess.`;
 
     const contextStr = contextDocs.map((doc, i) => `
 [Source ${i + 1}]

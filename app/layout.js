@@ -2,6 +2,7 @@ import './globals.css';
 import Sidebar from '@/components/Sidebar';
 import ThemeProvider from '@/components/ThemeProvider';
 import PageTracker from '@/components/PageTracker';
+import VoiceAssistant from '@/components/VoiceAssistant';
 import { SessionProvider } from 'next-auth/react';
 
 export const metadata = {
@@ -38,6 +39,7 @@ export default function RootLayout({ children }) {
                                 {children}
                             </main>
                         </div>
+                        <VoiceAssistant />
                     </ThemeProvider>
                 </SessionProvider>
             </body>

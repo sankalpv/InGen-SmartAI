@@ -727,8 +727,304 @@ function computeEcdChanges(goals) {
 }
 
 
+/**
+ * Progressive streaming WBR report generator.
+ * Calls `onEvent(event)` for each event as goals are fetched.
+ * Event types:
+ *   - { type: 'init', title, subtitle, weekNumber, weekRange, totalExpected }
+ *   - { type: 'phase', phase, message }  
+ *   - { type: 'progress', message, loaded, total, failed }
+ *   - { type: 'goal', goal: {...}, index, total }
+ *   - { type: 'summary', summary: {...}, sections, projectTasks, totalGoals, generatedAt }
+ *   - { type: 'done' }
+ *   - { type: 'error', message }
+ */
+async function generateWbrReportStreaming(onEvent, forceRefresh = false) {
+    // Check cache first — if valid, emit all goals at once and finish
+    if (!forceRefresh) {
+        try {
+            if (fs.existsSync(CACHE_PATH)) {
+                const cached = JSON.parse(fs.readFileSync(CACHE_PATH, 'utf8'));
+                if (cached && (Date.now() - cached.timestamp < CACHE_TTL)) {
+                    logger.info('Streaming from cached WBR report');
+                    const report = cached.report;
+                    onEvent({ type: 'init', title: report.title, subtitle: report.subtitle, weekNumber: report.weekNumber, weekRange: report.weekRange, totalExpected: report.totalGoals, cached: true });
+                    // Emit all goals from cache (fast)
+                    const allGoals = [];
+                    for (const section of report.sections) {
+                        for (const goal of (section.goals || [])) {
+                            allGoals.push(goal);
+                        }
+                    }
+                    for (let i = 0; i < allGoals.length; i++) {
+                        onEvent({ type: 'goal', goal: allGoals[i], index: i, total: allGoals.length });
+                    }
+                    onEvent({ type: 'summary', summary: report.summary, sections: report.sections, projectTasks: report.projectTasks, totalGoals: report.totalGoals, generatedAt: report.generatedAt });
+                    onEvent({ type: 'done' });
+                    return;
+                }
+            }
+        } catch (e) { /* ignore */ }
+    }
+
+    const config = getWbrConfig();
+    if (!config.roomId || !config.folderId) {
+        onEvent({ type: 'error', message: 'WBR config missing roomId/folderId. Go to Settings to configure.' });
+        return;
+    }
+
+    const weekNum = getWeekNumber();
+    const weekRange = getWeekRange();
+    const title = config.title || 'Weekly Business Review';
+    const subtitle = `For Week ${weekNum}, from ${weekRange.from} to ${weekRange.to}`;
+
+    // Phase 1: List goal IDs
+    onEvent({ type: 'phase', phase: 'listing', message: 'Discovering goals from SIM...' });
+
+    let goalIds = [];
+    try {
+        let hasMore = true;
+        let afterCursor = undefined;
+        while (hasMore) {
+            const listParams = {
+                roomId: config.roomId,
+                folderId: config.folderId,
+                status: 'ALL',
+                pagination: { maxResults: 100 }
+            };
+            if (afterCursor) listParams.pagination.after = afterCursor;
+            const listResult = await mcpClient.callTool('builder-mcp', 'TaskeiListTasks', listParams);
+            const listText = listResult.content?.map(c => c.text || '').join('') || '{}';
+            const listData = JSON.parse(listText);
+            const tasks = listData.tasks || [];
+            goalIds.push(...tasks.map(t => t.shortId).filter(Boolean));
+            const pageInfo = listData.pageInfo || {};
+            hasMore = pageInfo.hasNextPage === true && pageInfo.endCursor;
+            afterCursor = pageInfo.endCursor;
+        }
+
+        if (goalIds.length === 0) {
+            const prefix = config.goalPrefix || 'Goal';
+            for (let n = 1; n <= 50; n++) goalIds.push(`${prefix}-${n}`);
+        }
+
+        // Gap-fill
+        const prefix = config.goalPrefix || 'Goal';
+        const goalNums = goalIds.map(id => { const m = id.match(/-(\d+)$/); return m ? parseInt(m[1], 10) : 0; }).filter(n => n > 0);
+        const maxNum = Math.max(...goalNums, 0);
+        if (maxNum > 0) {
+            const existingSet = new Set(goalIds);
+            for (let n = 1; n <= maxNum + 5; n++) {
+                const candidateId = `${prefix}-${n}`;
+                if (!existingSet.has(candidateId)) goalIds.push(candidateId);
+            }
+        }
+    } catch (e) {
+        const prefix = config.goalPrefix || 'Goal';
+        for (let n = 1; n <= 50; n++) goalIds.push(`${prefix}-${n}`);
+    }
+
+    const totalExpected = goalIds.length;
+    onEvent({ type: 'init', title, subtitle, weekNumber: weekNum, weekRange, totalExpected, cached: false });
+    onEvent({ type: 'phase', phase: 'fetching', message: `Fetching ${totalExpected} goals...` });
+
+    // Phase 2: Fetch each goal and stream it
+    const goalPrefixFilter = config.goalPrefix || 'Goal';
+    const goals = [];
+    const failedIds = [];
+
+    async function fetchGoalDetail(goalId) {
+        const result = await mcpClient.callTool('builder-mcp', 'TaskeiGetTask', {
+            taskId: goalId,
+            includeCustomAttributes: true,
+            commentLimit: 1
+        });
+        const text = result.content?.map(c => c.text || '').join('') || '{}';
+        const data = JSON.parse(text);
+        if (data.task) return parseGoal(data.task);
+        if (data.error) throw new Error(`MCP error: ${data.error}`);
+        return null;
+    }
+
+    for (let i = 0; i < goalIds.length; i++) {
+        const goalId = goalIds[i];
+        try {
+            const goal = await fetchGoalDetail(goalId);
+            if (goal) {
+                goals.push(goal);
+                // Only stream top-level goals to the client
+                if (goal.id.startsWith(goalPrefixFilter)) {
+                    onEvent({ type: 'goal', goal, index: goals.length - 1, total: totalExpected });
+                }
+            } else {
+                failedIds.push(goalId);
+            }
+        } catch (e) {
+            failedIds.push(goalId);
+            if (e.message?.includes('Throttl')) {
+                await new Promise(r => setTimeout(r, 3000));
+            }
+        }
+
+        // Progress update every goal
+        onEvent({ type: 'progress', message: `Loading goals...`, loaded: i + 1, total: totalExpected, failed: failedIds.length, goalsFound: goals.length });
+
+        if (i < goalIds.length - 1) await new Promise(r => setTimeout(r, 1000));
+    }
+
+    // Phase 3: Retry failed goals
+    if (failedIds.length > 0) {
+        onEvent({ type: 'phase', phase: 'retrying', message: `Retrying ${failedIds.length} failed goals...` });
+        const MAX_RETRY_ROUNDS = 3;
+        const RETRY_BACKOFF = [5000, 10000, 15000];
+        let currentFailedIds = [...failedIds];
+
+        for (let round = 0; round < MAX_RETRY_ROUNDS && currentFailedIds.length > 0; round++) {
+            await new Promise(r => setTimeout(r, RETRY_BACKOFF[round] || 15000));
+            const stillFailed = [];
+            for (const goalId of currentFailedIds) {
+                try {
+                    const result = await fetchGoalDetail(goalId);
+                    if (result) {
+                        goals.push(result);
+                        if (result.id.startsWith(goalPrefixFilter)) {
+                            onEvent({ type: 'goal', goal: result, index: goals.length - 1, total: totalExpected });
+                        }
+                    } else {
+                        stillFailed.push(goalId);
+                    }
+                } catch (e) {
+                    stillFailed.push(goalId);
+                    if (e.message?.includes('Throttl')) await new Promise(r => setTimeout(r, 5000));
+                }
+                await new Promise(r => setTimeout(r, 2000));
+            }
+            currentFailedIds = stillFailed;
+        }
+    }
+
+    // Phase 4: Fetch announcements
+    onEvent({ type: 'phase', phase: 'announcements', message: 'Fetching latest announcements...' });
+    const ANNOUNCEMENT_BATCH_SIZE = 10;
+    for (let batchStart = 0; batchStart < goals.length; batchStart += ANNOUNCEMENT_BATCH_SIZE) {
+        const batch = goals.slice(batchStart, batchStart + ANNOUNCEMENT_BATCH_SIZE);
+        const urls = batch.map(g => `https://taskei.amazon.dev/tasks/${g.id}`);
+        try {
+            const batchResult = await mcpClient.callTool('builder-mcp', 'ReadInternalWebsites', {
+                inputs: urls,
+                concurrencyLimit: ANNOUNCEMENT_BATCH_SIZE
+            });
+            const content = batchResult?.content;
+            if (Array.isArray(content)) {
+                for (const item of content) {
+                    try {
+                        let outer = null;
+                        if (item?.text) { try { outer = JSON.parse(item.text); } catch(e) {} }
+                        else if (typeof item === 'string') { try { outer = JSON.parse(item); } catch(e) {} }
+                        else { outer = item; }
+                        if (!outer) continue;
+                        const innerItems = outer?.content || [outer];
+                        const arr = Array.isArray(innerItems) ? innerItems : [innerItems];
+                        for (const inner of arr) {
+                            if (inner?.combinedThread?.items) {
+                                const issueId = inner?.issue?.shortId || '';
+                                const latestComment = inner.combinedThread.items.find(ti => ti.payload?.type === 'COMMENT');
+                                if (latestComment?.payload?.comment) {
+                                    const comment = latestComment.payload.comment;
+                                    const matchingGoal = goals.find(g => (issueId && g.id === issueId) || (inner?.issue?.title && g.title === inner.issue.title));
+                                    if (matchingGoal) {
+                                        matchingGoal.announcement = {
+                                            text: comment.message || '',
+                                            date: formatDate(comment.createDate || comment.lastUpdatedDate),
+                                            author: comment.author?.name || comment.submitter?.name || 'unknown'
+                                        };
+                                        // Stream the updated goal with announcement
+                                        if (matchingGoal.id.startsWith(goalPrefixFilter)) {
+                                            onEvent({ type: 'goal-update', goal: matchingGoal });
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    } catch (e) { /* skip */ }
+                }
+            }
+        } catch (e) { /* skip */ }
+        if (batchStart + ANNOUNCEMENT_BATCH_SIZE < goals.length) {
+            await new Promise(r => setTimeout(r, 500));
+        }
+    }
+
+    // Phase 5: Compute final summary and emit
+    onEvent({ type: 'phase', phase: 'computing', message: 'Computing summary...' });
+
+    const topLevelGoals = goals.filter(g => g.id.startsWith(goalPrefixFilter));
+    const sections = STATUS_SECTIONS.map(sectionName => {
+        const sectionGoals = topLevelGoals.filter(g => g.status === sectionName).sort((a, b) => (GOAL_TYPE_ORDER[a.goalType] ?? 99) - (GOAL_TYPE_ORDER[b.goalType] ?? 99));
+        return { name: sectionName, goals: sectionGoals, count: sectionGoals.length };
+    });
+
+    const projectTasks = goals.filter(g => g.status === 'Started' && g.subtasks.length > 0).sort((a, b) => (GOAL_TYPE_ORDER[a.goalType] ?? 99) - (GOAL_TYPE_ORDER[b.goalType] ?? 99));
+
+    const summary = { total: topLevelGoals.length, byStatus: {}, byColor: { Green: 0, Yellow: 0, Red: 0, Missing: 0 }, byGoalType: {} };
+    for (const g of topLevelGoals) {
+        summary.byStatus[g.status] = (summary.byStatus[g.status] || 0) + 1;
+        summary.byColor[g.statusColor] = (summary.byColor[g.statusColor] || 0) + 1;
+        summary.byGoalType[g.goalType] = (summary.byGoalType[g.goalType] || 0) + 1;
+    }
+
+    // ECD alerts
+    const today = new Date(new Date().toDateString());
+    const threeDaysFromNow = new Date(today);
+    threeDaysFromNow.setDate(today.getDate() + 3);
+    const parseEcd = (ecdStr) => { if (!ecdStr || ecdStr === 'Missing') return null; try { const [mm, dd, yyyy] = ecdStr.split('-').map(Number); return new Date(yyyy, mm - 1, dd); } catch (e) { return null; } };
+    const missedEcd = [];
+    const ecdSoon = [];
+    const closedStatuses = ['Completed', 'Closed', 'Cancelled', 'Cut', 'DNM', 'Completed Late'];
+    for (const g of goals) {
+        const gEcd = parseEcd(g.ecd);
+        if (gEcd && !closedStatuses.includes(g.status)) {
+            if (gEcd < today) missedEcd.push({ id: g.id, title: g.title, ecd: g.ecd, assignee: g.assignee, type: 'goal', parentGoal: null });
+            else if (gEcd <= threeDaysFromNow) ecdSoon.push({ id: g.id, title: g.title, ecd: g.ecd, assignee: g.assignee, type: 'goal', parentGoal: null });
+        }
+        for (const s of (g.subtasks || [])) {
+            const sEcd = parseEcd(s.ecd);
+            if (sEcd && s.status !== 'Closed') {
+                if (sEcd < today) missedEcd.push({ id: s.id, title: s.title, ecd: s.ecd, assignee: s.assignee, type: 'child', parentGoal: g.id });
+                else if (sEcd <= threeDaysFromNow) ecdSoon.push({ id: s.id, title: s.title, ecd: s.ecd, assignee: s.assignee, type: 'child', parentGoal: g.id });
+            }
+        }
+    }
+    summary.missedEcd = missedEcd;
+    summary.ecdSoon = ecdSoon;
+
+    const loadedIdSet = new Set(goals.map(g => g.id));
+    const knownGoalNums = goals.map(g => parseInt(g.id.match(/-(\d+)$/)?.[1] || '0')).filter(n => n > 0);
+    const maxKnownNum = Math.max(...knownGoalNums, 0);
+    const genuinelyMissing = goalIds.filter(id => !loadedIdSet.has(id)).filter(id => { const num = parseInt(id.match(/-(\d+)$/)?.[1] || '0'); return num <= maxKnownNum; });
+    summary.missingGoals = genuinelyMissing;
+
+    const ecdChanges = computeEcdChanges(goals);
+    summary.ecdChanges = ecdChanges;
+    saveEcdSnapshot(goals);
+
+    const generatedAt = new Date().toISOString();
+
+    // Build full report for caching
+    const report = { title, subtitle, weekNumber: weekNum, weekRange, generatedAt, totalGoals: topLevelGoals.length, sections, projectTasks, summary };
+    try {
+        const brainDir = path.join(process.cwd(), 'brain');
+        if (!fs.existsSync(brainDir)) fs.mkdirSync(brainDir, { recursive: true });
+        fs.writeFileSync(CACHE_PATH, JSON.stringify({ report, timestamp: Date.now() }, null, 2));
+    } catch (e) { /* ignore */ }
+
+    onEvent({ type: 'summary', summary, sections, projectTasks, totalGoals: topLevelGoals.length, generatedAt });
+    onEvent({ type: 'done' });
+}
+
 module.exports = {
     generateWbrReport,
+    generateWbrReportStreaming,
     getWbrConfig,
     STATUS_SECTIONS,
     GOAL_TYPE_ORDER,

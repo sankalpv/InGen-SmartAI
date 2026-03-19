@@ -184,26 +184,5 @@ cron.schedule(SYNC_INTERVAL_CRON, async () => {
     }
 });
 
-    try {
-        const watchChannels = getWatchChannels();
-
-        if (messages.length === 0) {
-            return;
-        }
-
-        let ingested = 0;
-        for (const msg of messages) {
-            try {
-                ingested++;
-            } catch (e) {
-                // Skip individual failures silently (dedup hits are expected)
-            }
-        }
-    } catch (error) {
-    }
-}
-
-});
-
-setTimeout(() => {
-}, 60000);
+// Background agent ready
+logger.info('Background agent initialized');

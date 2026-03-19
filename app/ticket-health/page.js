@@ -156,13 +156,15 @@ function TicketListPanel({ title, icon, color, tickets, resolvedTickets, groups,
 
 function BaselineBadge({ status }) {
     if (status === 'UP_TO_DATE') {
-        return <span style={{ fontSize: '11px', color: '#30d158', fontWeight: 600 }}>✅ Current</span>;
+        return <span style={{ fontSize: '11px', color: '#30d158', fontWeight: 600, whiteSpace: 'nowrap' }}>✅ Current</span>;
     }
-    const label = status?.replace('DUE_', '').replace('_', ' ') || 'Unknown';
+    // Parse status like "DUE_IN_100_DAYS" → "100 Days"
+    const label = status?.replace(/^DUE_(?:IN_)?/i, '').replace(/_/g, ' ').replace(/\b(\d+)\s+DAYS?\b/i, '$1d') || 'Overdue';
     return (
         <span style={{
             padding: '2px 8px', borderRadius: '6px', fontSize: '10px', fontWeight: 600,
             background: 'rgba(255,69,58,0.1)', color: '#ff453a', border: '1px solid rgba(255,69,58,0.15)',
+            whiteSpace: 'nowrap', display: 'inline-block',
         }}>
             ⚠️ {label}
         </span>
@@ -315,7 +317,7 @@ export default function TicketHealthPage() {
     const summary = dashboard?.summary;
 
     return (
-        <div className="dark-inline-page" style={{ zoom: 1.15 }}>
+        <div className="dark-inline-page">
             <style>{`
                 @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
                 @keyframes slideInRight { from { transform: translateX(100%); } to { transform: translateX(0); } }

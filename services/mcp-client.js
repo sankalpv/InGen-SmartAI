@@ -128,7 +128,12 @@ async function getClient(serverName) {
         return client;
 
     } catch (error) {
-        logger.error(`Failed to connect to MCP server ${serverName}:`, error.message);
+        // Downgrade ENOENT (binary not found) to warn — non-blocking
+        if (error.message?.includes('ENOENT')) {
+            logger.warn(`MCP server "${serverName}" not available (binary not found) — skipping`);
+        } else {
+            logger.error(`Failed to connect to MCP server ${serverName}:`, error.message);
+        }
         throw error;
     }
 }
@@ -152,7 +157,11 @@ async function callTool(serverName, toolName, args = {}) {
         return result;
 
     } catch (error) {
-        logger.error(`Tool call failed (${serverName}.${toolName}):`, error.message);
+        if (error.message?.includes('ENOENT') || error.message?.includes('not available')) {
+            logger.warn(`Tool call skipped (${serverName}.${toolName}): server not available`);
+        } else {
+            logger.error(`Tool call failed (${serverName}.${toolName}):`, error.message);
+        }
         throw error;
     }
 }

@@ -9,6 +9,7 @@ const orgStore = require('../../../services/org-store');
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
+export const maxDuration = 300; // 5 min for streaming
 
 export async function GET(request) {
     try {
@@ -149,6 +150,35 @@ export async function GET(request) {
                 const forceRefresh = searchParams.get('refresh') === 'true';
                 data = await wbrReport.generateWbrReport(forceRefresh);
                 break;
+            }
+
+            case 'wbr-stream': {
+                // Progressive streaming — SSE endpoint that sends goals as they're fetched
+                const forceRefreshStream = searchParams.get('refresh') === 'true';
+                const encoder = new TextEncoder();
+                const stream = new ReadableStream({
+                    async start(controller) {
+                        const send = (event) => {
+                            try {
+                                controller.enqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`));
+                            } catch (e) { /* stream closed */ }
+                        };
+                        try {
+                            await wbrReport.generateWbrReportStreaming(send, forceRefreshStream);
+                        } catch (e) {
+                            send({ type: 'error', message: e.message });
+                        }
+                        controller.close();
+                    }
+                });
+                return new Response(stream, {
+                    headers: {
+                        'Content-Type': 'text/event-stream',
+                        'Cache-Control': 'no-cache',
+                        'Connection': 'keep-alive',
+                        'X-Accel-Buffering': 'no',
+                    }
+                });
             }
 
             case 'wbr-ai-summary-stream': {

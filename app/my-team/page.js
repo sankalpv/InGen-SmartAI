@@ -393,24 +393,122 @@ export default function MyTeamPage() {
     const [docGenerating, setDocGenerating] = useState(false);
     const [docStatus, setDocStatus] = useState('');
 
+    // Progressive streaming state
+    const [streamingGoals, setStreamingGoals] = useState([]); // goals arriving progressively
+    const [streamPhase, setStreamPhase] = useState(''); // current phase label
+    const [streamProgress, setStreamProgress] = useState({ loaded: 0, total: 0, failed: 0, goalsFound: 0 });
+    const [streamTitle, setStreamTitle] = useState(null); // { title, subtitle }
+    const [isStreaming, setIsStreaming] = useState(false);
+
     const fetchReport = useCallback(async (refresh = false) => {
         setIsLoading(true);
+        setIsStreaming(true);
         setError(null);
-        setProgress(refresh ? 'Fetching goals from SIM (this may take 1-2 minutes)...' : 'Loading WBR report...');
+        setStreamingGoals([]);
+        setStreamPhase('');
+        setStreamProgress({ loaded: 0, total: 0, failed: 0, goalsFound: 0 });
+        setStreamTitle(null);
+        setReport(null);
+        setProgress(refresh ? 'Connecting to SIM...' : 'Loading goals...');
+
         try {
-            const res = await fetch(`/api/team?view=wbr${refresh ? '&refresh=true' : ''}`);
-            const data = await res.json();
-            if (data.error) {
-                setError(data.error);
-            } else {
-                setReport(data.data);
+            const res = await fetch(`/api/team?view=wbr-stream${refresh ? '&refresh=true' : ''}`);
+            if (!res.ok) {
+                const errData = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
+                setError(errData.error || `HTTP ${res.status}`);
+                setIsLoading(false);
+                setIsStreaming(false);
+                return;
+            }
+
+            const reader = res.body.getReader();
+            const decoder = new TextDecoder();
+            let buffer = '';
+            const goalsMap = new Map(); // deduplicate by id
+            let localTitle = null; // local ref to avoid stale closure
+
+            while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+
+                buffer += decoder.decode(value, { stream: true });
+                const lines = buffer.split('\n');
+                buffer = lines.pop() || ''; // keep incomplete line in buffer
+
+                for (const line of lines) {
+                    if (!line.startsWith('data: ')) continue;
+                    try {
+                        const event = JSON.parse(line.slice(6));
+
+                        switch (event.type) {
+                            case 'init':
+                                localTitle = { title: event.title, subtitle: event.subtitle };
+                                setStreamTitle(localTitle);
+                                setStreamProgress(p => ({ ...p, total: event.totalExpected }));
+                                if (event.cached) setProgress('Loading from cache...');
+                                break;
+
+                            case 'phase':
+                                setStreamPhase(event.message);
+                                setProgress(event.message);
+                                break;
+
+                            case 'progress':
+                                setStreamProgress({ loaded: event.loaded, total: event.total, failed: event.failed, goalsFound: event.goalsFound || 0 });
+                                break;
+
+                            case 'goal':
+                                goalsMap.set(event.goal.id, event.goal);
+                                setStreamingGoals(Array.from(goalsMap.values()));
+                                break;
+
+                            case 'goal-update':
+                                // Update an existing goal (e.g. with announcement data)
+                                if (goalsMap.has(event.goal.id)) {
+                                    goalsMap.set(event.goal.id, event.goal);
+                                    setStreamingGoals(Array.from(goalsMap.values()));
+                                }
+                                break;
+
+                            case 'summary':
+                                // Full report is ready — build final report object (use localTitle to avoid stale closure)
+                                setReport({
+                                    title: localTitle?.title || event.title,
+                                    subtitle: localTitle?.subtitle || event.subtitle,
+                                    totalGoals: event.totalGoals,
+                                    sections: event.sections,
+                                    projectTasks: event.projectTasks,
+                                    summary: event.summary,
+                                    generatedAt: event.generatedAt,
+                                });
+                                break;
+
+                            case 'done':
+                                setIsStreaming(false);
+                                setIsLoading(false);
+                                setProgress('');
+                                break;
+
+                            case 'error':
+                                setError(event.message);
+                                setIsStreaming(false);
+                                setIsLoading(false);
+                                break;
+                        }
+                    } catch (parseErr) { /* skip malformed SSE lines */ }
+                }
             }
         } catch (e) {
             setError(e.message);
         }
+        setIsStreaming(false);
         setIsLoading(false);
         setProgress('');
     }, []);
+
+    // Use ref to capture streamTitle for summary event handler
+    const streamTitleRef = { current: streamTitle };
+    streamTitleRef.current = streamTitle;
 
     useEffect(() => { fetchReport(); }, [fetchReport]);
 
@@ -459,14 +557,14 @@ export default function MyTeamPage() {
 
     return (
         <div className="dark-inline-page" style={{ zoom: 1.15 }}>
-            {/* Dynamic WBR Title */}
-            {report && (
+            {/* Dynamic WBR Title — shown during streaming and after report loads */}
+            {(report || streamTitle) && (
                 <div style={{ marginBottom: '20px' }}>
                     <h1 style={{ fontSize: '22px', fontWeight: 700, color: 'var(--text-primary)', marginBottom: '4px', letterSpacing: '-0.3px' }}>
-                        {report.title}
+                        {report?.title || streamTitle?.title}
                     </h1>
                     <div style={{ fontSize: '14px', color: 'var(--text-secondary)' }}>
-                        {report.subtitle}
+                        {report?.subtitle || streamTitle?.subtitle}
                     </div>
                 </div>
             )}
@@ -521,11 +619,146 @@ export default function MyTeamPage() {
                 </div>
             </div>
 
-            {isLoading && (
+            {/* Progressive Streaming Loading UI */}
+            {isStreaming && !report && (
+                <div style={{ marginBottom: '24px' }}>
+                    {/* Streaming Progress Bar */}
+                    <div style={{
+                        background: 'rgba(22,22,30,0.6)', border: '1px solid rgba(139,92,246,0.2)',
+                        borderRadius: '16px', padding: '20px 24px', marginBottom: '20px',
+                    }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '12px' }}>
+                            <span style={{
+                                display: 'inline-block', width: '10px', height: '10px', borderRadius: '50%',
+                                background: '#a78bfa', animation: 'pulse 1.2s ease-in-out infinite',
+                            }} />
+                            <span style={{ fontSize: '14px', fontWeight: 600, color: '#a78bfa' }}>
+                                {streamPhase || progress || 'Connecting...'}
+                            </span>
+                            {streamProgress.total > 0 && (
+                                <span style={{ fontSize: '12px', color: 'rgba(255,255,255,0.4)', marginLeft: 'auto' }}>
+                                    {streamProgress.loaded}/{streamProgress.total} fetched
+                                    {streamProgress.goalsFound > 0 && ` · ${streamProgress.goalsFound} goals found`}
+                                    {streamProgress.failed > 0 && <span style={{ color: '#ff453a' }}> · {streamProgress.failed} failed</span>}
+                                </span>
+                            )}
+                        </div>
+
+                        {/* Progress bar */}
+                        {streamProgress.total > 0 && (
+                            <div style={{
+                                width: '100%', height: '6px', borderRadius: '3px',
+                                background: 'rgba(255,255,255,0.06)', overflow: 'hidden',
+                            }}>
+                                <div style={{
+                                    width: `${Math.round((streamProgress.loaded / streamProgress.total) * 100)}%`,
+                                    height: '100%', borderRadius: '3px',
+                                    background: 'linear-gradient(90deg, #818cf8, #a78bfa)',
+                                    transition: 'width 0.3s ease',
+                                }} />
+                            </div>
+                        )}
+
+                        {/* Live color counters */}
+                        {streamingGoals.length > 0 && (() => {
+                            const colors = { Green: 0, Yellow: 0, Red: 0, Missing: 0 };
+                            streamingGoals.forEach(g => { colors[g.statusColor] = (colors[g.statusColor] || 0) + 1; });
+                            return (
+                                <div style={{ display: 'flex', gap: '16px', marginTop: '12px' }}>
+                                    {[['Green', '#30d158'], ['Yellow', '#ff9f0a'], ['Red', '#ff453a'], ['Missing', '#6b7280']].map(([name, c]) => (
+                                        <div key={name} style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                            <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: c, display: 'inline-block' }} />
+                                            <span style={{ fontSize: '12px', color: 'rgba(255,255,255,0.5)' }}>{name}: <b style={{ color: c }}>{colors[name]}</b></span>
+                                        </div>
+                                    ))}
+                                    <span style={{ fontSize: '12px', color: 'rgba(255,255,255,0.3)', marginLeft: 'auto' }}>
+                                        {streamingGoals.length} goals loaded
+                                    </span>
+                                </div>
+                            );
+                        })()}
+                    </div>
+
+                    {/* Streaming Goal Cards — appear progressively with animation */}
+                    {streamingGoals.length > 0 && (
+                        <div>
+                            {streamingGoals.map((goal, i) => {
+                                const color = STATUS_COLORS[goal.statusColor] || STATUS_COLORS.Missing;
+                                return (
+                                    <div key={goal.id} style={{
+                                        background: 'rgba(22,22,30,0.6)', border: `1px solid ${color}25`,
+                                        borderLeft: `3px solid ${color}`, borderRadius: '12px',
+                                        padding: '12px 16px', marginBottom: '8px',
+                                        animation: 'fadeSlideIn 0.3s ease-out',
+                                        opacity: 1,
+                                    }}>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                                            <a href={`https://issues.amazon.com/issues/${goal.id}`} target="_blank" rel="noopener noreferrer" style={{ color: '#818cf8', fontWeight: 700, fontSize: '13px', textDecoration: 'none' }}>
+                                                {goal.id}
+                                            </a>
+                                            <span style={{ fontSize: '13px', fontWeight: 600, color: 'rgba(255,255,255,0.85)', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                                {goal.title}
+                                            </span>
+                                            <span style={{ padding: '2px 8px', borderRadius: '6px', fontSize: '10px', fontWeight: 700, background: `${color}15`, color, flexShrink: 0 }}>
+                                                {goal.statusColor}
+                                            </span>
+                                            {goal.ecd && goal.ecd !== 'Missing' && (
+                                                <span style={{ fontSize: '10px', color: isEcdPast(goal.ecd) ? '#ff453a' : 'rgba(255,255,255,0.35)', fontWeight: 600, flexShrink: 0 }}>
+                                                    {isEcdPast(goal.ecd) ? '⚠️ ' : ''}ECD: {goal.ecd}
+                                                </span>
+                                            )}
+                                            {goal.goalType !== 'Missing' && (
+                                                <span style={{ fontSize: '10px', color: '#a78bfa', background: 'rgba(139,92,246,0.1)', padding: '1px 6px', borderRadius: '4px', fontWeight: 600, flexShrink: 0 }}>
+                                                    {goal.goalType}
+                                                </span>
+                                            )}
+                                        </div>
+                                    </div>
+                                );
+                            })}
+
+                            {/* Skeleton placeholders for remaining goals */}
+                            {streamProgress.total > streamingGoals.length && Array.from({ length: Math.min(3, streamProgress.total - streamingGoals.length) }).map((_, i) => (
+                                <div key={`skel-${i}`} style={{
+                                    background: 'rgba(22,22,30,0.3)', border: '1px solid rgba(255,255,255,0.04)',
+                                    borderLeft: '3px solid rgba(255,255,255,0.06)', borderRadius: '12px',
+                                    padding: '12px 16px', marginBottom: '8px',
+                                }}>
+                                    <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                                        <div style={{ width: '60px', height: '12px', borderRadius: '4px', background: 'rgba(255,255,255,0.04)', animation: `shimmer 1.6s ease-in-out ${i * 0.15}s infinite`, backgroundSize: '200% 100%', backgroundImage: 'linear-gradient(90deg, transparent 0%, rgba(255,255,255,0.03) 50%, transparent 100%)' }} />
+                                        <div style={{ flex: 1, height: '12px', borderRadius: '4px', background: 'rgba(255,255,255,0.04)', animation: `shimmer 1.6s ease-in-out ${i * 0.15 + 0.1}s infinite`, backgroundSize: '200% 100%', backgroundImage: 'linear-gradient(90deg, transparent 0%, rgba(255,255,255,0.03) 50%, transparent 100%)' }} />
+                                        <div style={{ width: '40px', height: '12px', borderRadius: '4px', background: 'rgba(255,255,255,0.04)' }} />
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    )}
+
+                    {/* Initial skeleton before first goal arrives */}
+                    {streamingGoals.length === 0 && (
+                        <div style={{ padding: '40px', textAlign: 'center' }}>
+                            <div className="loading-spinner" style={{ margin: '0 auto 16px' }} />
+                            <div style={{ color: 'rgba(255,255,255,0.4)', fontSize: '13px' }}>
+                                {progress || 'Discovering goals from SIM...'}
+                            </div>
+                        </div>
+                    )}
+
+                    <style jsx>{`
+                        @keyframes fadeSlideIn {
+                            from { opacity: 0; transform: translateY(8px); }
+                            to { opacity: 1; transform: translateY(0); }
+                        }
+                    `}</style>
+                </div>
+            )}
+
+            {/* Legacy loading fallback (non-streaming) */}
+            {isLoading && !isStreaming && !report && streamingGoals.length === 0 && (
                 <div style={{ padding: '60px', textAlign: 'center' }}>
                     <div className="loading-spinner" style={{ margin: '0 auto 16px' }} />
                     <div style={{ color: 'rgba(255,255,255,0.5)' }}>{progress}</div>
-                    <div style={{ color: 'rgba(255,255,255,0.3)', fontSize: '12px', marginTop: '8px' }}>Fetching {report ? '' : '42'} goals from SIM via builder-mcp...</div>
+                    <div style={{ color: 'rgba(255,255,255,0.3)', fontSize: '12px', marginTop: '8px' }}>Fetching goals from SIM via builder-mcp...</div>
                 </div>
             )}
 
