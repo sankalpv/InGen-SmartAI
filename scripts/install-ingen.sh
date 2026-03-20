@@ -351,6 +351,24 @@ step_07_mcp_tooling() {
         print_info "These features require VPN + Midway auth. You can set them up later."
     fi
 
+    # Optional: Slack MCP for Slack integration (send ticket health, search messages)
+    if command -v slack-mcp &>/dev/null || [[ -x "$HOME/.toolbox/bin/slack-mcp" ]]; then
+        print_ok "slack-mcp available"
+    else
+        echo ""
+        read -p "$(echo -e '\033[0;36m  Would you like to enable Slack integration? [y/N]: \033[0m')" slack_choice
+        if [[ "$slack_choice" =~ ^[Yy] ]]; then
+            if [[ -x "$HOME/.toolbox/bin/toolbox" ]] || command -v toolbox &>/dev/null; then
+                print_info "Installing slack-mcp via toolbox..."
+                toolbox install slack-mcp 2>/dev/null && print_ok "slack-mcp installed — enables Send to Slack, message search" || print_warn "slack-mcp install failed (you can install later: toolbox install slack-mcp)"
+            else
+                print_info "Install toolbox first, then: toolbox install slack-mcp"
+            fi
+        else
+            print_info "Skipping Slack integration (install later: toolbox install slack-mcp)"
+        fi
+    fi
+
     # Update MCP paths in settings.json if tools are found
     local amzn_path="" builder_path=""
     if [[ -x "$HOME/.toolbox/bin/amzn-mcp" ]]; then
