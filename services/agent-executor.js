@@ -23,6 +23,18 @@ const OLLAMA_BASE_URL = process.env.OLLAMA_BASE_URL || 'http://127.0.0.1:11434';
 const MAX_REACT_STEPS = 8;
 
 /**
+ * Generate a human-readable current date/time context string for LLM prompts.
+ * This ensures the LLM always knows what "today" means.
+ */
+function getCurrentDateContext() {
+    const now = new Date();
+    const dateStr = now.toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+    const timeStr = now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true });
+    const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    return `CURRENT DATE/TIME: ${dateStr}, ${timeStr} (${tz})`;
+}
+
+/**
  * Generate a completion from the LLM (non-streaming).
  * Tries Bedrock Claude first, falls back to Ollama.
  */
@@ -154,7 +166,11 @@ function buildToolManifest() {
 async function planTask(task, preferences = {}) {
     const toolManifest = buildToolManifest();
 
+    const dateContext = getCurrentDateContext();
+
     const system = `You are an AI agent planner for InGen, a productivity assistant. Given a user's task, determine which tools to use and in what order.
+
+${dateContext}
 
 AVAILABLE TOOLS:
 ${toolManifest}
@@ -499,7 +515,11 @@ ${dataStr}`;
         ? `\nUser preferences: ${JSON.stringify(preferences)}`
         : '';
 
+    const dateContext = getCurrentDateContext();
+
     const system = `You are InGen's AI assistant. Synthesize the tool results into a comprehensive, actionable response for the user.
+
+${dateContext}
 
 GUIDELINES:
 1. Use Markdown formatting (headers, bullets, bold).
@@ -676,8 +696,9 @@ ${dataStr}`;
         : '';
 
     const contextSection = followUpCtx ? `${followUpCtx}\n\n` : '';
+    const dateContext = getCurrentDateContext();
 
-    const fullPrompt = `${customSystemPrompt}\n\nORIGINAL TASK: ${task}${prefsStr}\n${contextSection}\nTOOL EVIDENCE:\n${evidenceStr}\n\nRESPONSE (Markdown):`;
+    const fullPrompt = `${customSystemPrompt}\n\n${dateContext}\n\nORIGINAL TASK: ${task}${prefsStr}\n${contextSection}\nTOOL EVIDENCE:\n${evidenceStr}\n\nRESPONSE (Markdown):`;
 
     // Try Bedrock Claude first for higher quality synthesis
     try {

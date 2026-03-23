@@ -16,6 +16,7 @@ import {
     Code2,
     ClipboardList,
     FileText,
+    FileBarChart,
     Sun,
     Moon,
     PanelLeftClose,
@@ -29,6 +30,15 @@ export default function Sidebar() {
     const pathname = usePathname();
     const { theme, toggleTheme } = useTheme();
     const [collapsed, setCollapsed] = useState(false);
+    const [outlookEnabled, setOutlookEnabled] = useState(true);
+
+    // Load settings (outlookIntegration flag)
+    useEffect(() => {
+        fetch('/api/settings/config').then(r => r.ok ? r.json() : {}).then(data => {
+            const settings = data.settings || data;
+            if (settings.outlookIntegration === false) setOutlookEnabled(false);
+        }).catch(() => {});
+    }, []);
 
     // Persist collapsed state in localStorage
     useEffect(() => {
@@ -42,19 +52,26 @@ export default function Sidebar() {
         document.documentElement.style.setProperty('--sidebar-width', collapsed ? '72px' : '280px');
     }, [collapsed]);
 
-    const navItems = [
-        { href: '/', label: 'Dashboard', icon: LayoutDashboard },
+    // Pages that require Outlook integration (email + calendar sync)
+    const allNavItems = [
+        { href: '/', label: 'Dashboard', icon: LayoutDashboard, requiresOutlook: true },
         { href: '/agent', label: 'Agent Workspace', icon: BrainCircuit },
-        { href: '/week-ahead', label: 'Week Ahead', icon: CalendarDays },
-        { href: '/leadership', label: 'Leadership', icon: TrendingUp },
+        { href: '/week-ahead', label: 'Week Ahead', icon: CalendarDays, requiresOutlook: true },
+        { href: '/leadership', label: 'Leadership', icon: TrendingUp, requiresOutlook: true },
         { href: '/org-pulse', label: 'Org Pulse', icon: Activity },
         { href: '/my-team', label: 'Team Health', icon: Network },
         { href: '/eng-metrics', label: 'Code Metrics', icon: Code2 },
         { href: '/ticket-health', label: 'Ticket Health', icon: ClipboardList },
         { href: '/wbr-prep', label: 'WBR Prep', icon: FileText },
-        { href: '/insights/analytics', label: 'Insights', icon: BarChart2 },
+        { href: '/cpp-wbr', label: 'CPP WBR', icon: FileBarChart },
+        { href: '/insights/analytics', label: 'Insights', icon: BarChart2, requiresOutlook: true },
         { href: '/settings', label: 'Settings', icon: Settings },
     ];
+
+    // Filter out Outlook-dependent pages when outlookIntegration is disabled
+    const navItems = outlookEnabled
+        ? allNavItems
+        : allNavItems.filter(item => !item.requiresOutlook);
 
     const connections = [
         { name: 'Outlook', status: 'connected', emoji: '📬' },

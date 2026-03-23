@@ -1,9 +1,10 @@
 # ╔══════════════════════════════════════════════════════════════╗
-# ║            InGen Installer for Windows (v2.0)                ║
+# ║            InGen Installer for Windows (v2.1)                ║
 # ║       Local AI-Powered Productivity Dashboard                ║
 # ║                                                              ║
 # ║  Features: Resume support, disk space check, MCP tooling,   ║
-# ║  Node-based JSON config, post-install health verification    ║
+# ║  Node-based JSON config, post-install health verification,   ║
+# ║  Optional Outlook integration toggle                         ║
 # ╚══════════════════════════════════════════════════════════════╝
 
 # --- Configuration ---
@@ -36,7 +37,7 @@ function Print-Header {
     Write-Host "  ======================================================" -ForegroundColor Magenta
     Write-Host "    InGen - AI Productivity Dashboard Installer" -ForegroundColor White
     Write-Host "    Local-first * Privacy-first * Zero cloud" -ForegroundColor Cyan
-    Write-Host "    v2.0 - with resume support & MCP tooling" -ForegroundColor DarkGray
+    Write-Host "    v2.1 - with resume support, MCP & Outlook toggle" -ForegroundColor DarkGray
     Write-Host "  ======================================================" -ForegroundColor Magenta
     Write-Host ""
     if (Test-Path $PROGRESS_FILE) {
@@ -551,6 +552,25 @@ MCP_ENABLED=true
         Node-JsonSet $SETTINGS_FILE "mcpServers.amzn-mcp.command" $script:MCP_AMZN_PATH
         Print-Ok "amzn-mcp path: $($script:MCP_AMZN_PATH)"
     }
+
+    # --- Outlook Integration Toggle (v2.1) ---
+    Write-Host ""
+    Write-Host "    Outlook Integration" -ForegroundColor White
+    Write-Host "    Enables: Dashboard, Week Ahead, Leadership, Insights pages" -ForegroundColor Gray
+    Write-Host "    Requires: Microsoft Outlook installed and configured" -ForegroundColor Gray
+    Write-Host "    Disable if you only need: Agent, Team Health, Code Metrics," -ForegroundColor Gray
+    Write-Host "    Ticket Health, WBR Prep, CPP WBR" -ForegroundColor Gray
+    Write-Host ""
+    $enableOutlook = Read-Host "    Enable Outlook integration? [Y/n]"
+    if ($enableOutlook -eq "n" -or $enableOutlook -eq "N") {
+        Node-JsonSet $SETTINGS_FILE "outlookIntegration" "false"
+        $script:OUTLOOK_ENABLED = $false
+        Print-Ok "Outlook integration: DISABLED"
+        Print-Info "Dashboard, Week Ahead, Leadership, Insights pages will be hidden"
+    } else {
+        Node-JsonSet $SETTINGS_FILE "outlookIntegration" "true"
+        $script:OUTLOOK_ENABLED = $true
+        Print-Ok "Outlook integration: ENABLED"
     }
 
     # --- Amazon Alias ---
@@ -918,10 +938,22 @@ function Step-13-PostInstall {
     Write-Host "    Manage:" -ForegroundColor White
     Write-Host "      Re-run installer: powershell scripts\windows\install-ingen.ps1" -ForegroundColor Cyan
     Write-Host ""
+    if ($script:OUTLOOK_ENABLED -eq $false) {
+        Write-Host "    Outlook Integration: DISABLED" -ForegroundColor Yellow
+        Write-Host "      Pages hidden: Dashboard, Week Ahead, Leadership, Insights" -ForegroundColor Gray
+        Write-Host "      To enable later: set outlookIntegration=true in config/settings.json" -ForegroundColor Gray
+        Write-Host ""
+    } else {
+        Write-Host "    Outlook Integration: ENABLED" -ForegroundColor Green
+        Write-Host "      Dashboard, Week Ahead, Leadership, Insights pages active" -ForegroundColor Gray
+        Write-Host ""
+    }
     Write-Host "    Features requiring VPN + Midway:" -ForegroundColor White
+    Write-Host "      * Agent Workspace (MCP-powered AI agent)" -ForegroundColor Gray
     Write-Host "      * Team Health (WBR goals from Taskei)" -ForegroundColor Gray
     Write-Host "      * Code Metrics (CRs from code.amazon.com)" -ForegroundColor Gray
     Write-Host "      * Ticket Health (SIM-T resolver groups)" -ForegroundColor Gray
+    Write-Host "      * CPP WBR (SIM folder goals)" -ForegroundColor Gray
     Write-Host "      * Org tree / Phonetool" -ForegroundColor Gray
     Write-Host ""
 
@@ -953,7 +985,13 @@ function Main {
     Step-07-InstallApp        # 5/11
     Step-08-Configure         # 6/11
     Step-09-OrgTree           # 7/11
-    Step-10-PythonDeps        # 8/11
+    # Step 10: Only run Outlook extraction if Outlook integration is enabled
+    if ($script:OUTLOOK_ENABLED -ne $false) {
+        Step-10-PythonDeps    # 8/11
+    } else {
+        Print-Step 10 "Python/Outlook Deps — SKIPPED (Outlook integration disabled)"
+        Step-Done "step_10"
+    }
     Step-11-Verify            # 9/11
     Step-12-DesktopShortcut   # 10/11
     Step-13-PostInstall       # 11/11

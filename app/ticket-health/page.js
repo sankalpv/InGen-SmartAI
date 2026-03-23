@@ -269,7 +269,7 @@ function buildTicketSummary(dashboard) {
     if (!s) return '';
     const groups = dashboard.groups || [];
     const lines = [
-        `🎫 *Ticket Health Summary*`,
+        `🤖 <https://code.amazon.com/packages/InGen-SmartAI/trees/mainline|InGen>: 🎫 *Ticket Health Summary*`,
         `📋 *${s.totalOpen}* open across *${s.totalGroups}* resolver groups`,
         `⏰ Aging >14d: *${s.aging14d}* · >30d: *${s.aging30d}*`,
         `✅ Resolved (30d): *${s.totalResolved30d}*`,
@@ -291,7 +291,36 @@ export default function TicketHealthPage() {
     const [selectedGroup, setSelectedGroup] = useState(null);
     const [statPanel, setStatPanel] = useState(null);
     const [activeTab, setActiveTab] = useState('groups');
+    const [slackChannel, setSlackChannel] = useState('cpp-stores-automation-sdm');
+    const [slackStatus, setSlackStatus] = useState(null); // null | 'sending' | 'sent' | 'error'
+    const [slackError, setSlackError] = useState('');
 
+    const sendToSlack = async () => {
+        if (!dashboard || !slackChannel.trim()) return;
+        setSlackStatus('sending');
+        setSlackError('');
+        try {
+            const text = buildTicketSummary(dashboard);
+            const res = await fetch('/api/slack/send', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ channel: slackChannel.trim(), text }),
+            });
+            const json = await res.json();
+            if (json.ok) {
+                setSlackStatus('sent');
+                setTimeout(() => setSlackStatus(null), 3000);
+            } else {
+                setSlackError(json.error || 'Send failed');
+                setSlackStatus('error');
+                setTimeout(() => setSlackStatus(null), 4000);
+            }
+        } catch (e) {
+            setSlackError(e.message);
+            setSlackStatus('error');
+            setTimeout(() => setSlackStatus(null), 4000);
+        }
+    };
 
     const fetchDashboard = useCallback(async (refresh = false) => {
         if (refresh) setIsRefreshing(true);
@@ -341,6 +370,42 @@ export default function TicketHealthPage() {
                                     <RefreshCw size={14} className={isRefreshing ? 'spin' : ''} />
                                     {isRefreshing ? 'Refreshing...' : 'Refresh'}
                                 </button>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '0', borderRadius: '8px', overflow: 'hidden', border: `1px solid ${slackChannel.startsWith('@') ? 'rgba(34,211,238,0.25)' : 'rgba(139,92,246,0.25)'}` }}>
+                                    <div style={{
+                                        display: 'flex', alignItems: 'center', background: slackChannel.startsWith('@') ? 'rgba(34,211,238,0.08)' : 'rgba(139,92,246,0.08)',
+                                        padding: '0 0 0 10px', height: '32px',
+                                    }}>
+                                        <span style={{ color: slackChannel.startsWith('@') ? 'rgba(34,211,238,0.5)' : 'rgba(255,255,255,0.3)', fontSize: '13px', fontWeight: 600, userSelect: 'none' }}>
+                                            {slackChannel.startsWith('@') ? '👤' : '#'}
+                                        </span>
+                                        <input
+                                            type="text"
+                                            value={slackChannel}
+                                            onChange={e => setSlackChannel(e.target.value)}
+                                            placeholder="channel or @alias"
+                                            style={{
+                                                background: 'transparent', border: 'none', outline: 'none',
+                                                color: slackChannel.startsWith('@') ? '#22d3ee' : '#a78bfa',
+                                                fontSize: '13px', fontWeight: 600, fontFamily: 'inherit',
+                                                width: '200px', padding: '0 8px', height: '32px',
+                                            }}
+                                        />
+                                    </div>
+                                    <button onClick={sendToSlack} disabled={slackStatus === 'sending' || !slackChannel.trim()} style={{
+                                        background: slackStatus === 'sent' ? 'rgba(48,209,88,0.2)' : slackStatus === 'error' ? 'rgba(255,69,58,0.2)' : 'rgba(139,92,246,0.2)',
+                                        color: slackStatus === 'sent' ? '#30d158' : slackStatus === 'error' ? '#ff453a' : '#a78bfa',
+                                        border: 'none', borderLeft: '1px solid rgba(139,92,246,0.25)',
+                                        padding: '0 14px', height: '32px', fontSize: '13px', fontWeight: 600,
+                                        cursor: (slackStatus === 'sending' || !slackChannel.trim()) ? 'not-allowed' : 'pointer',
+                                        display: 'flex', alignItems: 'center', gap: '6px', fontFamily: 'inherit', whiteSpace: 'nowrap',
+                                    }}>
+                                        {slackStatus === 'sending' ? <Loader2 size={14} className="spin" /> : slackStatus === 'sent' ? <Check size={14} /> : <Send size={14} />}
+                                        {slackStatus === 'sending' ? 'Sending...' : slackStatus === 'sent' ? 'Sent!' : slackStatus === 'error' ? 'Failed' : 'Send'}
+                                    </button>
+                                </div>
+                                {slackStatus === 'error' && slackError && (
+                                    <span style={{ fontSize: '11px', color: '#ff453a' }} title={slackError}>⚠️ {slackError.substring(0, 40)}</span>
+                                )}
                                 {dashboard.timestamp && (
                                     <span style={{ fontSize: '11px', color: 'rgba(255,255,255,0.2)' }}>
                                         Updated: {new Date(dashboard.timestamp).toLocaleTimeString()}

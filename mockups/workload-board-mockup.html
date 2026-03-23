@@ -1,0 +1,403 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Workload Board — InGen Design Mockup</title>
+<style>
+/* BASE STYLES */
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:-apple-system,BlinkMacSystemFont,'SF Pro Display','Inter',sans-serif;background:#0f0f16;color:#fff;padding:32px 48px;line-height:1.5;min-height:100vh;-webkit-font-smoothing:antialiased}
+::-webkit-scrollbar{width:6px}::-webkit-scrollbar-track{background:transparent}::-webkit-scrollbar-thumb{background:rgba(255,255,255,0.08);border-radius:3px}
+h1{font-size:28px;font-weight:700;margin-bottom:4px}
+.subtitle{color:rgba(255,255,255,0.4);font-size:14px;margin-bottom:28px;display:flex;align-items:center;gap:12px}
+.refresh-btn{background:rgba(139,92,246,0.15);color:#a78bfa;border:none;padding:6px 16px;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;font-family:inherit}
+.refresh-btn:hover{background:rgba(139,92,246,0.3)}
+
+/* AI SUMMARY */
+.ai-summary{padding:28px 32px;border-radius:20px;margin-bottom:28px;background:linear-gradient(145deg,rgba(255,255,255,0.05),rgba(255,255,255,0.01));backdrop-filter:blur(50px);border:1px solid rgba(255,255,255,0.1);box-shadow:0 20px 40px rgba(0,0,0,0.2);position:relative;overflow:hidden}
+.ai-summary::after{content:'';position:absolute;top:0;left:0;right:0;height:1px;background:linear-gradient(90deg,transparent,rgba(255,255,255,0.5),transparent)}
+.ai-badge{display:inline-flex;align-items:center;gap:6px;background:rgba(191,90,242,0.2);color:#df9bfd;padding:5px 14px;border-radius:99px;font-size:12px;font-weight:600;box-shadow:0 0 15px rgba(191,90,242,0.3);border:1px solid rgba(191,90,242,0.3);margin-bottom:14px}
+.ai-summary p{font-size:15px;line-height:1.7;color:rgba(255,255,255,0.7);max-width:900px}
+
+/* STATS BAR */
+.stats-bar{display:grid;grid-template-columns:repeat(5,1fr);gap:16px;margin-bottom:28px}
+.stat-card{background:rgba(255,255,255,0.03);backdrop-filter:blur(30px);border:1px solid rgba(255,255,255,0.08);border-radius:16px;padding:18px;text-align:center;transition:transform 0.3s}
+.stat-card:hover{transform:translateY(-3px);background:rgba(255,255,255,0.06)}
+.stat-icon{font-size:24px;margin-bottom:6px}
+.stat-value{font-size:2rem;font-weight:800;letter-spacing:-0.5px}
+.stat-label{color:rgba(255,255,255,0.4);text-transform:uppercase;font-size:10px;font-weight:600;letter-spacing:1px;margin-top:2px}
+.bg-blue .stat-value{color:#0a84ff}.bg-green .stat-value{color:#30d158}.bg-orange .stat-value{color:#ff9f0a}.bg-red .stat-value{color:#ff453a}.bg-purple .stat-value{color:#a78bfa}
+
+/* ALERTS */
+.alerts{display:flex;gap:16px;margin-bottom:28px}
+.alert-card{flex:1;border-radius:12px;padding:14px 20px;display:flex;align-items:center;gap:12px;cursor:pointer;transition:0.2s;font-size:13px}
+.alert-card:hover{transform:translateY(-1px)}
+.alert-red{background:rgba(255,69,58,0.08);border:1px solid rgba(255,69,58,0.15);color:#ff6b6b}
+.alert-orange{background:rgba(255,159,10,0.08);border:1px solid rgba(255,159,10,0.15);color:#ff9f0a}
+.alert-blue{background:rgba(10,132,255,0.08);border:1px solid rgba(10,132,255,0.15);color:#5ac8fa}
+.alert-icon{font-size:20px}.alert-count{font-size:20px;font-weight:800}.alert-label{font-size:11px;color:rgba(255,255,255,0.4)}
+
+/* VIEW SWITCHER */
+.view-sw{display:flex;gap:4px;background:rgba(0,0,0,0.4);padding:5px;border-radius:14px;border:1px solid rgba(255,255,255,0.06);margin-bottom:28px;display:inline-flex}
+.view-btn{padding:10px 24px;border-radius:10px;border:none;cursor:pointer;font-family:inherit;font-size:14px;font-weight:600;background:transparent;color:rgba(255,255,255,0.35);transition:all 0.25s}
+.view-btn.active{background:rgba(139,92,246,0.2);color:#c4b5fd}
+.view-btn:hover{color:#c4b5fd}
+
+/* MANAGER GROUP */
+.mgr-group{margin-bottom:28px}
+.mgr-hdr{display:flex;align-items:center;gap:12px;padding:12px 0;cursor:pointer;user-select:none}
+.mgr-hdr .name{font-size:16px;font-weight:700;color:rgba(255,255,255,0.9)}
+.mgr-hdr .count{background:rgba(139,92,246,0.2);color:#a78bfa;padding:2px 10px;border-radius:10px;font-size:12px;font-weight:600}
+.mgr-hdr .toggle{color:rgba(255,255,255,0.3);font-size:14px;margin-left:auto;transition:transform 0.3s}
+.mgr-divider{height:1px;background:linear-gradient(90deg,rgba(139,92,246,0.3),transparent);margin-bottom:16px}
+
+/* PERSON CARD */
+.person{background:rgba(22,22,30,0.6);backdrop-filter:blur(20px);border:1px solid rgba(255,255,255,0.05);border-radius:16px;padding:20px;margin-bottom:12px;transition:0.2s;overflow:hidden}
+.person:hover{background:rgba(255,255,255,0.05);border-color:rgba(255,255,255,0.12)}
+.person-top{display:flex;align-items:center;gap:14px;margin-bottom:14px}
+.avatar{width:42px;height:42px;border-radius:12px;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:15px;color:#fff;flex-shrink:0}
+.person-name{font-size:15px;font-weight:600}.person-alias{font-size:12px;color:rgba(255,255,255,0.4)}
+.load-badge{margin-left:auto;padding:4px 14px;border-radius:99px;font-size:12px;font-weight:700}
+.load-green{background:rgba(48,209,88,0.12);color:#30d158;border:1px solid rgba(48,209,88,0.2)}
+.load-yellow{background:rgba(255,159,10,0.12);color:#ff9f0a;border:1px solid rgba(255,159,10,0.2)}
+.load-red{background:rgba(255,69,58,0.12);color:#ff453a;border:1px solid rgba(255,69,58,0.2)}
+
+/* CAPACITY BAR */
+.cap-wrap{margin-bottom:14px}
+.cap-bar-bg{height:10px;background:rgba(255,255,255,0.06);border-radius:5px;overflow:hidden;position:relative}
+.cap-bar-fill{height:100%;border-radius:5px;transition:width 0.8s cubic-bezier(0.4,0,0.2,1)}
+.cap-labels{display:flex;justify-content:space-between;font-size:10px;color:rgba(255,255,255,0.3);margin-top:4px}
+
+/* WORK BREAKDOWN */
+.work-breakdown{display:flex;gap:10px;margin-bottom:14px;flex-wrap:wrap}
+.wb-item{background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.06);border-radius:10px;padding:8px 14px;text-align:center;flex:1;min-width:80px}
+.wb-num{font-size:18px;font-weight:700;color:#fff}
+.wb-lbl{font-size:10px;color:rgba(255,255,255,0.4);text-transform:uppercase;letter-spacing:0.5px}
+
+/* AI INSIGHT */
+.person-ai{background:rgba(139,92,246,0.05);border-left:3px solid rgba(139,92,246,0.4);padding:10px 14px;border-radius:0 8px 8px 0;margin-bottom:12px;font-size:13px;line-height:1.6;color:rgba(255,255,255,0.7)}
+.person-ai .icon{color:#bf5af2;font-size:12px;margin-right:6px}
+
+/* WORK ITEMS LIST */
+.work-items{display:none;margin-top:14px;padding-top:14px;border-top:1px solid rgba(255,255,255,0.06)}
+.work-items.open{display:block}
+.wi-section{font-size:10px;font-weight:700;color:rgba(255,255,255,0.35);text-transform:uppercase;letter-spacing:1px;margin:12px 0 8px}
+.wi{display:flex;align-items:center;gap:10px;padding:8px 12px;border-radius:8px;background:rgba(255,255,255,0.02);border:1px solid rgba(255,255,255,0.04);font-size:12px;margin-bottom:4px}
+.wi-icon{font-size:14px;flex-shrink:0}.wi-id{color:#818cf8;font-weight:600;flex-shrink:0}
+.wi-title{flex:1;color:rgba(255,255,255,0.7);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.wi-tag{padding:2px 8px;border-radius:6px;font-size:10px;font-weight:600}
+.tag-sim{background:rgba(255,159,10,0.1);color:#ff9f0a}.tag-cr{background:rgba(10,132,255,0.1);color:#0a84ff}
+.tag-goal{background:rgba(139,92,246,0.1);color:#a78bfa}.tag-oncall{background:rgba(255,69,58,0.1);color:#ff453a}
+.tag-meeting{background:rgba(48,209,88,0.1);color:#30d158}
+
+/* ACTIONS */
+.person-actions{display:flex;gap:8px;justify-content:flex-end}
+.action-btn{padding:7px 14px;border-radius:10px;font-size:12px;font-weight:600;cursor:pointer;transition:0.2s;border:none;font-family:inherit}
+.action-btn.secondary{background:rgba(255,255,255,0.08);color:rgba(255,255,255,0.7);border:1px solid rgba(255,255,255,0.1)}
+.action-btn.secondary:hover{background:rgba(255,255,255,0.15);color:#fff}
+.action-btn.primary{background:rgba(10,132,255,0.2);color:#0a84ff;border:1px solid rgba(10,132,255,0.3)}
+.action-btn.primary:hover{background:rgba(10,132,255,0.35)}
+
+/* HEATMAP */
+.heatmap{display:none;margin-bottom:28px}
+.heatmap.active{display:block}
+.hm-table{width:100%;border-collapse:separate;border-spacing:4px}
+.hm-table th{font-size:10px;color:rgba(255,255,255,0.35);text-transform:uppercase;letter-spacing:0.5px;padding:8px;font-weight:600}
+.hm-table td{text-align:center;padding:12px 8px;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;transition:0.2s}
+.hm-table td:hover{transform:scale(1.05)}
+.hm-name{text-align:left!important;font-weight:600;color:rgba(255,255,255,0.8);white-space:nowrap}
+.hm-0{background:rgba(255,255,255,0.03);color:rgba(255,255,255,0.2)}
+.hm-1{background:rgba(48,209,88,0.08);color:#30d158}
+.hm-2{background:rgba(48,209,88,0.15);color:#30d158}
+.hm-3{background:rgba(255,159,10,0.1);color:#ff9f0a}
+.hm-4{background:rgba(255,159,10,0.2);color:#ff9f0a}
+.hm-5{background:rgba(255,69,58,0.15);color:#ff453a}
+
+/* BY-GOAL VIEW */
+.goal-view{display:none;margin-bottom:28px}
+.goal-view.active{display:block}
+.goal-row{background:rgba(22,22,30,0.6);border:1px solid rgba(255,255,255,0.05);border-radius:14px;padding:18px 22px;margin-bottom:10px;cursor:pointer;transition:0.2s}
+.goal-row:hover{background:rgba(255,255,255,0.05);border-color:rgba(255,255,255,0.12)}
+.goal-top{display:flex;align-items:center;gap:12px;margin-bottom:10px}
+.goal-id{color:#818cf8;font-weight:700;font-size:13px}
+.goal-title{font-size:14px;font-weight:600;color:rgba(255,255,255,0.85);flex:1}
+.goal-item-count{font-size:12px;color:rgba(255,255,255,0.4)}
+.goal-people{display:flex;gap:6px;flex-wrap:wrap}
+.goal-person{display:flex;align-items:center;gap:6px;background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.06);border-radius:8px;padding:6px 12px;font-size:12px}
+.goal-person .mini-av{width:22px;height:22px;border-radius:6px;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:9px;color:#fff}
+.goal-person .gp-name{color:rgba(255,255,255,0.7)}.goal-person .gp-items{color:rgba(255,255,255,0.35);font-size:11px}
+
+/* PERSON VIEW */
+.person-view{display:block}.person-view.hidden{display:none}
+
+/* FOOTER */
+.footer{text-align:center;padding:32px 0;font-size:11px;color:rgba(255,255,255,0.15)}
+
+/* ANIMATIONS */
+@keyframes fadeUp{from{opacity:0;transform:translateY(15px)}to{opacity:1;transform:translateY(0)}}
+.anim{opacity:0;animation:fadeUp 0.4s forwards}
+</style>
+</head>
+<body>
+<div id="app"></div>
+<script>
+const GR=['linear-gradient(135deg,#4f8cff,#3b6fd4)','linear-gradient(135deg,#a855f7,#7c3aed)','linear-gradient(135deg,#34d399,#059669)','linear-gradient(135deg,#fb923c,#ea580c)','linear-gradient(135deg,#22d3ee,#0891b2)','linear-gradient(135deg,#f472b6,#db2777)','linear-gradient(135deg,#818cf8,#6366f1)','linear-gradient(135deg,#fbbf24,#d97706)'];
+
+const PEOPLE=[
+{name:'Abhijit Sharma',alias:'abhijits',team:'Drift Detection',mgr:'Surbhi Gupta',grad:GR[0],init:'AS',
+ sims:2,crs:4,goalTasks:3,oncall:0,meetings:6,load:9,
+ ai:'Carrying heavy load across <strong>Drift Detection</strong> and Sev-3 pipeline work. 4 CRs in-flight plus 2 open SIMs. Consider redistributing the pipeline debugging SIM.',
+ items:[
+  {type:'sim',id:'SIM-44821',t:'Pipeline timeout in prod environment',tag:'Sev-3'},
+  {type:'sim',id:'SIM-44290',t:'Update runbook documentation',tag:'Sev-4'},
+  {type:'cr',id:'CR-258266',t:'Add retry logic for classifier pipeline'},
+  {type:'cr',id:'CR-258190',t:'Fix embedding dimension mismatch'},
+  {type:'cr',id:'CR-257998',t:'Update config for staging env'},
+  {type:'cr',id:'CR-257801',t:'Add unit tests for scorer module'},
+  {type:'goal',id:'Goal-10',t:'Drift Detection — signal store S3'},
+  {type:'goal',id:'Goal-10',t:'Drift Detection — batch processing'},
+  {type:'goal',id:'Goal-14',t:'Similarity Search — threshold config'}
+]},
+{name:'Deqian Liu',alias:'deqianl',team:'Embeddings',mgr:'Surbhi Gupta',grad:GR[1],init:'DL',
+ sims:1,crs:7,goalTasks:2,oncall:0,meetings:4,load:10,
+ ai:'<strong>Most active coder on the team</strong> — 7 CRs this week on UFC Embeddings v3 upgrade. Risk of burnout; also has a monitoring gap SIM. Extremely high throughput but review load is light.',
+ items:[
+  {type:'sim',id:'SIM-45001',t:'Monitoring coverage gap for embeddings'},
+  {type:'cr',id:'CR-259001',t:'Upgrade embedding model to v3'},
+  {type:'cr',id:'CR-259002',t:'Add monitoring dashboards'},
+  {type:'cr',id:'CR-259003',t:'Fix dimension alignment for new model'},
+  {type:'cr',id:'CR-259004',t:'Update integration tests'},
+  {type:'cr',id:'CR-259005',t:'Batch inference optimization'},
+  {type:'cr',id:'CR-259006',t:'Deprecate v2 endpoints'},
+  {type:'cr',id:'CR-259007',t:'Add canary deployment config'},
+  {type:'goal',id:'Goal-14',t:'Embedding Excellence — v3 rollout'},
+  {type:'goal',id:'Goal-14',t:'Embedding Excellence — monitoring'}
+]},
+{name:'Fardeen Khan',alias:'fardeenk',team:'Artemis',mgr:'Surbhi Gupta',grad:GR[2],init:'FK',
+ sims:0,crs:3,goalTasks:2,oncall:0,meetings:3,load:5,
+ ai:'Balanced workload on <strong>Artemis self-healing classifiers</strong>. 3 CRs focused on classifier logic. No blockers — good candidate for additional scope if needed.',
+ items:[
+  {type:'cr',id:'CR-260001',t:'Self-healing classifier retry logic'},
+  {type:'cr',id:'CR-260002',t:'Add feature flag for auto-recovery'},
+  {type:'cr',id:'CR-260003',t:'Integration test for failure scenarios'},
+  {type:'goal',id:'Goal-10',t:'Artemis — self-healing MVP'},
+  {type:'goal',id:'Goal-10',t:'Artemis — classifier retraining'}
+]},
+{name:'Anika Patel',alias:'anikap',team:'Platform',mgr:'Surbhi Gupta',grad:GR[4],init:'AP',
+ sims:1,crs:2,goalTasks:1,oncall:1,meetings:8,load:8,
+ ai:'On <strong>primary oncall this week</strong> plus 8 meetings. Only 2 CRs — oncall duties are consuming bandwidth. Has 1 Sev-4 SIM from last rotation that needs closure.',
+ items:[
+  {type:'oncall',id:'Oncall',t:'Primary oncall — Platform (Mar 18-25)'},
+  {type:'sim',id:'SIM-43998',t:'Stale alarm cleanup from last rotation',tag:'Sev-4'},
+  {type:'cr',id:'CR-261001',t:'Alarm threshold tuning'},
+  {type:'cr',id:'CR-261002',t:'Runbook update for new service'},
+  {type:'goal',id:'Goal-3',t:'99.99% availability — alarm improvements'}
+]},
+{name:'Ravi Mehta',alias:'ravim',team:'VibeForge',mgr:'Ana Rodriguez',grad:GR[3],init:'RM',
+ sims:1,crs:5,goalTasks:2,oncall:0,meetings:5,load:8,
+ ai:'Leading the <strong>VibeForge steelthread closure</strong>. 5 CRs this week — on track. One dependency SIM needs PMT alignment by Friday.',
+ items:[
+  {type:'sim',id:'SIM-45100',t:'Downstream API contract finalization'},
+  {type:'cr',id:'CR-262001',t:'Close steelthread: Authoring integration'},
+  {type:'cr',id:'CR-262002',t:'End-to-end tests for authoring flow'},
+  {type:'cr',id:'CR-262003',t:'Fix API contract for downstream'},
+  {type:'cr',id:'CR-262004',t:'Add feature toggle for launch'},
+  {type:'cr',id:'CR-262005',t:'Performance test harness'},
+  {type:'goal',id:'Goal-32',t:'VibeForge — authoring steelthread'},
+  {type:'goal',id:'Goal-32',t:'VibeForge — performance baseline'}
+]},
+{name:'Priya Joshi',alias:'priyaj',team:'VibeForge',mgr:'Ana Rodriguez',grad:GR[4],init:'PJ',
+ sims:0,crs:0,goalTasks:0,oncall:0,meetings:1,load:1,
+ ai:'<strong style="color:rgba(255,159,10,0.9);">Very low activity.</strong> No CRs, SIMs, or goal tasks. Only 1 meeting (standup). May be on PTO, ramping, or blocked. Recommend a check-in.',
+ items:[]},
+{name:'Carlos Diaz',alias:'carlosd',team:'Policy',mgr:'Ana Rodriguez',grad:GR[5],init:'CD',
+ sims:3,crs:2,goalTasks:2,oncall:0,meetings:4,load:7,
+ ai:'Juggling <strong>3 open SIMs</strong> including a Sev-2 policy violation escalation. CRs are behind — SIM load may be crowding out feature work.',
+ items:[
+  {type:'sim',id:'SIM-45200',t:'Sev-2: Policy violation escalation — JP marketplace',tag:'Sev-2'},
+  {type:'sim',id:'SIM-45201',t:'False positive rate spike in EU',tag:'Sev-3'},
+  {type:'sim',id:'SIM-45202',t:'Documentation update for new policy rules',tag:'Sev-4'},
+  {type:'cr',id:'CR-263001',t:'Policy rule engine v2 migration'},
+  {type:'cr',id:'CR-263002',t:'Add JP marketplace adapter'},
+  {type:'goal',id:'Goal-30',t:'12-marketplace compliance — JP adapter'},
+  {type:'goal',id:'Goal-37',t:'Hazmat false positives — rule tuning'}
+]},
+{name:'Mei Chen',alias:'meic',team:'ML Platform',mgr:'Ganesh Patel',grad:GR[6],init:'MC',
+ sims:0,crs:4,goalTasks:3,oncall:0,meetings:3,load:7,
+ ai:'Steady delivery on <strong>federated learning architecture</strong>. 4 CRs and 3 goal tasks — well-distributed workload. No blockers.',
+ items:[
+  {type:'cr',id:'CR-264001',t:'Federated aggregation protocol'},
+  {type:'cr',id:'CR-264002',t:'Secure model parameter sharing'},
+  {type:'cr',id:'CR-264003',t:'Privacy budget tracking'},
+  {type:'cr',id:'CR-264004',t:'Integration test for 3-BU scenario'},
+  {type:'goal',id:'Goal-8',t:'Federated training — secure aggregation'},
+  {type:'goal',id:'Goal-8',t:'Federated training — privacy layer'},
+  {type:'goal',id:'Goal-8',t:'Federated training — BU integration'}
+]},
+{name:'Tom Wilson',alias:'tomw',team:'Compliance',mgr:'Ganesh Patel',grad:GR[7],init:'TW',
+ sims:1,crs:3,goalTasks:2,oncall:1,meetings:7,load:9,
+ ai:'<strong>Overloaded:</strong> oncall + 7 meetings + Sev-3 compliance SIM + 3 CRs. Oncall ends Thursday — load should normalize after. Shield from new asks.',
+ items:[
+  {type:'oncall',id:'Oncall',t:'Secondary oncall — Compliance (Mar 16-23)'},
+  {type:'sim',id:'SIM-45300',t:'EU DSA audit finding follow-up',tag:'Sev-3'},
+  {type:'cr',id:'CR-265001',t:'Marketplace adapter framework'},
+  {type:'cr',id:'CR-265002',t:'AU/SG compliance rules'},
+  {type:'cr',id:'CR-265003',t:'Compliance dashboard metrics'},
+  {type:'goal',id:'Goal-30',t:'12-marketplace — adapter framework'},
+  {type:'goal',id:'Goal-38',t:'EU DSA — audit remediation'}
+]}
+];
+
+const GOALS_DATA=[
+{id:'Goal-10',title:'Launch Drift Detection',people:['Abhijit Sharma','Fardeen Khan'],totalItems:5},
+{id:'Goal-14',title:'Expand Similarity Search & Embeddings',people:['Abhijit Sharma','Deqian Liu'],totalItems:4},
+{id:'Goal-32',title:'VibeForge Authoring Steelthread',people:['Ravi Mehta'],totalItems:4},
+{id:'Goal-30',title:'Policy Compliance — 12 Marketplaces',people:['Carlos Diaz','Tom Wilson'],totalItems:3},
+{id:'Goal-3',title:'99.99% Availability All Regions',people:['Anika Patel'],totalItems:2},
+{id:'Goal-8',title:'Federated Model Training — 3 BUs',people:['Mei Chen'],totalItems:4},
+{id:'Goal-37',title:'Reduce Hazmat False Positives 40%',people:['Carlos Diaz'],totalItems:1},
+{id:'Goal-38',title:'EU Digital Services Act Compliance',people:['Tom Wilson'],totalItems:1}
+];
+
+let currentView='person';
+
+function getLoadColor(l){return l>=9?'red':l>=6?'yellow':'green'}
+function getLoadLabel(l){return l>=9?'Overloaded':l>=6?'High':l<=2?'Low':'Balanced'}
+function getCapPct(l){return Math.min(100,Math.round(l/12*100))}
+function getCapColor(l){return l>=9?'#ff453a':l>=6?'#ff9f0a':'#30d158'}
+function hmClass(v){return v===0?'hm-0':v<=1?'hm-1':v<=2?'hm-2':v<=3?'hm-3':v<=5?'hm-4':'hm-5'}
+
+function render(){
+  const app=document.getElementById('app');
+  const totalItems=PEOPLE.reduce((s,p)=>s+p.load,0);
+  const avgLoad=(totalItems/PEOPLE.length).toFixed(1);
+  const overloaded=PEOPLE.filter(p=>p.load>=9).length;
+  const underutil=PEOPLE.filter(p=>p.load<=2).length;
+  const oncallCount=PEOPLE.filter(p=>p.oncall>0).length;
+
+  let h=`<h1>🏋️ Workload Board</h1>
+<div class="subtitle">
+  <span>CPP Org — ${PEOPLE.length} engineers · Week 12, 2026</span>
+  <span>·</span>
+  <span>Last synced 8 min ago</span>
+  <button class="refresh-btn">🔄 Refresh</button>
+</div>`;
+
+  // AI Summary
+  h+=`<div class="ai-summary anim">
+  <div class="ai-badge">✨ AI Workload Analysis</div>
+  <p>Your org has <strong>${overloaded} overloaded engineers</strong> this week. <strong>Deqian Liu</strong> has the highest throughput (7 CRs) but may be at burnout risk. <strong>Tom Wilson</strong> and <strong>Abhijit Sharma</strong> are stretched across oncall, SIMs, and feature work — consider shielding them from new asks. <strong>Priya Joshi</strong> shows very low activity — recommend a check-in. Carlos Diaz has 3 SIMs including a <strong>Sev-2 escalation</strong> that may crowd out feature delivery on Goal-30.</p>
+</div>`;
+
+  // Stats
+  h+=`<div class="stats-bar">
+  <div class="stat-card bg-blue"><div class="stat-icon">📋</div><div class="stat-value">${totalItems}</div><div class="stat-label">Total Work Items</div></div>
+  <div class="stat-card bg-purple"><div class="stat-icon">📊</div><div class="stat-value">${avgLoad}</div><div class="stat-label">Avg Load / IC</div></div>
+  <div class="stat-card bg-red"><div class="stat-icon">🔴</div><div class="stat-value">${overloaded}</div><div class="stat-label">Overloaded</div></div>
+  <div class="stat-card bg-orange"><div class="stat-icon">😴</div><div class="stat-value">${underutil}</div><div class="stat-label">Underutilized</div></div>
+  <div class="stat-card bg-green"><div class="stat-icon">📟</div><div class="stat-value">${oncallCount}</div><div class="stat-label">On-Call</div></div>
+</div>`;
+
+  // Alerts
+  h+=`<div class="alerts">
+  <div class="alert-card alert-red"><span class="alert-icon">🔴</span><div><div class="alert-count">${overloaded}</div><div class="alert-label">Overloaded ICs (&gt;8 items)</div></div></div>
+  <div class="alert-card alert-orange"><span class="alert-icon">⚠️</span><div><div class="alert-count">1</div><div class="alert-label">Sev-2 Escalation Active</div></div></div>
+  <div class="alert-card alert-blue"><span class="alert-icon">💤</span><div><div class="alert-count">${underutil}</div><div class="alert-label">Low Activity — Check In</div></div></div>
+</div>`;
+
+  // View Switcher
+  h+=`<div class="view-sw">
+  <button class="view-btn ${currentView==='person'?'active':''}" onclick="switchView('person')">👥 By Person</button>
+  <button class="view-btn ${currentView==='heatmap'?'active':''}" onclick="switchView('heatmap')">📊 Heatmap</button>
+  <button class="view-btn ${currentView==='goal'?'active':''}" onclick="switchView('goal')">🎯 By Goal</button>
+</div>`;
+
+  // Person View
+  h+=`<div class="person-view ${currentView!=='person'?'hidden':''}">`;
+  const mgrs={};
+  PEOPLE.forEach(p=>{if(!mgrs[p.mgr])mgrs[p.mgr]=[];mgrs[p.mgr].push(p)});
+  Object.entries(mgrs).forEach(([mgr,people])=>{
+    h+=`<div class="mgr-group"><div class="mgr-hdr"><span>👤</span><span class="name">${mgr}'s Team</span><span class="count">${people.length} ICs</span><span class="toggle">▾</span></div><div class="mgr-divider"></div>`;
+    people.forEach((p,pi)=>{
+      const lc=getLoadColor(p.load);const ll=getLoadLabel(p.load);const pct=getCapPct(p.load);const cc=getCapColor(p.load);
+      h+=`<div class="person anim" style="animation-delay:${pi*0.08}s">`;
+      h+=`<div class="person-top"><div class="avatar" style="background:${p.grad}">${p.init}</div><div><div class="person-name">${p.name}</div><div class="person-alias">${p.alias} · ${p.team}</div></div><span class="load-badge load-${lc}">${ll} · ${p.load} items</span></div>`;
+      // Capacity bar
+      h+=`<div class="cap-wrap"><div class="cap-bar-bg"><div class="cap-bar-fill" style="width:${pct}%;background:${cc}"></div></div><div class="cap-labels"><span>0</span><span>Capacity (12)</span></div></div>`;
+      // Work breakdown
+      h+=`<div class="work-breakdown">`;
+      h+=`<div class="wb-item"><div class="wb-num">${p.sims}</div><div class="wb-lbl">🎫 SIMs</div></div>`;
+      h+=`<div class="wb-item"><div class="wb-num">${p.crs}</div><div class="wb-lbl">💻 CRs</div></div>`;
+      h+=`<div class="wb-item"><div class="wb-num">${p.goalTasks}</div><div class="wb-lbl">🎯 Goals</div></div>`;
+      h+=`<div class="wb-item"><div class="wb-num">${p.oncall}</div><div class="wb-lbl">📟 Oncall</div></div>`;
+      h+=`<div class="wb-item"><div class="wb-num">${p.meetings}</div><div class="wb-lbl">📅 Meetings</div></div>`;
+      h+=`</div>`;
+      // AI insight
+      h+=`<div class="person-ai"><span class="icon">🤖</span>${p.ai}</div>`;
+      // Actions
+      h+=`<div class="person-actions"><button class="action-btn secondary" onclick="toggleItems(this)">▸ Show Work Items</button><button class="action-btn primary">💬 Ask about ${p.name.split(' ')[0]}</button></div>`;
+      // Expandable items
+      h+=`<div class="work-items">`;
+      if(p.items.length===0){h+=`<div style="color:rgba(255,255,255,0.3);font-size:13px;padding:12px 0;text-align:center;">No active work items detected</div>`}
+      const types={sim:'🎫 Open SIMs',cr:'💻 Code Reviews',goal:'🎯 Goal Tasks',oncall:'📟 Oncall'};
+      const grouped={};p.items.forEach(it=>{if(!grouped[it.type])grouped[it.type]=[];grouped[it.type].push(it)});
+      Object.entries(grouped).forEach(([type,items])=>{
+        h+=`<div class="wi-section">${types[type]||type} (${items.length})</div>`;
+        items.forEach(it=>{
+          const tagCls=type==='sim'?'tag-sim':type==='cr'?'tag-cr':type==='goal'?'tag-goal':'tag-oncall';
+          h+=`<div class="wi"><span class="wi-icon">${type==='sim'?'🎫':type==='cr'?'📝':type==='goal'?'🎯':'📟'}</span><span class="wi-id">${it.id}</span><span class="wi-title">${it.t}</span>`;
+          if(it.tag)h+=`<span class="wi-tag ${tagCls}">${it.tag}</span>`;
+          h+=`</div>`;
+        });
+      });
+      h+=`</div></div>`;
+    });
+    h+=`</div>`;
+  });
+  h+=`</div>`;
+
+  // Heatmap View
+  h+=`<div class="heatmap ${currentView==='heatmap'?'active':''}">
+<table class="hm-table"><thead><tr><th>Engineer</th><th>SIMs</th><th>CRs</th><th>Goal Tasks</th><th>Oncall</th><th>Meetings</th><th>Total Load</th></tr></thead><tbody>`;
+  [...PEOPLE].sort((a,b)=>b.load-a.load).forEach(p=>{
+    h+=`<tr><td class="hm-name"><span class="avatar" style="background:${p.grad};width:28px;height:28px;border-radius:8px;font-size:11px;display:inline-flex;vertical-align:middle;margin-right:8px">${p.init}</span>${p.name}</td>`;
+    h+=`<td class="${hmClass(p.sims)}">${p.sims}</td>`;
+    h+=`<td class="${hmClass(p.crs)}">${p.crs}</td>`;
+    h+=`<td class="${hmClass(p.goalTasks)}">${p.goalTasks}</td>`;
+    h+=`<td class="${p.oncall>0?'hm-5':'hm-0'}">${p.oncall>0?'🔴 Yes':'—'}</td>`;
+    h+=`<td class="${hmClass(Math.floor(p.meetings/2))}">${p.meetings}</td>`;
+    h+=`<td class="${hmClass(Math.floor(p.load/2))}" style="font-weight:800;font-size:16px">${p.load}</td>`;
+    h+=`</tr>`;
+  });
+  h+=`</tbody></table></div>`;
+
+  // Goal View
+  h+=`<div class="goal-view ${currentView==='goal'?'active':''}">`;
+  GOALS_DATA.forEach(g=>{
+    h+=`<div class="goal-row"><div class="goal-top"><span class="goal-id">${g.id}</span><span class="goal-title">${g.title}</span><span class="goal-item-count">${g.totalItems} work items</span></div><div class="goal-people">`;
+    g.people.forEach(pName=>{
+      const p=PEOPLE.find(pp=>pp.name===pName);
+      if(p){
+        const items=p.items.filter(it=>it.id.includes(g.id.replace('Goal-',''))).length||1;
+        h+=`<div class="goal-person"><div class="mini-av" style="background:${p.grad}">${p.init}</div><span class="gp-name">${p.name}</span><span class="gp-items">${items} items</span><span class="load-badge load-${getLoadColor(p.load)}" style="padding:2px 8px;font-size:10px">${getLoadLabel(p.load)}</span></div>`;
+      }
+    });
+    h+=`</div></div>`;
+  });
+  h+=`</div>`;
+
+  h+=`<div class="footer">Workload Board Mockup · InGen · Data from SIMs, code.amazon.com, oncall, calendar</div>`;
+  app.innerHTML=h;
+}
+
+function switchView(v){currentView=v;render()}
+function toggleItems(btn){
+  const items=btn.closest('.person').querySelector('.work-items');
+  items.classList.toggle('open');
+  btn.textContent=items.classList.contains('open')?'▾ Hide Work Items':'▸ Show Work Items';
+}
+render();
+</script>
+</body>
+</html>

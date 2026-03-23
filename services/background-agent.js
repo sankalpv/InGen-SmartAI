@@ -7,9 +7,11 @@ const proactiveAgent = require('./proactive-agent'); // Added import
 const localStore = require('./local-store'); // Local data cache
 const issuesParser = require('./issues-parser'); // Issues folder parser
 const issuesStore = require('./issues-store'); // Issues SQLite store
+const slackAgent = require('./slack-agent'); // Slack DM agent
 const logger = require('./logger').child('Agent');
 
 // Configuration
+const SLACK_POLL_CRON = '* * * * *'; // Every 60 seconds
 const SYNC_INTERVAL_CRON = '0 * * * *'; // Every 60 minutes (was 15 - battery optimization)
 const INSIGHT_INTERVAL_CRON = '0 9,13 * * 1-5'; // 9 AM + 1 PM weekdays only (was every 30 min - battery optimization)
 const STATE_FILE = path.join(process.cwd(), 'sync_state.json');
@@ -99,8 +101,10 @@ async function runSync() {
                     }
 
                     // Always update sync timestamp so the UI shows "Synced X min ago" correctly
+                    // Read-merge-write to preserve slackLastProcessedTs and other fields
                     state.lastSyncTimestamp = new Date().toISOString();
-                    fs.writeFileSync(STATE_FILE, JSON.stringify(state, null, 2));
+                    const existingState = fs.existsSync(STATE_FILE) ? JSON.parse(fs.readFileSync(STATE_FILE, 'utf8')) : {};
+                    fs.writeFileSync(STATE_FILE, JSON.stringify({ ...existingState, ...state }, null, 2));
 
                 } catch (e) {
                     logger.error('Failed to parse Outlook response or ingest:', e.message);
@@ -127,10 +131,11 @@ async function generateInsights() {
         
         logger.info(`Insight generation complete. Generated ${result.generated} insights.`);
         
-        // Update state
+        // Update state (read-merge-write to preserve slackLastProcessedTs)
         state.lastInsightRun = new Date().toISOString();
         state.insightsGenerated = (state.insightsGenerated || 0) + result.generated;
-        fs.writeFileSync(STATE_FILE, JSON.stringify(state, null, 2));
+        const existingInsightState = fs.existsSync(STATE_FILE) ? JSON.parse(fs.readFileSync(STATE_FILE, 'utf8')) : {};
+        fs.writeFileSync(STATE_FILE, JSON.stringify({ ...existingInsightState, ...state }, null, 2));
         
     } catch (error) {
         logger.error('Insight generation failed:', error.message);
@@ -155,34 +160,59 @@ cron.schedule(INSIGHT_INTERVAL_CRON, () => {
     generateInsights();
 });
 
-// Fix 2: Reduce startup storm — serialize initial syncs with delays
-// Don't slam Outlook with concurrent fullSync + runSync on startup
-logger.info('Running initial local data sync (background agent will follow after 30s)...');
-localStore.fullSync().then(async (result) => {
-    if (result.success) {
-        logger.info(`Initial sync complete: ${result.emails} emails, ${result.calendar} cal events, ${result.issues || 0} issues in ${result.elapsed}s`);
-    }
-    
-    // Issues folder parsing removed — not needed for core functionality
-    
-    // Delay incremental vector store sync by 30s to let Outlook recover
-    logger.info('Waiting 30s before starting incremental vector store sync...');
-    setTimeout(() => {
-        logger.info('Starting deferred incremental sync for vector store');
-        runSync();
-    }, 30000);
-});
-// Don't run generateInsights() on startup — wait for scheduled time to save CPU/battery
-logger.info('Insight generation deferred to scheduled time (9 AM, 1 PM weekdays)');
+// Check if Outlook integration is enabled
+let outlookIntegrationEnabled = true;
+try {
+    const settingsPath = path.join(process.cwd(), 'config', 'settings.json');
+    const settings = JSON.parse(fs.readFileSync(settingsPath, 'utf8'));
+    outlookIntegrationEnabled = settings.outlookIntegration !== false;
+} catch (e) { /* default to enabled */ }
 
-// Schedule local store sync alongside the email cron
-cron.schedule(SYNC_INTERVAL_CRON, async () => {
-    try {
-        await localStore.fullSync();
-    } catch (e) {
-        logger.error('Scheduled local sync failed:', e.message);
-    }
-});
+if (outlookIntegrationEnabled) {
+    // Fix 2: Reduce startup storm — serialize initial syncs with delays
+    // Don't slam Outlook with concurrent fullSync + runSync on startup
+    logger.info('Running initial local data sync (background agent will follow after 30s)...');
+    localStore.fullSync().then(async (result) => {
+        if (result.success) {
+            logger.info(`Initial sync complete: ${result.emails} emails, ${result.calendar} cal events, ${result.issues || 0} issues in ${result.elapsed}s`);
+        }
+        
+        // Delay incremental vector store sync by 30s to let Outlook recover
+        logger.info('Waiting 30s before starting incremental vector store sync...');
+        setTimeout(() => {
+            logger.info('Starting deferred incremental sync for vector store');
+            runSync();
+        }, 30000);
+    });
+    // Don't run generateInsights() on startup — wait for scheduled time to save CPU/battery
+    logger.info('Insight generation deferred to scheduled time (9 AM, 1 PM weekdays)');
+
+    // Schedule local store sync alongside the email cron
+    cron.schedule(SYNC_INTERVAL_CRON, async () => {
+        try {
+            await localStore.fullSync();
+        } catch (e) {
+            logger.error('Scheduled local sync failed:', e.message);
+        }
+    });
+} else {
+    logger.info('Outlook integration DISABLED — skipping email/calendar sync, vector store, and insight generation');
+}
+
+// Slack DM agent — polls self-DM every 60s for new messages
+if (slackAgent.isEnabled()) {
+    logger.info('Slack DM agent enabled — polling every 60s');
+    cron.schedule(SLACK_POLL_CRON, () => {
+        slackAgent.poll();
+    });
+    // Initial poll after 45s (let other services settle first)
+    setTimeout(() => {
+        logger.info('Starting initial Slack DM agent poll...');
+        slackAgent.poll();
+    }, 45000);
+} else {
+    logger.info('Slack DM agent disabled (no slack-mcp or phonetoolAlias configured)');
+}
 
 // Background agent ready
 logger.info('Background agent initialized');

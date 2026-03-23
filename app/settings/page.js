@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { Cloud, Cpu, ExternalLink, CheckCircle2, User, FileText, Sun, Moon, Database, Download } from 'lucide-react';
+import { Cloud, Cpu, ExternalLink, CheckCircle2, User, FileText, Sun, Moon, Database, Download, Shield, Trash2, HardDrive } from 'lucide-react';
 import { useTheme } from '@/components/ThemeProvider';
 
 export default function SettingsPage() {
@@ -53,9 +53,15 @@ export default function SettingsPage() {
     const [bulkExtracting, setBulkExtracting] = useState(false);
     const [bulkIngesting, setBulkIngesting] = useState(false);
     const [bulkMessage, setBulkMessage] = useState('');
+
+    // Data audit state
+    const [dataAudit, setDataAudit] = useState(null);
+    const [clearingData, setClearingData] = useState(false);
+    const [clearMessage, setClearMessage] = useState('');
     
     // Load settings on mount
     useEffect(() => {
+        fetchDataAudit();
         fetchQuipSettings();
         fetchConfidenceThreshold();
         fetchAiTemperature();
@@ -325,6 +331,29 @@ export default function SettingsPage() {
         finally { setBulkIngesting(false); }
     }
 
+    async function fetchDataAudit() {
+        try {
+            const res = await fetch('/api/settings/data-audit');
+            if (res.ok) { const data = await res.json(); setDataAudit(data); }
+        } catch (e) { console.error('Data audit fetch failed:', e); }
+    }
+
+    async function clearLocalData() {
+        if (!confirm('⚠️ This will delete all cached emails, calendar, and AI embeddings from your laptop. Your Outlook data is NOT affected. Continue?')) return;
+        setClearingData(true);
+        setClearMessage('');
+        try {
+            const res = await fetch('/api/settings/data-audit', { method: 'DELETE' });
+            const data = await res.json();
+            if (data.success) {
+                setClearMessage('✅ All local cached data cleared. Your Outlook data is untouched.');
+                fetchDataAudit();
+                setTimeout(() => setClearMessage(''), 5000);
+            } else { setClearMessage(`❌ ${data.error}`); }
+        } catch (e) { setClearMessage(`❌ ${e.message}`); }
+        finally { setClearingData(false); }
+    }
+
     const integrations = [
         {
             id: 'outlook',
@@ -343,6 +372,78 @@ export default function SettingsPage() {
             <p className="header-date" style={{ marginBottom: 32 }}>
                 Connect your accounts and configure SmartAI
             </p>
+
+            {/* Privacy & Security — First section for trust */}
+            <div className="settings-section">
+                <div className="settings-section-title">
+                    <Shield size={20} />
+                    Privacy &amp; Security
+                </div>
+
+                <div style={{
+                    padding: '16px 20px', borderRadius: '12px', marginBottom: '16px',
+                    background: 'rgba(34, 197, 94, 0.06)', border: '1px solid rgba(34, 197, 94, 0.2)',
+                }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '12px' }}>
+                        <Shield size={18} style={{ color: 'var(--accent-green)' }} />
+                        <span style={{ fontWeight: 700, fontSize: '0.95rem' }}>Your data never leaves your laptop</span>
+                    </div>
+                    <div style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', lineHeight: 1.6 }}>
+                        <p style={{ margin: '0 0 8px' }}>✅ <strong>Read-only</strong> — InGen reads emails and calendar from Outlook. It never modifies, deletes, or sends anything.</p>
+                        <p style={{ margin: '0 0 8px' }}>✅ <strong>Local-only storage</strong> — All cached data lives in files on your laptop (<code>data/</code> and <code>brain/</code> folders).</p>
+                        <p style={{ margin: '0 0 8px' }}>✅ <strong>No cloud sync</strong> — Nothing is uploaded to any external server. No data shared between users.</p>
+                        <p style={{ margin: '0 0 0px' }}>✅ <strong>Full control</strong> — Clear all cached data anytime with the button below. Your Outlook data is never affected.</p>
+                    </div>
+                </div>
+
+                {/* Data Audit */}
+                <div className="settings-card">
+                    <div className="settings-card-info">
+                        <div className="settings-card-icon" style={{ background: 'rgba(99, 102, 241, 0.1)' }}>
+                            <HardDrive size={20} style={{ color: '#818cf8' }} />
+                        </div>
+                        <div className="settings-card-text">
+                            <h3>Local Data Audit</h3>
+                            {dataAudit ? (
+                                <div style={{ marginTop: 8, display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+                                    {[
+                                        ['📧', dataAudit.emailCount, 'emails'],
+                                        ['📅', dataAudit.calendarCount, 'calendar events'],
+                                        ['🧠', dataAudit.vectorCount, 'AI embeddings'],
+                                        ['💾', dataAudit.totalSizeMB, 'MB total'],
+                                    ].map(([icon, count, label]) => (
+                                        <span key={label} style={{ padding: '4px 10px', borderRadius: 8, background: 'var(--bg-tertiary)', fontSize: '0.8rem' }}>
+                                            {icon} {count ?? '—'} {label}
+                                        </span>
+                                    ))}
+                                </div>
+                            ) : (
+                                <p>Loading data audit...</p>
+                            )}
+                        </div>
+                    </div>
+                    <button
+                        className="btn btn-secondary"
+                        onClick={clearLocalData}
+                        disabled={clearingData}
+                        style={{ minWidth: 170, display: 'flex', alignItems: 'center', gap: 8, justifyContent: 'center', color: '#ef4444' }}
+                    >
+                        <Trash2 size={14} />
+                        {clearingData ? 'Clearing...' : 'Clear All Cached Data'}
+                    </button>
+                </div>
+
+                {clearMessage && (
+                    <div style={{
+                        padding: '12px', marginTop: '12px', borderRadius: '8px',
+                        background: clearMessage.includes('✅') ? 'rgba(34, 197, 94, 0.1)' : 'rgba(239, 68, 68, 0.1)',
+                        border: `1px solid ${clearMessage.includes('✅') ? 'rgba(34, 197, 94, 0.3)' : 'rgba(239, 68, 68, 0.3)'}`,
+                        fontSize: '0.9rem', textAlign: 'center',
+                    }}>
+                        {clearMessage}
+                    </div>
+                )}
+            </div>
 
             {/* Appearance Section */}
             <div className="settings-section">

@@ -9,6 +9,68 @@
 
 const logger = require('./logger').child('ToolRegistry');
 
+// ─── Date Parsing (shared with chat-engine.js) ───
+
+const DAY_NAMES = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
+const MONTHS = { january: 0, february: 1, march: 2, april: 3, may: 4, june: 5, july: 6, august: 7, september: 8, october: 9, november: 10, december: 11 };
+
+/**
+ * Parse natural language date references from a query string.
+ * Handles: "today", "tomorrow", "yesterday", "next Monday", "March 23", etc.
+ * Returns a Date object (date only, midnight) or null if no date found.
+ */
+function parseDateFromQuery(query) {
+    const now = new Date();
+    const q = query.toLowerCase();
+
+    if (/\btoday\b/.test(q)) return new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    if (/\btomorrow\b/.test(q)) return new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1);
+    if (/\bday after tomorrow\b/.test(q)) return new Date(now.getFullYear(), now.getMonth(), now.getDate() + 2);
+    if (/\byesterday\b/.test(q)) return new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1);
+
+    // "next Monday", "this Friday", etc.
+    const dayMatch = q.match(/\b(?:next|this|coming)\s+(monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b/i);
+    if (dayMatch) {
+        const targetDay = DAY_NAMES.indexOf(dayMatch[1].toLowerCase());
+        let daysAhead = targetDay - now.getDay();
+        if (daysAhead <= 0) daysAhead += 7;
+        return new Date(now.getFullYear(), now.getMonth(), now.getDate() + daysAhead);
+    }
+
+    // Just a day name — assume nearest future occurrence
+    const bareDayMatch = q.match(/\b(monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b/i);
+    if (bareDayMatch) {
+        const targetDay = DAY_NAMES.indexOf(bareDayMatch[1].toLowerCase());
+        let daysAhead = targetDay - now.getDay();
+        if (daysAhead <= 0) daysAhead += 7;
+        return new Date(now.getFullYear(), now.getMonth(), now.getDate() + daysAhead);
+    }
+
+    // "March 23" or "March 23rd"
+    const monthNames = Object.keys(MONTHS).join('|');
+    const monthFirstMatch = q.match(new RegExp(`\\b(${monthNames})\\s+(\\d{1,2})(?:st|nd|rd|th)?\\b`, 'i'));
+    if (monthFirstMatch) {
+        return new Date(now.getFullYear(), MONTHS[monthFirstMatch[1].toLowerCase()], parseInt(monthFirstMatch[2]));
+    }
+
+    // "23 March" or "23rd of March"
+    const dayFirstMatch = q.match(new RegExp(`\\b(\\d{1,2})(?:st|nd|rd|th)?\\s+(?:of\\s+)?(${monthNames})\\b`, 'i'));
+    if (dayFirstMatch) {
+        return new Date(now.getFullYear(), MONTHS[dayFirstMatch[2].toLowerCase()], parseInt(dayFirstMatch[1]));
+    }
+
+    // "3/23" or "3/23/2026"
+    const numericMatch = q.match(/\b(\d{1,2})\/(\d{1,2})(?:\/(\d{2,4}))?\b/);
+    if (numericMatch) {
+        const month = parseInt(numericMatch[1]) - 1;
+        const day = parseInt(numericMatch[2]);
+        const year = numericMatch[3] ? (numericMatch[3].length === 2 ? 2000 + parseInt(numericMatch[3]) : parseInt(numericMatch[3])) : now.getFullYear();
+        return new Date(year, month, day);
+    }
+
+    return null;
+}
+
 // ─── Tool Definitions ───
 
 const tools = new Map();
@@ -88,26 +150,54 @@ register({
         const raw = JSON.parse(fs.readFileSync(calPath, 'utf8'));
         const events = raw.data || [];
         const now = new Date();
+        // Use start of today (midnight) so all of today's meetings are included, even past ones
+        const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
         const cutoff = new Date(now.getTime() + days * 24 * 60 * 60 * 1000);
         const queryLower = (query || '').toLowerCase().trim();
 
-        // Split query into keywords for OR matching
+        // ─── Date-aware search: parse "today", "tomorrow", "March 23", etc. ───
+        const targetDate = parseDateFromQuery(queryLower);
+        if (targetDate) {
+            const targetStr = targetDate.toISOString().slice(0, 10); // "2026-03-23"
+            const dateMatches = events.filter(e => {
+                const startTime = e.startTime || e.start?.dateTime;
+                if (!startTime) return false;
+                return startTime.slice(0, 10) === targetStr;
+            }).sort((a, b) => new Date(a.startTime || a.start?.dateTime) - new Date(b.startTime || b.start?.dateTime));
+
+            const dateLabel = targetDate.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
+            const summary = dateMatches.length === 0
+                ? `No calendar events found for ${dateLabel}.`
+                : `Found ${dateMatches.length} event(s) for ${dateLabel}.`;
+
+            logger.info(`Calendar date search for ${targetStr}: found ${dateMatches.length} events`);
+
+            return {
+                data: dateMatches.map(e => ({
+                    title: e.title,
+                    start: e.startTime || e.start?.dateTime,
+                    end: e.endTime || e.end?.dateTime,
+                    location: e.location || 'No location',
+                    attendees: (e.attendees || []).map(a => a.name || a.email || 'Unknown'),
+                    description: (e.description || '').substring(0, 300),
+                })),
+                summary,
+                count: dateMatches.length,
+            };
+        }
+
+        // ─── Keyword-based search (original logic, but use startOfToday instead of now) ───
         const keywords = queryLower.split(/\s+/).filter(w => w.length > 1);
 
         // Detect day-of-week names in query (monday=1, ..., sunday=0)
-        const DAY_NAMES = { sunday: 0, monday: 1, tuesday: 2, wednesday: 3, thursday: 4, friday: 5, saturday: 6 };
-        const dayFilters = keywords.filter(w => DAY_NAMES[w] !== undefined).map(w => DAY_NAMES[w]);
-        const contentKeywords = keywords.filter(w => DAY_NAMES[w] === undefined);
-
-        // Also detect relative day references
-        const tomorrow = new Date(now); tomorrow.setDate(tomorrow.getDate() + 1);
-        if (keywords.includes('tomorrow')) {
-            // No day filter needed, just narrow the date window
-        }
+        const DAY_NAME_MAP = { sunday: 0, monday: 1, tuesday: 2, wednesday: 3, thursday: 4, friday: 5, saturday: 6 };
+        const dayFilters = keywords.filter(w => DAY_NAME_MAP[w] !== undefined).map(w => DAY_NAME_MAP[w]);
+        const contentKeywords = keywords.filter(w => DAY_NAME_MAP[w] === undefined);
 
         const matches = events.filter(e => {
             const start = new Date(e.startTime || e.start?.dateTime);
-            if (isNaN(start.getTime()) || start < now || start > cutoff) return false;
+            // Use startOfToday so past meetings today are still visible
+            if (isNaN(start.getTime()) || start < startOfToday || start > cutoff) return false;
 
             // Day-of-week filter: if user said "friday", only show Friday events
             if (dayFilters.length > 0 && !dayFilters.includes(start.getDay())) return false;

@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { RefreshCw, Info, ChevronDown, ChevronUp, ExternalLink, X, AlertTriangle, TrendingUp, TrendingDown, Minus, HelpCircle } from 'lucide-react';
+import { RefreshCw, Info, ChevronDown, ChevronUp, ExternalLink, X, AlertTriangle, TrendingUp, TrendingDown, Minus, HelpCircle, Send, Check, Loader2 } from 'lucide-react';
 import AIChat from '@/components/AIChat';
 import MetricsVisual from '@/components/MetricsVisual';
 
@@ -742,7 +742,50 @@ export default function EngMetricsPage() {
     const [searchQuery, setSearchQuery] = useState('');
     const [pageView, setPageView] = useState('visual'); // 'visual' | 'table'
     const [showStaleCrs, setShowStaleCrs] = useState(false);
+    const [slackChannel, setSlackChannel] = useState('cpp-stores-automation-sdm');
+    const [slackStatus, setSlackStatus] = useState(null);
+    const [slackError, setSlackError] = useState('');
     const currentYear = new Date().getFullYear();
+
+    function buildMetricsSummary() {
+        if (!dashboard?.summary) return '';
+        const s = dashboard.summary;
+        const engs = dashboard.engineers || [];
+        const topCreators = [...engs].sort((a, b) => b.crsCreated - a.crsCreated).slice(0, 3);
+        const topReviewers = [...engs].sort((a, b) => b.crsReviewed - a.crsReviewed).slice(0, 3);
+        const declining = engs.filter(e => e.decliningStreak);
+        const lines = [
+            `🤖 <https://code.amazon.com/packages/InGen-SmartAI/trees/mainline|InGen>: 📊 *Code Metrics Summary — ${dashboard.weekId}*`,
+            `👩‍💻 *${dashboard.totalEngineers}* engineers tracked`,
+            `📝 CRs Created: *${s.crsCreated.value}* (${s.crsCreated.trend >= 0 ? '+' : ''}${s.crsCreated.trend}% vs last week)`,
+            `👀 CRs Reviewed: *${s.crsReviewed.value}* (${s.crsReviewed.trend >= 0 ? '+' : ''}${s.crsReviewed.trend}%)`,
+            `🔴 Stale CRs: *${s.staleCrs.value}*`,
+            '',
+            '*Top CR Creators:*',
+            ...topCreators.map(e => `• ${e.name}: ${e.crsCreated} CRs`),
+            '',
+            '*Top Reviewers:*',
+            ...topReviewers.map(e => `• ${e.name}: ${e.crsReviewed} reviews`),
+            declining.length > 0 ? `\n⚠️ *${declining.length} engineer(s) on 3-week declining streak*` : '',
+        ];
+        return lines.filter(Boolean).join('\n');
+    }
+
+    const sendToSlack = async () => {
+        if (!dashboard || !slackChannel.trim()) return;
+        setSlackStatus('sending');
+        setSlackError('');
+        try {
+            const text = buildMetricsSummary();
+            const res = await fetch('/api/slack/send', {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ channel: slackChannel.trim(), text }),
+            });
+            const json = await res.json();
+            if (json.ok) { setSlackStatus('sent'); setTimeout(() => setSlackStatus(null), 3000); }
+            else { setSlackError(json.error || 'Send failed'); setSlackStatus('error'); setTimeout(() => setSlackStatus(null), 4000); }
+        } catch (e) { setSlackError(e.message); setSlackStatus('error'); setTimeout(() => setSlackStatus(null), 4000); }
+    };
 
     const fetchDashboard = useCallback(async () => {
         setIsLoading(true);
@@ -900,6 +943,26 @@ export default function EngMetricsPage() {
                                         <RefreshCw size={14} className={isBackfilling ? 'spin' : ''} />
                                         {isBackfilling ? 'Backfilling...' : `📥 Fetch ${currentYear} Data (${missingWeeks} weeks)`}
                                     </button>
+                                )}
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '0', borderRadius: '8px', overflow: 'hidden', border: `1px solid ${slackChannel.startsWith('@') ? 'rgba(34,211,238,0.25)' : 'rgba(139,92,246,0.25)'}` }}>
+                                    <div style={{ display: 'flex', alignItems: 'center', background: slackChannel.startsWith('@') ? 'rgba(34,211,238,0.08)' : 'rgba(139,92,246,0.08)', padding: '0 0 0 10px', height: '32px' }}>
+                                        <span style={{ color: slackChannel.startsWith('@') ? 'rgba(34,211,238,0.5)' : 'rgba(255,255,255,0.3)', fontSize: '13px', fontWeight: 600, userSelect: 'none' }}>{slackChannel.startsWith('@') ? '👤' : '#'}</span>
+                                        <input type="text" value={slackChannel} onChange={e => setSlackChannel(e.target.value)} placeholder="channel or @alias"
+                                            style={{ background: 'transparent', border: 'none', outline: 'none', color: slackChannel.startsWith('@') ? '#22d3ee' : '#a78bfa', fontSize: '13px', fontWeight: 600, fontFamily: 'inherit', width: '180px', padding: '0 8px', height: '32px' }} />
+                                    </div>
+                                    <button onClick={sendToSlack} disabled={slackStatus === 'sending' || !slackChannel.trim()} style={{
+                                        background: slackStatus === 'sent' ? 'rgba(48,209,88,0.2)' : slackStatus === 'error' ? 'rgba(255,69,58,0.2)' : 'rgba(139,92,246,0.2)',
+                                        color: slackStatus === 'sent' ? '#30d158' : slackStatus === 'error' ? '#ff453a' : '#a78bfa',
+                                        border: 'none', borderLeft: '1px solid rgba(139,92,246,0.25)', padding: '0 14px', height: '32px', fontSize: '13px', fontWeight: 600,
+                                        cursor: (slackStatus === 'sending' || !slackChannel.trim()) ? 'not-allowed' : 'pointer',
+                                        display: 'flex', alignItems: 'center', gap: '6px', fontFamily: 'inherit', whiteSpace: 'nowrap',
+                                    }}>
+                                        {slackStatus === 'sending' ? <Loader2 size={14} className="spin" /> : slackStatus === 'sent' ? <Check size={14} /> : <Send size={14} />}
+                                        {slackStatus === 'sending' ? 'Sending...' : slackStatus === 'sent' ? 'Sent!' : slackStatus === 'error' ? 'Failed' : 'Send'}
+                                    </button>
+                                </div>
+                                {slackStatus === 'error' && slackError && (
+                                    <span style={{ fontSize: '11px', color: '#ff453a' }} title={slackError}>⚠️ {slackError.substring(0, 40)}</span>
                                 )}
                                 {dashboard.lastFetched && (
                                     <span style={{ fontSize: '11px', color: 'rgba(255,255,255,0.2)' }}>

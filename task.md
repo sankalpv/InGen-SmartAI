@@ -85,6 +85,23 @@
 - [x] Update `config/settings.json` — Add `engMetrics` config section <!-- id: 66 -->
 - [x] Update `README.md` — Document Engineering Metrics feature <!-- id: 67 -->
 
+## Phase 9: SDE Workload Board (Team Assignments Kanban)
+### Design: Kanban swimlane board — one column per SDE
+- [ ] Create `services/sde-workload.js` — For each SDE in org.db, call `TaskeiListTasks({ assignee, status: 'Open' })` to get ALL open SIMs (goal-linked + standalone + tickets). Cache with 1-hour TTL.
+- [ ] Create `app/api/team/workload/route.js` — API endpoint returning workload data grouped by SDE
+- [ ] Create `components/WorkloadBoard.js` — Kanban swimlane UI component
+  - One column per SDE, sorted by task count (heaviest first)
+  - Each card: 🟢/🟡/🔴 ECD status, SIM ID (clickable), title, ECD, type badge (🎯 Goal / 🎫 Ticket / 📋 Standalone), parent goal name
+  - Click card → slide-out panel with full description, latest comment, parent hierarchy, ECD history
+  - Top summary bar: total engineers, total open SIMs, overdue ECDs, overloaded engineers (6+)
+  - ⚠️ Highlight overloaded engineers (red column header)
+  - Toggle: Kanban ↔ Table view
+  - "Send to Slack" button
+- [ ] Add "Assignments" tab to My Team page (`app/my-team/page.js`)
+- [ ] Add sidebar nav entry or tab
+### Data source: `TaskeiListTasks` via builder-mcp (returns title, ECD, description, status, labels, parent info)
+### Hierarchy awareness: Goal → Milestone → Task → Subtask → Sub-subtask (any depth). TaskeiListTasks returns leaf-level assignments regardless of depth.
+
 ### Week 4-5: Production & Optimization (Planned)
 - [ ] Optimize LLM prompts for accuracy <!-- id: 57 -->
 - [ ] Add embedding caching for performance <!-- id: 58 -->
