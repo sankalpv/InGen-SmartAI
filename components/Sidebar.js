@@ -23,6 +23,7 @@ import {
     PanelLeftOpen,
     BrainCircuit,
     Activity,
+    Layers,
 } from 'lucide-react';
 import { useTheme } from '@/components/ThemeProvider';
 
@@ -59,6 +60,7 @@ export default function Sidebar() {
         { href: '/week-ahead', label: 'Week Ahead', icon: CalendarDays, requiresOutlook: true },
         { href: '/leadership', label: 'Leadership', icon: TrendingUp, requiresOutlook: true },
         { href: '/org-pulse', label: 'Org Pulse', icon: Activity },
+        { href: '/sprints', label: 'Sprint Boards', icon: Layers },
         { href: '/my-team', label: 'Team Health', icon: Network },
         { href: '/eng-metrics', label: 'Code Metrics', icon: Code2 },
         { href: '/ticket-health', label: 'Ticket Health', icon: ClipboardList },

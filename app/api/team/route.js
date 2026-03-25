@@ -514,7 +514,7 @@ Be specific. Use goal IDs. Quote numbers. Do not be generic.`;
                     });
                     const text = result.content?.map(c => c.text || '').join('') || '{}';
                     const taskData = JSON.parse(text);
-                    const task = taskData.task || {};
+                    const rootTask = taskData.task || {};
                     const fmtDate = (d) => {
                         if (!d) return 'Missing';
                         try {
@@ -522,20 +522,108 @@ Be specific. Use goal IDs. Quote numbers. Do not be generic.`;
                             return `${String(dt.getMonth()+1).padStart(2,'0')}-${String(dt.getDate()).padStart(2,'0')}-${dt.getFullYear()}`;
                         } catch(e) { return 'Missing'; }
                     };
+
+                    // The parent goal itself
+                    const parentRow = {
+                        id: rootTask.shortId || rootTask.id || alias,
+                        title: rootTask.name || '',
+                        status: rootTask.status || 'Open',
+                        workflowAction: rootTask.workflowAction || '',
+                        assignee: rootTask.assignee?.username || 'unassigned',
+                        assigneeName: rootTask.assignee?.name || '',
+                        ecd: fmtDate(rootTask.estimatedCompletionDate),
+                        priority: rootTask.classicPriority || rootTask.priority || rootTask.severity || 'P3',
+                        blocked: !!rootTask.isBlocked || !!rootTask.blocked || rootTask.status === 'Blocked' || (rootTask.tags || []).includes('blocked'),
+                        isParent: true,
+                        depth: 0
+                    };
+
+                    const enrichedSubtasks = [];
+                    let fetches = 0;
+                    const maxFetches = 40;
+                    const seenIds = new Set([parentRow.id]);
+
+                    // Recursive scanner: fetch task, enrich it, and scan its subtasks
+                    const scanLevel = async (shallowTasks, currentDepth) => {
+                        if (fetches >= maxFetches || currentDepth > 3) return;
+                        
+                        // Batch fetch current level
+                        const batchSize = 5;
+                        for (let i = 0; i < shallowTasks.length; i += batchSize) {
+                            if (fetches >= maxFetches) break;
+                            const batch = shallowTasks.slice(i, i + batchSize).filter(s => {
+                                const sid = s.id || s.shortId;
+                                return sid && !seenIds.has(sid);
+                            });
+                            
+                            if (batch.length === 0) continue;
+
+                            const results = await Promise.all(batch.map(async (s) => {
+                                fetches++;
+                                const sid = s.id || s.shortId;
+                                seenIds.add(sid);
+                                try {
+                                    const subRes = await mcpClient.callTool('builder-mcp', 'TaskeiGetTask', {
+                                        taskId: s.id || s.shortId,
+                                        includeCustomAttributes: false,
+                                        commentLimit: 0
+                                    });
+                                    const subText = subRes.content?.map(c => c.text || '').join('') || '{}';
+                                    const subData = JSON.parse(subText).task || {};
+                                    return {
+                                        id: subData.shortId || subData.id || s.id,
+                                        title: subData.name || s.name || '',
+                                        status: subData.status || s.status || 'Open',
+                                        workflowAction: subData.workflowAction || s.workflowAction || '',
+                                        assignee: subData.assignee?.username || s.assignee?.username || 'unassigned',
+                                        assigneeName: subData.assignee?.name || s.assignee?.name || '',
+                                        ecd: fmtDate(subData.estimatedCompletionDate),
+                                        priority: subData.classicPriority || subData.priority || subData.severity || s.classicPriority || 'P3',
+                                        blocked: !!subData.isBlocked || !!subData.blocked || subData.status === 'Blocked' || (subData.tags || []).includes('blocked'),
+                                        depth: currentDepth,
+                                        rawSubtasks: subData.subtasks || []
+                                    };
+                                } catch (e) {
+                                    return {
+                                        id: s.shortId || s.id,
+                                        title: s.name || '',
+                                        status: s.status || 'Open',
+                                        workflowAction: s.workflowAction || '',
+                                        assignee: s.assignee?.username || 'unassigned',
+                                        assigneeName: s.assignee?.name || '',
+                                        ecd: fmtDate(s.estimatedCompletionDate),
+                                        priority: s.classicPriority || '—',
+                                        blocked: !!s.isBlocked || !!s.blocked || s.status === 'Blocked' || (s.tags || []).includes('blocked'),
+                                        depth: currentDepth,
+                                        rawSubtasks: []
+                                    };
+                                }
+                            }));
+
+                            // Insert results into flattened array and recursively resolve children
+                            for (const res of results) {
+                                enrichedSubtasks.push({
+                                    id: res.id, title: res.title, status: res.status, workflowAction: res.workflowAction,
+                                    assignee: res.assignee, assigneeName: res.assigneeName, ecd: res.ecd,
+                                    priority: res.priority, blocked: res.blocked, depth: res.depth
+                                });
+                                
+                                if (res.rawSubtasks.length > 0 && fetches < maxFetches && res.status !== 'Closed') {
+                                    await scanLevel(res.rawSubtasks, currentDepth + 1);
+                                }
+                            }
+                        }
+                    };
+
+                    await scanLevel(rootTask.subtasks || [], 1);
+
                     data = {
-                        id: task.shortId || task.id || alias,
-                        name: task.name || '',
-                        status: task.status || 'Open',
-                        workflowAction: task.workflowAction || '',
-                        ecd: fmtDate(task.estimatedCompletionDate),
-                        subtasks: (task.subtasks || []).map(s => ({
-                            id: s.shortId || s.id,
-                            title: s.name || '',
-                            status: s.status || 'Open',
-                            assignee: s.assignee?.username || 'unassigned',
-                            assigneeName: s.assignee?.name || '',
-                            ecd: fmtDate(s.estimatedCompletionDate),
-                        }))
+                        id: rootTask.shortId || rootTask.id || alias,
+                        name: rootTask.name || '',
+                        status: rootTask.status || 'Open',
+                        workflowAction: rootTask.workflowAction || '',
+                        ecd: fmtDate(rootTask.estimatedCompletionDate),
+                        subtasks: [parentRow, ...enrichedSubtasks]
                     };
                 } catch (e) {
                     data = { id: alias, subtasks: [], error: e.message };
