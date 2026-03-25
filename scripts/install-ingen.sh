@@ -330,7 +330,7 @@ step_06_ai_models() {
     print_info "This may take 5-10 minutes on first install (~10 GB total)"
 
     # LLM model
-    if ollama list 2>/dev/null | grep -q "$LLM_MODEL"; then
+    if ollama list 2>/dev/null | grep -iq "$LLM_MODEL"; then
         print_ok "LLM model ($LLM_MODEL) already downloaded"
     else
         echo ""
@@ -344,7 +344,7 @@ step_06_ai_models() {
     fi
 
     # Embedding model
-    if ollama list 2>/dev/null | grep -q "$EMBEDDING_MODEL"; then
+    if ollama list 2>/dev/null | grep -iq "$EMBEDDING_MODEL"; then
         print_ok "Embedding model ($EMBEDDING_MODEL) already downloaded"
     else
         echo ""
