@@ -43,8 +43,8 @@ async function checkOllamaModels(requiredModels) {
         const res = await fetch('http://127.0.0.1:11434/api/tags', { signal: AbortSignal.timeout(3000) });
         if (!res.ok) return requiredModels.map(m => ({ model: m, ok: false }));
         const data = await res.json();
-        const installed = (data.models || []).map(m => m.name.split(':')[0]);
-        return requiredModels.map(m => ({ model: m, ok: installed.includes(m) }));
+        const installed = (data.models || []).map(m => m.name.split(':')[0].toLowerCase());
+        return requiredModels.map(m => ({ model: m, ok: installed.includes(m.toLowerCase()) }));
     } catch {
         return requiredModels.map(m => ({ model: m, ok: false }));
     }
