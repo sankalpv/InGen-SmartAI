@@ -1557,8 +1557,49 @@ async function updateGoalAlignment(weekId = null) {
             logger.info(`Goal alignment updated for ${allGoals.length} goals`);
         }
     } catch (error) {
-        logger.warn('Goal alignment update failed:', error.message);
     }
+}
+
+/**
+ * Get Year-to-Date (YTD) org code metrics (aggregated across all weeks of the year)
+ */
+async function getYtdCodeMetrics(year = new Date().getFullYear()) {
+    await init();
+    
+    // Sum crs_created and crs_reviewed for all weeks in the given year
+    const engineers = await dbAll(`
+        SELECT 
+            alias, 
+            name, 
+            MAX(team) as team, 
+            SUM(crs_created) as crs_created, 
+            SUM(crs_reviewed) as crs_reviewed
+        FROM eng_metrics_weekly
+        WHERE week_id LIKE ?
+        GROUP BY alias
+    `, [`${year}-%`]);
+
+    const formattedEngineers = engineers.map(e => {
+        const authored = e.crs_created || 0;
+        const reviewed = e.crs_reviewed || 0;
+        // Review Ratio = Reviews done / PRs authored. Cap it at 99.9 if authored is 0
+        const ratio = authored > 0 ? (reviewed / authored) : (reviewed > 0 ? 99.9 : 0);
+        
+        return {
+            alias: e.alias,
+            name: e.name,
+            team: e.team,
+            crsCreated: authored,
+            crsReviewed: reviewed,
+            reviewRatio: ratio,
+            reviewRatioDisplay: ratio === 99.9 ? '∞' : ratio.toFixed(1)
+        };
+    });
+
+    return {
+        year,
+        engineers: formattedEngineers
+    };
 }
 
 /**
@@ -1596,6 +1637,7 @@ module.exports = {
     fetchOrgCodeActivityBatched,
     fetchOrgMetrics,
     getOrgDashboard,
+    getYtdCodeMetrics,
     getWeeklyTrend,
     getEngineerDetail,
     getEngineerSparkline,

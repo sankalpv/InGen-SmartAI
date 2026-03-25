@@ -297,7 +297,11 @@ async function fetchPersonName(alias) {
     
     // Check in-memory cache first
     if (nameCache[alias]) {
-        return nameCache[alias];
+        // If it's the new detail object, return it.
+        // If it's a legacy string, fall through to re-fetch full details.
+        if (typeof nameCache[alias] === 'object' && nameCache[alias] !== null) {
+            return nameCache[alias];
+        }
     }
     
     try {
@@ -310,7 +314,7 @@ async function fetchPersonName(alias) {
             ? result.content
             : result.content.map(c => c.text || '').join('\n');
         
-        let name = null;
+        let details = { name: null, jobTitle: null, level: null };
         try {
             // Extract JSON (strip trailing deprecation notices)
             const jsonMatch = content.match(/^\s*(\{[\s\S]*\})\s*(?:⚠|$)/);
@@ -318,16 +322,25 @@ async function fetchPersonName(alias) {
             const parsed = JSON.parse(jsonStr);
             let userData = parsed.content || parsed;
             if (userData.content && !userData.name) userData = userData.content; // unwrap builder-mcp double nesting
-            name = userData.name || userData.first_name || null;
+            
+            details.name = userData.name || userData.first_name || null;
+            details.jobTitle = userData.job_title || userData.title || userData.business_title || null;
+            details.level = (userData.job_level || userData.level) ? parseInt(userData.job_level || userData.level) : null;
         } catch (jsonError) {
             // Try markdown parsing: look for name in heading
             const nameMatch = content.match(/^#\s+(.+)/m) || content.match(/\*\*(.+?)\*\*/);
-            if (nameMatch) name = nameMatch[1].trim();
+            if (nameMatch) details.name = nameMatch[1].trim();
+            
+            // Try to find title/level in text if JSON fails
+            const titleMatch = content.match(/Job Title[:\s]+(.+)/i) || content.match(/Title[:\s]+(.+)/i);
+            if (titleMatch) details.jobTitle = titleMatch[1].trim();
+            const levelMatch = content.match(/Level[:\s]+(\d+)/i) || content.match(/Job Level[:\s]+(\d+)/i);
+            if (levelMatch) details.level = parseInt(levelMatch[1]);
         }
         
-        if (name) {
-            // Cache it
-            nameCache[alias] = name;
+        if (details.name) {
+            // Cache it (store the whole object)
+            nameCache[alias] = details;
             // Persist to disk
             try {
                 const brainDir = path.join(process.cwd(), 'brain');
@@ -339,7 +352,7 @@ async function fetchPersonName(alias) {
             } catch (e) { /* ignore write errors */ }
         }
         
-        return name;
+        return details;
     } catch (error) {
         logger.warn(`Failed to fetch name for alias ${alias}: ${error.message}`);
         return null;
@@ -391,22 +404,29 @@ const ORG_TREE_CACHE_PATH = path.join(process.cwd(), 'brain', 'org-tree-cache.js
  * Gets direct reports, then recursively fetches their reports.
  * @param {string} alias - Root manager alias
  * @param {number} maxDepth - Max recursion depth (default 3)
+ * @param {boolean} forceRefresh - Bypass file cache (default false)
  * @returns {Promise<Object>} Tree: { alias, name, reports: [...] }
  */
-async function fetchOrgTree(alias, maxDepth = 3) {
+async function fetchOrgTree(alias, maxDepth = 3, forceRefresh = false) {
     if (!alias) return null;
 
     // Check file cache first (must match both alias AND maxDepth to avoid shallow cache poisoning)
-    try {
+    if (!forceRefresh) {
+        try {
         if (fs.existsSync(ORG_TREE_CACHE_PATH)) {
             const cached = JSON.parse(fs.readFileSync(ORG_TREE_CACHE_PATH, 'utf8'));
             if (cached.alias === alias && cached.maxDepth >= maxDepth && (Date.now() - cached.timestamp < CACHE_TTL)) {
                 logger.info(`Returning cached org tree for ${alias} (${cached.totalPeople} people, depth=${cached.maxDepth})`);
                 return cached.tree;
             }
+            }
+        } catch (e) {
+            logger.warn('Failed to read org tree cache:', e.message);
         }
-    } catch (e) {
-        logger.warn('Failed to read org tree cache:', e.message);
+    }
+
+    if (forceRefresh) {
+        logger.info(`Force fresh org tree build requested for ${alias}`);
     }
 
     logger.info(`Building org tree for ${alias} (maxDepth=${maxDepth})...`);
@@ -436,8 +456,15 @@ async function fetchOrgTree(alias, maxDepth = 3) {
 }
 
 async function _buildOrgNode(alias, depth, maxDepth) {
-    const name = await fetchPersonName(alias) || alias;
-    const node = { alias, name, depth, reports: [] };
+    const details = await fetchPersonName(alias);
+    const node = { 
+        alias, 
+        name: details?.name || alias, 
+        jobTitle: details?.jobTitle || null,
+        level: details?.level || null,
+        depth, 
+        reports: [] 
+    };
 
     if (depth >= maxDepth) return node;
 
@@ -449,8 +476,8 @@ async function _buildOrgNode(alias, depth, maxDepth) {
 
         for (const report of reports) {
             const childNode = await _buildOrgNode(report.alias, depth + 1, maxDepth);
-            // Also put name in the cache
-            if (report.name && report.name !== report.alias) {
+            // ONLY cache if we have an object or if it's currently empty
+            if (report.name && !nameCache[report.alias]) {
                 nameCache[report.alias] = report.name;
             }
             node.reports.push(childNode);
@@ -488,6 +515,8 @@ function _flattenTree(node, managerAlias, result) {
     result.push({
         alias: node.alias,
         name: node.name,
+        jobTitle: node.jobTitle,
+        level: node.level,
         depth: node.depth,
         managerAlias,
         hasReports: (node.reports || []).length > 0

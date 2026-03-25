@@ -43,6 +43,18 @@ function resolveMCPCommand(serverName, configuredCommand) {
             return candidate;
         }
     }
+
+    // Try system PATH if still not found
+    if (!configuredCommand.includes('/') && !configuredCommand.includes('\\')) {
+        try {
+            const { execSync } = require('child_process');
+            const foundPath = execSync(IS_WIN ? `where ${configuredCommand}` : `which ${configuredCommand}`, { stdio: ['ignore', 'pipe', 'ignore'], encoding: 'utf8' }).trim().split('\n')[0];
+            if (foundPath && fs.existsSync(foundPath)) {
+                logger.info(`MCP ${serverName}: resolved ${configuredCommand} from PATH → ${foundPath}`);
+                return foundPath;
+            }
+        } catch (e) { /* which/where failed or not found */ }
+    }
     
     // Return original — will fail at connection time with a clear error
     return configuredCommand;

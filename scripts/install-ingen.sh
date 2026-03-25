@@ -845,10 +845,11 @@ console.log(m?m[1]:'');
 
 step_10_org_tree() {
     if is_step_done "step_10"; then print_step 10 "Org Tree ✅ (cached)"; return; fi
-    print_step 10 "Fetching org tree"
+    print_step 10 "Fetching Org Hierarchy & Role Metadata"
 
     local alias="${INGEN_ALIAS:-$(whoami)}"
-    print_info "Fetching org hierarchy for '$alias' from Phonetool..."
+    print_info "Fetching org hierarchy and SDE3 metadata for '$alias'..."
+    print_info "This extracts job titles and levels for Focus View dashboards."
     print_info "This may take 30-60 seconds (requires VPN + Midway)"
 
     cd "$INSTALL_DIR"
@@ -857,7 +858,8 @@ step_10_org_tree() {
 const orgStore = require('./services/org-store');
 (async () => {
     try {
-        const count = await orgStore.populateFromPhoneTool('$alias');
+        // Deep populate ensures we get job title/level for SDE3 Focus View
+        const count = await orgStore.populateFromPhoneTool('$alias', true);
         console.log(JSON.stringify({ok:true,count}));
     } catch(e) {
         console.log(JSON.stringify({ok:false,error:e.message}));
@@ -871,10 +873,10 @@ const orgStore = require('./services/org-store');
     org_count=$(echo "$org_result" | node -e "const d=JSON.parse(require('fs').readFileSync('/dev/stdin','utf8'));console.log(d.count||0)" 2>/dev/null || echo "0")
 
     if [[ "$org_ok" == "true" && "$org_count" -gt "0" ]]; then
-        print_ok "Org tree saved: $org_count people (data/org.db)"
+        print_ok "Org tree saved: $org_count members with role metadata (data/org.db)"
     else
-        print_warn "Could not fetch org tree (VPN/Midway may be needed)"
-        print_info "You can fetch later from Settings → Team Settings → Fetch Team"
+        print_warn "Could not fetch deep org tree (VPN/Midway may be needed)"
+        print_info "Focus View dashboards will be blank until you 'Fetch Team' in Settings."
     fi
 
     step_done "step_10"

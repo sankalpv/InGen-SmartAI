@@ -30,7 +30,7 @@ export default function RootLayout({ children }) {
                     }}
                 />
             </head>
-            <body>
+            <body suppressHydrationWarning>
                 <SessionProvider>
                     <ThemeProvider>
                         <PageTracker />

@@ -61,6 +61,7 @@ export default function Sidebar() {
         { href: '/leadership', label: 'Leadership', icon: TrendingUp, requiresOutlook: true },
         { href: '/org-pulse', label: 'Org Pulse', icon: Activity },
         { href: '/sprints', label: 'Sprint Boards', icon: Layers },
+        { href: '/sde3-focus', label: 'SDE3 Focus', icon: Users },
         { href: '/my-team', label: 'Team Health', icon: Network },
         { href: '/eng-metrics', label: 'Code Metrics', icon: Code2 },
         { href: '/ticket-health', label: 'Ticket Health', icon: ClipboardList },

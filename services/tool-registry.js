@@ -905,7 +905,124 @@ register({
     },
 });
 
-// 9-12. Goal Narrative Tools (insights, misses, key updates, oncall)
+// 9. Sprint Board Fetch — Deep hierarchical task data for a specific goal
+register({
+    name: 'sprint_board_fetch',
+    description: 'Fetch the detailed sprint board for a specific team goal. Returns a hierarchical list of milestones and subtasks with priority, blocked status, workflow status, and Estimated Completion Date (ECD).',
+    icon: '📊',
+    parameters: {
+        goalId: { type: 'string', description: 'The Taskei goal ID or alias to fetch' },
+    },
+    async execute({ goalId }) {
+        if (!goalId) return { data: [], summary: 'goalId parameter required.' };
+        const mcpClient = require('./mcp-client');
+        const path = require('path');
+        const fs = require('fs');
+
+        try {
+            const result = await mcpClient.callTool('builder-mcp', 'TaskeiGetTask', {
+                taskId: goalId,
+                includeCustomAttributes: false,
+                commentLimit: 0
+            });
+            const text = result.content?.map(c => c.text || '').join('') || '{}';
+            const taskData = JSON.parse(text);
+            const rootTask = taskData.task || {};
+            const fmtDate = (d) => {
+                if (!d) return 'Missing';
+                try {
+                    const dt = new Date(d);
+                    return `${String(dt.getMonth()+1).padStart(2,'0')}-${String(dt.getDate()).padStart(2,'0')}-${dt.getFullYear()}`;
+                } catch(e) { return 'Missing'; }
+            };
+
+            const parentRow = {
+                id: rootTask.shortId || rootTask.id || goalId,
+                title: rootTask.name || '',
+                status: rootTask.status || 'Open',
+                workflowAction: rootTask.workflowAction || '',
+                assignee: rootTask.assignee?.username || 'unassigned',
+                assigneeName: rootTask.assignee?.name || '',
+                ecd: fmtDate(rootTask.estimatedCompletionDate),
+                priority: rootTask.classicPriority || rootTask.priority || rootTask.severity || 'P3',
+                blocked: !!rootTask.isBlocked || !!rootTask.blocked || rootTask.status === 'Blocked',
+                isParent: true,
+                depth: 0
+            };
+
+            const subtasks = [parentRow];
+            let fetches = 0;
+            const maxFetches = 40;
+            const seenIds = new Set([parentRow.id]);
+
+            const scanLevel = async (shallowTasks, currentDepth) => {
+                if (fetches >= maxFetches || currentDepth > 3) return;
+                const batchSize = 5;
+                for (let i = 0; i < shallowTasks.length; i += batchSize) {
+                    if (fetches >= maxFetches) break;
+                    const batch = shallowTasks.slice(i, i + batchSize).filter(s => {
+                        const sid = s.id || s.shortId;
+                        return sid && !seenIds.has(sid);
+                    });
+                    if (batch.length === 0) continue;
+
+                    const results = await Promise.all(batch.map(async (s) => {
+                        fetches++;
+                        const sid = s.id || s.shortId;
+                        seenIds.add(sid);
+                        try {
+                            const subRes = await mcpClient.callTool('builder-mcp', 'TaskeiGetTask', {
+                                taskId: sid,
+                                includeCustomAttributes: false,
+                                commentLimit: 0
+                            });
+                            const subText = subRes.content?.map(c => c.text || '').join('') || '{}';
+                            const subData = JSON.parse(subText).task || {};
+                            return {
+                                id: subData.shortId || subData.id || sid,
+                                title: subData.name || s.name || '',
+                                status: subData.status || s.status || 'Open',
+                                workflowAction: subData.workflowAction || s.workflowAction || '',
+                                assignee: subData.assignee?.username || s.assignee?.username || 'unassigned',
+                                assigneeName: subData.assignee?.name || s.assignee?.name || '',
+                                ecd: fmtDate(subData.estimatedCompletionDate),
+                                priority: subData.classicPriority || subData.priority || subData.severity || 'P3',
+                                blocked: !!subData.isBlocked || !!subData.blocked || subData.status === 'Blocked',
+                                depth: currentDepth,
+                                rawSubtasks: subData.subtasks || []
+                            };
+                        } catch (e) {
+                            return {
+                                id: sid, title: s.name || '', status: s.status || 'Open',
+                                workflowAction: s.workflowAction || '', assignee: s.assignee?.username || 'unassigned',
+                                ecd: fmtDate(s.estimatedCompletionDate), priority: 'P3', blocked: false, depth: currentDepth, rawSubtasks: []
+                            };
+                        }
+                    }));
+
+                    for (const res of results) {
+                        subtasks.push({
+                            id: res.id, title: res.title, status: res.status, workflowAction: res.workflowAction,
+                            assignee: res.assignee, assigneeName: res.assigneeName, ecd: res.ecd,
+                            priority: res.priority, blocked: res.blocked, depth: res.depth
+                        });
+                        if (res.rawSubtasks.length > 0 && fetches < maxFetches && res.status !== 'Closed') {
+                            await scanLevel(res.rawSubtasks, currentDepth + 1);
+                        }
+                    }
+                }
+            };
+
+            await scanLevel(rootTask.subtasks || [], 1);
+            const summary = `Fetched sprint board for ${parentRow.id} with ${subtasks.length - 1} subtasks across deep hierarchy.`;
+            return { data: subtasks, summary, count: subtasks.length };
+        } catch (e) {
+            return { data: [], summary: `Sprint board fetch failed: ${e.message}`, _error: true };
+        }
+    },
+});
+
+// 10-13. Goal Narrative Tools (insights, misses, key updates, oncall)
 const goalNarrative = require('./goal-narrative-tools');
 
 register({
@@ -939,6 +1056,29 @@ register({
     parameters: { days: { type: 'number', description: 'Lookback days (default: 7)' } },
     execute: goalNarrative.executeOncallReport,
 });
+
+// 14. SDE3 Performance Scorecards
+register({
+    name: 'get_sde3_focus_scorecards',
+    description: 'Generate high-fidelity performance scorecards for all SDE3s in the org. Includes Strategic Goals (Deliverables Matrix), Peer Review ratios, and On-call refined MTTR metrics.',
+    icon: '📊',
+    parameters: {
+        refresh: { type: 'boolean', description: 'Force refresh data from source Taskei/Ticketing systems (default: false)' }
+    },
+    async execute({ refresh = false }) {
+        const sde3Focus = require('./sde3-focus');
+        try {
+            const data = await sde3Focus.getSDE3FocusData(refresh);
+            return {
+                data,
+                summary: `Generated scorecards for ${data.sde3s?.length || 0} SDE3s. Timestamp: ${data.timestamp}`
+            };
+        } catch (e) {
+            return { data: null, summary: `Scorecard generation failed: ${e.message}`, _error: true };
+        }
+    }
+});
+
 
 module.exports = { register, get, execute, listAll };
 module.exports.default = { register, get, execute, listAll };

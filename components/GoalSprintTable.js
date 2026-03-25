@@ -142,13 +142,17 @@ export default function GoalSprintTable({ subtasks, isLoading }) {
                                             </div>
                                             <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', flex: 1 }}>
                                                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
-                                                    <a href={`https://taskei.amazon.dev/tasks/${task.id}`} target="_blank" rel="noopener noreferrer" 
-                                                       style={{ 
-                                                           color: task.isParent ? '#a78bfa' : task.depth === 1 ? '#818cf8' : 'rgba(255,255,255,0.4)', 
-                                                           textDecoration: 'none', fontWeight: 700, fontSize: '12px', display: 'flex', alignItems: 'center', gap: '4px' 
-                                                       }}>
-                                                        {task.id} <span style={{ fontSize: '10px', opacity: 0.5 }}>↗</span>
-                                                    </a>
+                                                    {task.id && task.id !== 'Unknown' ? (
+                                                        <a href={`https://taskei.amazon.dev/tasks/${task.id}`} target="_blank" rel="noopener noreferrer" 
+                                                           style={{ 
+                                                               color: task.isParent ? '#a78bfa' : task.depth === 1 ? '#818cf8' : 'rgba(255,255,255,0.4)', 
+                                                               textDecoration: 'none', fontWeight: 700, fontSize: '12px', display: 'flex', alignItems: 'center', gap: '4px' 
+                                                           }}>
+                                                            {task.id} <span style={{ fontSize: '10px', opacity: 0.5 }}>↗</span>
+                                                        </a>
+                                                    ) : (
+                                                        <span style={{ fontSize: '12px', fontWeight: 700, color: 'rgba(255,255,255,0.2)' }}>{task.id || 'N/A'}</span>
+                                                    )}
                                                     
                                                     {/* Category Badge */}
                                                     <span style={{ 

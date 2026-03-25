@@ -6,10 +6,18 @@ const phonetool = require('../../../services/phonetool');
 const personInsights = require('../../../services/person-insights');
 const wbrReport = require('../../../services/wbr-report');
 const orgStore = require('../../../services/org-store');
+const ticketing = require('../../../services/ticketing');
+const oncall = require('../../../services/oncall');
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
 export const maxDuration = 300; // 5 min for streaming
+
+// Simple in-memory cache for SDE3 Focus (L6+ task aggregation)
+// This persists as long as the Next.js API worker is alive.
+let sde3FocusCache = null;
+let sde3FocusCacheTime = 0;
+const SDE3_CACHE_TTL = 3600 * 1000; // 1 hour
 
 export async function GET(request) {
     try {
@@ -63,7 +71,7 @@ export async function GET(request) {
                 // so the page shows their team's code metrics instead of empty data
                 let resolvedViaManager = false;
                 try {
-                    const tree = await phonetool.fetchOrgTree(rootAlias, 1);
+                    const tree = await phonetool.fetchOrgTree(rootAlias, 1, true);
                     if (tree && (!tree.reports || tree.reports.length === 0)) {
                         // User is an IC — look up their manager from phonetool page
                         const mcpClient = require('../../../services/mcp-client');
@@ -84,7 +92,7 @@ export async function GET(request) {
                     // If lookup fails, proceed with original alias
                 }
 
-                const count = await orgStore.populateFromPhoneTool(rootAlias);
+                const count = await orgStore.populateFromPhoneTool(rootAlias, true);
                 data = {
                     rootAlias,
                     memberCount: count,
@@ -111,7 +119,8 @@ export async function GET(request) {
                 if (!alias) {
                     return NextResponse.json({ error: 'alias parameter required' }, { status: 400 });
                 }
-                const name = await phonetool.fetchPersonName(alias) || alias;
+                const details = await phonetool.fetchPersonName(alias);
+                const name = details?.name || alias;
                 data = await personInsights.generatePersonInsight(alias, name, days);
                 break;
             }
@@ -500,6 +509,14 @@ Be specific. Use goal IDs. Quote numbers. Do not be generic.`;
                 break;
             }
 
+            case 'sde3-focus': {
+                const sde3Focus = require('../../../services/sde3-focus');
+                const refresh = searchParams.get('refresh') === 'true';
+                const result = await sde3Focus.getSDE3FocusData(refresh);
+                data = result;
+                break;
+            }
+
             case 'subtasks': {
                 // Fetch subtasks for a specific issue on-demand
                 if (!alias) {
@@ -571,7 +588,7 @@ Be specific. Use goal IDs. Quote numbers. Do not be generic.`;
                                     const subText = subRes.content?.map(c => c.text || '').join('') || '{}';
                                     const subData = JSON.parse(subText).task || {};
                                     return {
-                                        id: subData.shortId || subData.id || s.id,
+                                        id: subData.shortId || subData.id || sid || 'Unknown',
                                         title: subData.name || s.name || '',
                                         status: subData.status || s.status || 'Open',
                                         workflowAction: subData.workflowAction || s.workflowAction || '',
@@ -585,7 +602,7 @@ Be specific. Use goal IDs. Quote numbers. Do not be generic.`;
                                     };
                                 } catch (e) {
                                     return {
-                                        id: s.shortId || s.id,
+                                        id: sid || s.id || s.shortId || 'Unknown',
                                         title: s.name || '',
                                         status: s.status || 'Open',
                                         workflowAction: s.workflowAction || '',
@@ -638,6 +655,78 @@ Be specific. Use goal IDs. Quote numbers. Do not be generic.`;
         return NextResponse.json({ view, data });
     } catch (error) {
         console.error('[API/Team] Error:', error);
+        return NextResponse.json({ error: error.message }, { status: 500 });
+    }
+}
+
+// POST handler — AI summary generation for SDE3 focus data
+export async function POST(request) {
+    try {
+        const { searchParams } = new URL(request.url);
+        const view = searchParams.get('view');
+
+        if (view === 'sde3-summary') {
+            const body = await request.json();
+            const sde3s = body.sde3s || [];
+            const logger = require('../../../services/logger').child('SDE3-Summary');
+
+            if (sde3s.length === 0) {
+                return NextResponse.json({ summary: 'No SDE3 data available for summarization.' });
+            }
+
+            // Build a compact prompt from task titles grouped by person
+            const lines = sde3s.map(s => {
+                const taskList = s.tasks.slice(0, 8).map(t => t.title).join('; ');
+                return `${s.name} (@${s.alias}): ${taskList || 'no active tasks'}`;
+            }).join('\n');
+
+            const systemPrompt = `You are an engineering manager's assistant analytical AI. Given a list of senior engineers and their assigned tickets/SIMs, provide a per-engineer summary. For each engineer, write 1 concise sentence explaining what they are working on.
+CRITICAL INSTRUCTION: If you see project names in the ticket titles (especially in brackets like [Orion], [Phoenix], [Khoj], [Embedding Excellence], etc.), you MUST include those project names in your summary sentence.
+Format the output as a simple list with each engineer's name in bold, followed by their sentence (e.g., "**Abhijit Shanbhag**: He is working on the Embedding Excellence project, specifically X and Y."). Do not provide an overarching summary, only the per-engineer breakdown.`;
+
+            const userPrompt = `Here are the senior engineers and their current assigned tasks:\n\n${lines}\n\nProvide the per-engineer summary, ensuring you mention project names.`;
+
+            try {
+                const { createRequire } = await import('module');
+                const req2 = createRequire(import.meta.url);
+                const ai = await import('../../../services/ai.js');
+
+                // Use the non-JSON mode for plain text summary
+                const OLLAMA_MODEL = process.env.LLM_MODEL || process.env.OLLAMA_MODEL || 'qwen3:latest';
+                const OLLAMA_BASE_URL = process.env.OLLAMA_BASE_URL || 'http://127.0.0.1:11434';
+
+                const response = await fetch(`${OLLAMA_BASE_URL}/api/generate`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        model: OLLAMA_MODEL.trim(),
+                        system: systemPrompt,
+                        prompt: userPrompt,
+                        stream: false,
+                        think: false,
+                        keep_alive: '2m',
+                        options: { temperature: 0.3 }
+                    }),
+                });
+
+                if (!response.ok) throw new Error(`LLM error: ${response.status}`);
+                const result = await response.json();
+                const summary = (result.response || '').trim();
+
+                logger.info(`Generated AI summary (${summary.length} chars)`);
+                return NextResponse.json({ summary });
+            } catch (e) {
+                logger.error(`AI summary generation failed: ${e.message}`);
+                // Fallback: generate a deterministic summary
+                const totalTasks = sde3s.reduce((sum, s) => sum + s.tasks.length, 0);
+                const fallback = `${sde3s.length} senior engineers are managing ${totalTasks} active tasks across the organization. AI summary unavailable — ensure Ollama is running.`;
+                return NextResponse.json({ summary: fallback, fallback: true });
+            }
+        }
+
+        return NextResponse.json({ error: `Unknown POST view: ${view}` }, { status: 400 });
+    } catch (error) {
+        console.error('[API/Team] POST Error:', error);
         return NextResponse.json({ error: error.message }, { status: 500 });
     }
 }

@@ -27,6 +27,8 @@ CREATE TABLE IF NOT EXISTS org_members (
     managerAlias    TEXT,
     depth           INTEGER DEFAULT 0,
     isManager       INTEGER DEFAULT 0,
+    jobTitle        TEXT,
+    level           INTEGER,
     team            TEXT,
     fetchedAt       TEXT NOT NULL
 );
@@ -52,8 +54,22 @@ function init() {
             db.exec('PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON;', () => {
                 db.exec(SCHEMA_SQL, (err) => {
                     if (err) { logger.error('Failed to create org schema:', err.message); return reject(err); }
-                    logger.info('Org database initialized');
-                    resolve(db);
+                    
+                    // Migration: check if jobTitle column exists, if not add it
+                    db.all("PRAGMA table_info(org_members)", (err, rows) => {
+                        const hasJobTitle = rows.some(r => r.name === 'jobTitle');
+                        if (!hasJobTitle) {
+                            logger.info('Migrating org_members: adding jobTitle and level columns');
+                            db.run("ALTER TABLE org_members ADD COLUMN jobTitle TEXT", () => {
+                                db.run("ALTER TABLE org_members ADD COLUMN level INTEGER", () => {
+                                    logger.info('Migration complete');
+                                    resolve(db);
+                                });
+                            });
+                        } else {
+                            resolve(db);
+                        }
+                    });
                 });
             });
         });
@@ -86,7 +102,7 @@ function dbAll(sql, params = []) {
 async function saveOrgTree(tree, rootAlias) {
     await init();
     
-    // Clear existing data
+    // Clear existing data (optional, but keep it for clean fetches)
     await dbRun('DELETE FROM org_members');
     
     const now = new Date().toISOString();
@@ -95,9 +111,9 @@ async function saveOrgTree(tree, rootAlias) {
     async function walkAndSave(node, managerAlias, depth) {
         const isManager = (node.reports && node.reports.length > 0) ? 1 : 0;
         await dbRun(
-            `INSERT OR REPLACE INTO org_members (alias, name, email, managerAlias, depth, isManager, team, fetchedAt)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-            [node.alias, node.name || node.alias, `${node.alias}@amazon.com`, managerAlias, depth, isManager, null, now]
+            `INSERT OR REPLACE INTO org_members (alias, name, email, managerAlias, depth, isManager, jobTitle, level, team, fetchedAt)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            [node.alias, node.name || node.alias, `${node.alias}@amazon.com`, managerAlias, depth, isManager, node.jobTitle || null, node.level || null, null, now]
         );
         count++;
         
@@ -193,11 +209,11 @@ async function isPopulated() {
 
 // ─── Populate from Phonetool (convenience method) ───
 
-async function populateFromPhoneTool(alias) {
+async function populateFromPhoneTool(alias, forceRefresh = false) {
     const phonetool = require('./phonetool');
     
-    logger.info(`Populating org store from Phonetool for ${alias}...`);
-    const tree = await phonetool.fetchOrgTree(alias, 4); // up to 4 levels deep
+    logger.info(`Populating org store from Phonetool for ${alias} (forceRefresh=${forceRefresh})...`);
+    const tree = await phonetool.fetchOrgTree(alias, 4, forceRefresh); // up to 4 levels deep
     
     if (!tree) {
         logger.error('Failed to fetch org tree from Phonetool');
