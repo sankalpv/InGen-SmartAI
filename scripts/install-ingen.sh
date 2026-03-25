@@ -585,21 +585,53 @@ else{const i=parseInt(c)-1;console.log(i>=0&&i<d.length?d[i].id:d[0].id)}
         print_info "Skipped — enable later in Settings"
     fi
 
-    # ── AWS Bedrock API Key (optional — for Claude Sonnet on Team Health, Code Metrics, WBR Prep) ──
+    # ── LLM Provider Selection ──
     echo ""
-    echo -e "  ${BOLD}🤖 AWS Bedrock API Key (optional)${NC}"
-    echo -e "  Enables Claude Sonnet 4 for higher-quality AI-generated reports on"
-    echo -e "  Team Health, Code Metrics, Ticket Health, and WBR Prep pages."
-    echo -e "  Without this, InGen uses the local Ollama model (qwen3)."
-    echo -e "  Get your ABSK key from: ${CYAN}Bedrock API Keys console${NC}"
+    echo -e "  ${BOLD}🤖 AI Provider${NC}"
+    echo -e "  ${CYAN}[1]${NC} Bedrock (recommended) — Claude Sonnet 4, no local AI needed"
+    echo -e "  ${CYAN}[2]${NC} Ollama (local) — requires ~10GB models, runs offline"
+    echo -e "  ${CYAN}[3]${NC} Auto — try Bedrock first, fall back to Ollama"
     echo ""
-    read -p "  Enter Bedrock ABSK API Key (or Enter to skip): " BEDROCK_KEY
+    read -p "  Choose AI provider [1/2/3, default=1]: " LLM_CHOICE
+    LLM_CHOICE="${LLM_CHOICE:-1}"
 
-    if [[ -n "$BEDROCK_KEY" ]]; then
-        echo "AWS_BEARER_TOKEN_BEDROCK=$BEDROCK_KEY" >> "$INSTALL_DIR/.env.local"
-        print_ok "Bedrock API key saved to .env.local"
-    else
-        print_info "Skipped — InGen will use local Ollama for all AI. Add later in .env.local."
+    case "$LLM_CHOICE" in
+        1)
+            LLM_PROVIDER_VALUE="bedrock"
+            print_ok "AI Provider: Bedrock (Claude Sonnet)"
+            ;;
+        2)
+            LLM_PROVIDER_VALUE="ollama"
+            print_ok "AI Provider: Ollama (local)"
+            ;;
+        *)
+            LLM_PROVIDER_VALUE="auto"
+            print_ok "AI Provider: Auto (Bedrock → Ollama)"
+            ;;
+    esac
+
+    node_json_set "$SETTINGS" "llmProvider" "\"$LLM_PROVIDER_VALUE\""
+    export INGEN_LLM_PROVIDER="$LLM_PROVIDER_VALUE"
+
+    # ── AWS Bedrock API Key ──
+    if [[ "$LLM_PROVIDER_VALUE" != "ollama" ]]; then
+        echo ""
+        echo -e "  ${BOLD}🔑 AWS Bedrock API Key${NC}"
+        echo -e "  Enables Claude Sonnet 4 for AI-generated reports."
+        echo -e "  Get your ABSK key from: ${CYAN}Bedrock API Keys console${NC}"
+        echo ""
+        read -p "  Enter Bedrock ABSK API Key (or Enter to skip): " BEDROCK_KEY
+
+        if [[ -n "$BEDROCK_KEY" ]]; then
+            echo "AWS_BEARER_TOKEN_BEDROCK=$BEDROCK_KEY" >> "$INSTALL_DIR/.env.local"
+            print_ok "Bedrock API key saved to .env.local"
+        else
+            if [[ "$LLM_PROVIDER_VALUE" == "bedrock" ]]; then
+                print_warn "No Bedrock key — AI features won't work until you add AWS_BEARER_TOKEN_BEDROCK to .env.local"
+            else
+                print_info "Skipped — InGen will use local Ollama for AI. Add Bedrock key later in .env.local."
+            fi
+        fi
     fi
 
     # ── SIM Goals Folder (WBR / Team Health) ──
@@ -859,11 +891,19 @@ main() {
     step_02_xcode_tools
     step_03_homebrew
     step_04_nodejs
-    step_05_ollama
-    step_06_ai_models
     step_07_mcp_tooling
     step_08_install_app
     step_09_configure
+    # Ollama + AI models: only if user chose ollama or auto (set during step_09)
+    if [[ "${INGEN_LLM_PROVIDER:-auto}" != "bedrock" ]]; then
+        step_05_ollama
+        step_06_ai_models
+    else
+        print_step 5 "Ollama — SKIPPED (using Bedrock)"
+        step_done "step_05"
+        print_step 6 "AI Models — SKIPPED (using Bedrock)"
+        step_done "step_06"
+    fi
     step_10_org_tree
     step_11_verify
     step_12_desktop_shortcut
