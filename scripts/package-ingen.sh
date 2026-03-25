@@ -48,25 +48,29 @@ fs.writeFileSync(f, JSON.stringify(d, null, 2) + '\n');
 fi
 
 # ── Create the archive ──
-tar czf "$OUTPUT_FILE" \
-    --exclude=node_modules \
-    --exclude=.next \
-    --exclude=.git \
-    --exclude=data \
-    --exclude=sync_state.json \
-    --exclude=smartai.log \
-    --exclude=.env.local \
+rm -rf /tmp/InGen
+mkdir -p /tmp/InGen
+
+rsync -a "$PROJECT_DIR/" /tmp/InGen/ \
+    --exclude='node_modules' \
+    --exclude='.next' \
+    --exclude='.git' \
+    --exclude='data' \
+    --exclude='sync_state.json' \
+    --exclude='*.log' \
     --exclude='*.db' \
     --exclude='*.db-shm' \
     --exclude='*.db-wal' \
-    --exclude=meetings_raw.json \
-    --exclude=meetings_7days_raw.json \
-    --exclude=brain \
-    --exclude=scripts/demo-audio \
-    --exclude=scripts/demo-output \
-    --exclude='.ingen-install-progress' \
-    -C "$(dirname "$PROJECT_DIR")" \
-    "$(basename "$PROJECT_DIR")"
+    --exclude='meetings_raw.json' \
+    --exclude='meetings_7days_raw.json' \
+    --exclude='brain' \
+    --exclude='scripts/demo-audio' \
+    --exclude='scripts/demo-output' \
+    --exclude='.ingen-install-progress'
+
+cd /tmp
+tar -czf "$OUTPUT_FILE" InGen
+rm -rf /tmp/InGen
 
 # ── Restore original settings ──
 if [[ "$SETTINGS_CLEANED" == "true" ]] && [[ -f "/tmp/ingen-settings-backup-$$.json" ]]; then
@@ -90,14 +94,11 @@ echo -e "entirely on your MacBook. Zero cloud, full privacy."
 echo ""
 echo -e "${BOLD}Install:${NC}"
 echo -e "  1. Download InGen.tar.gz (attached)"
-echo -e "  2. Open Terminal and run:"
-echo -e "     ${CYAN}mkdir -p ~/InGen-install && cd ~/InGen-install${NC}"
-echo -e "     ${CYAN}tar xzf ~/Downloads/InGen.tar.gz${NC}"
-echo -e "     ${CYAN}bash */scripts/install-ingen.sh${NC}"
-echo -e "  3. Double-click 'InGen' on your Desktop"
+echo -e "  2. Open Terminal and run this single command:"
+echo -e "     ${CYAN}tar -xzf InGen.tar.gz && cd InGen && bash scripts/install-ingen.sh${NC}"
 echo ""
 echo -e "Requires: macOS + Microsoft Outlook."
-echo -e "The installer handles everything else automatically"
+echo -e "The installer handles everything else automatically."
 echo -e "(Node.js, Ollama, AI models, MCP tools)."
 echo -e ""
 echo -e "Features resume — if install fails, re-run and it"
