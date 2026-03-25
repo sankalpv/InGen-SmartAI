@@ -165,9 +165,11 @@ async function runAll() {
         });
     }
 
-    // 1. Ollama reachable (on Windows with Bedrock, this is optional)
-    const ollamaReachable = await checkOllamaReachable();
-    const ollamaSeverity = (IS_WINDOWS && process.env.AWS_BEARER_TOKEN_BEDROCK) ? 'info' : 'critical';
+    // 1. Ollama reachable (skip entirely when llmProvider is "bedrock")
+    let llmProvider = 'auto';
+    try { const bc = require('./bedrock-client'); llmProvider = bc.getLlmProvider(); } catch (e) { /* ignore */ }
+    const ollamaReachable = llmProvider === 'bedrock' ? { ok: true } : await checkOllamaReachable();
+    const ollamaSeverity = (llmProvider === 'bedrock' || (IS_WINDOWS && process.env.AWS_BEARER_TOKEN_BEDROCK)) ? 'info' : 'critical';
     results.push({
         name: IS_WINDOWS && process.env.AWS_BEARER_TOKEN_BEDROCK
             ? 'Ollama service (optional — Bedrock is primary)'

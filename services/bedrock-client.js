@@ -37,8 +37,30 @@ function getBearerToken() {
     return process.env.AWS_BEARER_TOKEN_BEDROCK || null;
 }
 
+/**
+ * Get the configured LLM provider from settings.json.
+ * Returns: 'bedrock', 'ollama', or 'auto' (default).
+ */
+function getLlmProvider() {
+    try {
+        const fs = require('fs');
+        const path = require('path');
+        const settingsPath = path.join(process.cwd(), 'config', 'settings.json');
+        const settings = JSON.parse(fs.readFileSync(settingsPath, 'utf8'));
+        return (settings.llmProvider || 'auto').toLowerCase();
+    } catch { return 'auto'; }
+}
+
+/**
+ * Check if Bedrock should be used based on llmProvider setting + API key availability.
+ * - 'bedrock': always true if API key present
+ * - 'ollama': always false (force Ollama)
+ * - 'auto': true if API key present (Bedrock first, Ollama fallback)
+ */
 function isAvailable() {
-    return !!getBearerToken();
+    const provider = getLlmProvider();
+    if (provider === 'ollama') return false; // Force Ollama — skip Bedrock
+    return !!getBearerToken(); // 'bedrock' or 'auto' — use if key exists
 }
 
 /**
@@ -267,4 +289,5 @@ module.exports = {
     getConfig,
     getEmbeddingDimensions,
     isAvailable,
+    getLlmProvider,
 };

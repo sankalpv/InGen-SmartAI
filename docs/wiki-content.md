@@ -1,0 +1,247 @@
+# InGen — Local AI Productivity Dashboard
+
+**InGen** is a privacy-first, local AI productivity dashboard for Amazon engineering leaders. It runs on your laptop (macOS + Windows), reads your Outlook email/calendar, and connects to internal tools via MCP — giving you an executive-quality AI assistant without sending data to the cloud.
+
+> **Source Code:** [code.amazon.com/packages/InGen-SmartAI](https://code.amazon.com/packages/InGen-SmartAI/trees/mainline)
+> **Contact:** sankalpv@
+
+---
+
+## Quick Install
+
+### Windows (One-Click)
+
+1. Download `InGen-Setup.bat` from [code.amazon.com](https://code.amazon.com/packages/InGen-SmartAI/blobs/mainline/--/InGen-Setup.bat)
+2. Connect to Amazon VPN
+3. Double-click `InGen-Setup.bat`
+4. Follow the interactive prompts
+5. Open **http://localhost:3000**
+
+### macOS
+
+```
+git clone ssh://git.amazon.com/pkg/InGen-SmartAI ~/InGen
+bash ~/InGen/scripts/install-ingen.sh
+```
+
+### What the installer does
+
+- Installs Node.js, C++ Build Tools, Python (if needed)
+- Installs Amazon Toolbox + MCP tools (builder-mcp, amzn-mcp)
+- Runs `npm install` + builds native modules
+- Prompts for: Amazon alias, Outlook integration (Y/n), Quip token, Bedrock API key, SIM goals folder
+- Fetches org tree from Phonetool
+- Creates Desktop shortcut
+
+---
+
+## Features
+
+### 🤖 Agent Workspace
+ReAct-style AI agent that plans and executes multi-tool queries. Ask natural language questions and get data-driven answers from email, calendar, goals, tickets, and code reviews.
+
+**Accessible via:** Web UI (`/agent`) or Slack DM ("Hey InGen, ...")
+
+### 🔊 Morning Briefing
+One-click AI-generated spoken briefing of your entire day — emails, calendar, goals, tickets, code metrics — delivered in a Jarvis-style cinematic experience with text-to-speech.
+
+### 🎙️ Voice Assistant
+Press **V** anywhere to ask InGen questions with your voice. InGen listens, processes, and speaks the answer back.
+
+### 📊 Dashboard
+AI-powered daily summary with email triage (🔴 Respond Now / 🟡 Today / 🟢 FYI), meeting prep, and smart draft replies.
+
+### 📅 Week Ahead
+7-day calendar view with meeting load indicators, deep work slots, 1:1 detection, and AI coaching brief.
+
+### 📈 Leadership Analytics
+Time audit, relationship health scores, action item extraction, blocker detection, and decision tracking across your email and calendar.
+
+### 🏥 Team Health (WBR Goals)
+Weekly Business Review dashboard powered by Taskei/SIM. Shows goal status (Green/Yellow/Red), ECD tracking with drift detection, AI executive summary, and recursive subtask expansion.
+
+### 📊 CPP WBR
+Dedicated CPP Weekly Business Review page with 11 fixed sections (Status Missing → Cut), goal type sorting, and AI-generated Executive Summary with Wins, Misses, Insights, and Discussion Topics.
+
+### 📊 Code Metrics
+Per-engineer code review dashboard from code.amazon.com. Sortable tables, week-over-week trends, declining streak alerts, sparklines, and year-to-date charts.
+
+### 🎫 Ticket Health
+Resolver group ticket dashboard showing open/aging/SLA status. Send ticket summaries to Slack with one click.
+
+### 📝 WBR Prep
+AI-generated executive weekly report with Wins, Misses, Insights from all data sources — goals, tickets, emails, calendar, on-call.
+
+### 🔔 Proactive Insights
+AI-generated meeting prep insights, email priority alerts delivered as toast notifications.
+
+### 💬 Slack Integration
+- **DM Agent:** Message "Hey InGen" in your self-DM to ask questions
+- **Channel Posting:** Send ticket summaries, reports to any Slack channel
+- **Block Kit Formatting:** Rich mrkdwn formatting with clickable hyperlinks
+
+---
+
+## Pages
+
+| Route | Page | Outlook Required? |
+|---|---|---|
+| `/` | Dashboard | ✅ Yes |
+| `/agent` | Agent Workspace | ❌ No |
+| `/week-ahead` | Week Ahead | ✅ Yes |
+| `/leadership` | Leadership | ✅ Yes |
+| `/my-team` | Team Health | ❌ No (uses Taskei) |
+| `/eng-metrics` | Code Metrics | ❌ No (uses code.amazon.com) |
+| `/ticket-health` | Ticket Health | ❌ No (uses SIM-T) |
+| `/wbr-prep` | WBR Prep | ❌ No (uses MCP tools) |
+| `/cpp-wbr` | CPP WBR | ❌ No (uses Taskei) |
+| `/org-pulse` | Org Pulse | ❌ No |
+| `/insights/analytics` | Insights | ✅ Yes |
+| `/settings` | Settings | ❌ No |
+
+### Disabling Outlook Integration
+
+For users who don't use Outlook features, set `outlookIntegration: false` in `config/settings.json`. This hides Dashboard, Week Ahead, Leadership, and Insights pages from the sidebar and disables all Outlook sync. All MCP-powered features continue to work.
+
+---
+
+## Architecture
+
+```
+Outlook (local) → AppleScript/PowerShell → Local Data Store (JSON)
+                                                    ↓
+                                              Vector Store (HNSWLib)
+                                                    ↓
+                                                AI Engine (Ollama / Bedrock Claude)
+                                                    ↓
+                                              Dashboard (Next.js React)
+                                                    ↓
+                                              MCP Tools (Taskei, SIM, Phonetool, Slack)
+```
+
+All core processing happens locally. No data leaves your machine unless you opt into Amazon Bedrock for AI reports.
+
+| Component | Technology |
+|---|---|
+| Frontend | Next.js 16, React 19 |
+| AI/LLM | Ollama (qwen3, local) + optional Amazon Bedrock (Claude Sonnet 4) |
+| Embeddings | qwen3-embedding (4096 dimensions) |
+| Vector DB | hnswlib-node (local, in-process) |
+| Data Bridge | AppleScript (macOS) / PowerShell + IndexedDB (Windows) |
+| Background | node-cron (hourly sync) |
+| MCP | builder-mcp (Phonetool, code.amazon.com, Taskei); slack-mcp (Slack DM/channel) |
+| Storage | JSON files + SQLite |
+
+---
+
+## Prerequisites
+
+| Requirement | macOS | Windows | Notes |
+|---|---|---|---|
+| Node.js 20+ | Auto-installed | Auto-installed | Runtime |
+| Amazon Toolbox | Auto-installed | Auto-installed | For MCP tools |
+| builder-mcp | Auto-installed | Auto-installed | Taskei, Phonetool, code.amazon.com |
+| Ollama | Auto-installed | Optional | Local AI; Windows uses Bedrock |
+| Microsoft Outlook | Optional | Optional | For email/calendar features |
+| Python 3.12+ | Auto-installed | Auto-installed | Native module builds + Outlook extraction |
+| VPN + Midway | Required at install | Required at install | For MCP tools and org tree |
+| AWS Bedrock API Key | Optional | Recommended | Claude Sonnet for AI reports |
+
+---
+
+## Configuration
+
+All settings are in `config/settings.json`:
+
+| Setting | Purpose | Default |
+|---|---|---|
+| `outlookIntegration` | Enable/disable Outlook features | `true` |
+| `phonetoolAlias` | Your Amazon alias | Auto-detected |
+| `outlookCalendarId` | Outlook calendar to sync | Set during install |
+| `wbr.roomId` | Taskei room UUID for goals | Set during install |
+| `wbr.folderId` | SIM folder UUID for goals | Set during install |
+| `bedrock.region` | AWS region for Bedrock | `us-west-2` |
+| `bedrock.modelId` | Claude model ID | `us.anthropic.claude-sonnet-4-*` |
+| `mcpServers` | MCP server binary paths | Auto-configured |
+
+---
+
+## Slack Integration Setup
+
+### macOS
+Slack-mcp is installed via AIM: `aim install slack-mcp`
+
+### Windows
+Install via mcp-registry: `mcp-registry install slack-mcp`
+
+Then update `config/settings.json` with the slack-mcp path and your Slack session credentials (`SSB_INSTANCE_ID`, `ENTITY_ID`).
+
+**Note:** Each user needs their own Slack credentials. The session tokens are per-user.
+
+---
+
+## Testing
+
+| Category | Suites | Tests |
+|---|---|---|
+| Services | 39 | ~400 |
+| API Routes | 37 | ~200 |
+| **Total** | **76** | **605** |
+
+```
+npm test                    # Run all tests
+npm run test:services       # Service tests only
+npm run test:api            # API route tests only
+```
+
+---
+
+## Manage InGen
+
+### Update
+```
+# macOS
+~/InGen/scripts/update-ingen.sh
+
+# Windows — re-run setup
+InGen-Setup.bat
+```
+
+### Uninstall (macOS)
+```
+~/InGen/scripts/uninstall-ingen.sh
+```
+
+### Launch
+```
+# macOS: Double-click "InGen" on Desktop, or:
+node ~/InGen/launcher.js
+
+# Windows: Double-click "InGen" on Desktop, or:
+node %USERPROFILE%\InGen\launcher.js
+```
+
+Then open: **http://localhost:3000**
+
+---
+
+## Troubleshooting
+
+| Problem | Solution |
+|---|---|
+| App won't start | Check Node.js: `node -v` (needs 20+). Check logs in the app directory. |
+| Calendar shows 0 events | Verify calendar ID in Settings. Ensure Outlook is open. |
+| MCP error -32000 | Binary not found. Check `mcpServers` paths in `config/settings.json`. |
+| Slack DM fails on Windows | Update slack-mcp path to Windows location in settings.json. |
+| Team Health empty | Configure `wbr.roomId` and `wbr.folderId` in settings.json. |
+| AI responses slow | First request takes 30-60s (model loading). Subsequent requests are fast. |
+
+---
+
+## Privacy & Security
+
+- **Local-first** — All core AI runs locally; email/calendar never leave your machine
+- **Optional Bedrock** — If configured, WBR summaries use Amazon Bedrock over corporate AWS credentials
+- **No accounts** — No sign-ups, no subscriptions
+- **No telemetry** — Zero tracking or analytics
+- **Your data stays yours** — All data stored locally in `data/` directory

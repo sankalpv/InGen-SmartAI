@@ -36,12 +36,14 @@ function getCurrentDateContext() {
 
 /**
  * Generate a completion from the LLM (non-streaming).
- * Tries Bedrock Claude first, falls back to Ollama.
+ * Tries Bedrock Claude first, falls back to Ollama (unless llmProvider is "bedrock").
  */
 async function llmComplete(system, prompt, jsonMode = true) {
+    const bedrockClient = require('./bedrock-client');
+    const provider = bedrockClient.getLlmProvider();
+
     // Try Bedrock first
     try {
-        const bedrockClient = require('./bedrock-client');
         if (bedrockClient.isAvailable()) {
             logger.info('llmComplete: Using Bedrock Claude');
             const fullPrompt = jsonMode
@@ -55,7 +57,15 @@ async function llmComplete(system, prompt, jsonMode = true) {
             return result;
         }
     } catch (e) {
+        if (provider === 'bedrock') {
+            throw new Error(`Bedrock-only mode: LLM call failed — ${e.message}. Check your AWS_BEARER_TOKEN_BEDROCK.`);
+        }
         logger.warn('Bedrock llmComplete failed, falling back to Ollama:', e.message);
+    }
+
+    // Skip Ollama when provider is explicitly "bedrock"
+    if (provider === 'bedrock') {
+        throw new Error('Bedrock-only mode: Bedrock API key not configured. Set AWS_BEARER_TOKEN_BEDROCK in .env.local');
     }
 
     // Fallback: Ollama
@@ -90,9 +100,11 @@ async function llmComplete(system, prompt, jsonMode = true) {
  * Tries Bedrock Claude first, falls back to Ollama.
  */
 async function llmStream(system, prompt, onChunk) {
+    const bedrockClient = require('./bedrock-client');
+    const provider = bedrockClient.getLlmProvider();
+
     // Try Bedrock first
     try {
-        const bedrockClient = require('./bedrock-client');
         if (bedrockClient.isAvailable()) {
             logger.info('llmStream: Using Bedrock Claude');
             return await bedrockClient.streamGenerate(
@@ -102,7 +114,14 @@ async function llmStream(system, prompt, onChunk) {
             );
         }
     } catch (e) {
+        if (provider === 'bedrock') {
+            throw new Error(`Bedrock-only mode: streaming failed — ${e.message}`);
+        }
         logger.warn('Bedrock llmStream failed, falling back to Ollama:', e.message);
+    }
+
+    if (provider === 'bedrock') {
+        throw new Error('Bedrock-only mode: Bedrock API key not configured.');
     }
 
     // Fallback: Ollama

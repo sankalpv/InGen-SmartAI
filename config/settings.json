@@ -1,4 +1,5 @@
 {
+  "llmProvider": "auto",
   "outlookIntegration": true,
   "outlookCalendarId": "432",
   "issuesFolderPath": "",
