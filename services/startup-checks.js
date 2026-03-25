@@ -154,69 +154,36 @@ function checkPromptsJson() {
 async function runAll() {
     const results = [];
 
-    // 0. Bedrock (Windows-only: check for bearer token — primary AI provider on Windows)
-    if (IS_WINDOWS) {
-        const hasBedrock = !!process.env.AWS_BEARER_TOKEN_BEDROCK;
-        results.push({
-            name: 'Bedrock AI (Windows primary)',
-            severity: hasBedrock ? 'info' : 'warning',
-            ok: hasBedrock,
-            fix: 'Set AWS_BEARER_TOKEN_BEDROCK in .env.local for cloud AI (Claude). Without it, the app will use local Ollama (slower on CPU).',
-        });
-    }
-
-    // 1. Ollama reachable (skip entirely when llmProvider is "bedrock")
-    let llmProvider = 'auto';
-    try { const bc = require('./bedrock-client'); llmProvider = bc.getLlmProvider(); } catch (e) { /* ignore */ }
-    const ollamaReachable = llmProvider === 'bedrock' ? { ok: true } : await checkOllamaReachable();
-    const ollamaSeverity = (llmProvider === 'bedrock' || (IS_WINDOWS && process.env.AWS_BEARER_TOKEN_BEDROCK)) ? 'info' : 'critical';
+    // 1. Ollama reachable (always required on Mac)
+    const ollamaReachable = await checkOllamaReachable();
     results.push({
-        name: IS_WINDOWS && process.env.AWS_BEARER_TOKEN_BEDROCK
-            ? 'Ollama service (optional — Bedrock is primary)'
-            : 'Ollama service reachable',
-        severity: ollamaSeverity,
+        name: 'Ollama service reachable',
+        severity: 'critical',
         ok: ollamaReachable.ok,
-        fix: IS_WINDOWS && process.env.AWS_BEARER_TOKEN_BEDROCK
-            ? 'Ollama is optional when Bedrock is configured. Install from https://ollama.com if you want local fallback.'
-            : 'Install and start Ollama from https://ollama.com',
+        fix: 'Install and start Ollama from https://ollama.com',
     });
 
-    // 2. Ollama models (skip on Windows if Bedrock is available)
-    const aiProvider = process.env.AI_PROVIDER || 'openai';
-    if (aiProvider === 'ollama' && !(IS_WINDOWS && process.env.AWS_BEARER_TOKEN_BEDROCK)) {
-        const ollamaModel = process.env.OLLAMA_MODEL || 'llama3';
-        const modelChecks = await checkOllamaModels([ollamaModel, 'nomic-embed-text']);
-        for (const mc of modelChecks) {
-            results.push({
-                name: `Ollama model: ${mc.model}`,
-                severity: mc.model === ollamaModel ? 'critical' : 'warning',
-                ok: mc.ok,
-                fix: `Run: ollama pull ${mc.model}`,
-            });
-        }
+    // 2. Ollama models
+    const llmModel = (process.env.LLM_MODEL || 'llama3').split(':')[0];
+    const embeddingModel = (process.env.EMBEDDING_MODEL || 'qwen3-embedding').split(':')[0];
+    const modelChecks = await checkOllamaModels([llmModel, embeddingModel]);
+    for (const mc of modelChecks) {
+        results.push({
+            name: `Ollama model: ${mc.model}`,
+            severity: mc.model === embeddingModel ? 'warning' : 'critical',
+            ok: mc.ok,
+            fix: `Run: ollama pull ${mc.model}`,
+        });
     }
 
     // 3. osascript (Mac email fetching)
-    if (IS_MAC) {
-        const hasOsascript = await checkCommand('osascript');
-        results.push({
-            name: 'osascript available (Mac email/calendar)',
-            severity: 'warning',
-            ok: hasOsascript,
-            fix: 'osascript is built into macOS. This is unexpected — check your PATH.',
-        });
-    }
-
-    // 4. PowerShell (Windows email fetching)
-    if (IS_WINDOWS) {
-        const hasPowershell = await checkCommand('powershell');
-        results.push({
-            name: 'PowerShell available (Windows email/calendar)',
-            severity: 'warning',
-            ok: hasPowershell,
-            fix: 'Install PowerShell from https://aka.ms/powershell',
-        });
-    }
+    const hasOsascript = await checkCommand('osascript');
+    results.push({
+        name: 'osascript available (email/calendar)',
+        severity: 'warning',
+        ok: hasOsascript,
+        fix: 'osascript is built into macOS. This is unexpected — check your PATH.',
+    });
 
     // 5. Required env vars
     const envChecks = checkEnvVars([]); // AUTH_SECRET/NEXTAUTH_SECRET removed — not needed for local-only mode
@@ -267,6 +234,26 @@ async function runAll() {
         ok: promptsCheck.ok,
         fix: promptsCheck.reason || 'Restore config/prompts.json from source control.',
     });
+
+    // 9. MCP server binary paths
+    try {
+        const settingsPath = path.join(process.cwd(), 'config', 'settings.json');
+        if (fs.existsSync(settingsPath)) {
+            const settings = JSON.parse(fs.readFileSync(settingsPath, 'utf8'));
+            const mcpServers = settings.mcpServers || {};
+            for (const [name, config] of Object.entries(mcpServers)) {
+                if (config.command) {
+                    const exists = fs.existsSync(config.command);
+                    results.push({
+                        name: `MCP server: ${name}`,
+                        severity: 'warning',
+                        ok: exists,
+                        fix: `Binary not found at ${config.command}. Install via Amazon Toolbox or update path in Settings.`,
+                    });
+                }
+            }
+        }
+    } catch (e) { /* ignore MCP check errors */ }
 
     return {
         results,

@@ -32,6 +32,7 @@ function resolveMCPCommand(serverName, configuredCommand) {
         ]
         : [
             path.join(homedir, '.toolbox', 'bin', binaryName),
+            path.join(homedir, '.aim', 'mcp-servers', binaryName),
             `/opt/homebrew/bin/${binaryName}`,
             `/usr/local/bin/${binaryName}`,
         ];
@@ -61,6 +62,9 @@ function getMCPConfig() {
         for (const [name, config] of Object.entries(servers)) {
             if (config.command) {
                 config.command = resolveMCPCommand(name, config.command);
+            } else {
+                // No command configured — try auto-discovery using the server name
+                config.command = resolveMCPCommand(name, name);
             }
         }
         

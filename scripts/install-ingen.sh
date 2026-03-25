@@ -1,12 +1,15 @@
 #!/bin/bash
 # ╔══════════════════════════════════════════════════════════════╗
-# ║              InGen Installer for macOS (v2.0)                ║
+# ║              InGen Installer for macOS (v2.1)                ║
 # ║         Local AI-Powered Productivity Dashboard              ║
 # ║                                                              ║
 # ║  Features: Resume support, disk space check, MCP tooling,   ║
 # ║  Node-based JSON config, post-install health verification    ║
 # ╚══════════════════════════════════════════════════════════════╝
-set -e
+
+# Error handling: show context on failure instead of silently exiting
+trap 'echo ""; echo -e "\033[0;31m❌ Install failed at line $LINENO: $BASH_COMMAND\033[0m"; echo -e "\033[0;36mℹ️  Re-run the installer to resume from where it left off.\033[0m"; exit 1' ERR
+set -eE  # -E ensures ERR trap is inherited by functions
 
 # ─── Configuration ───
 INSTALL_DIR="$HOME/InGen"
@@ -15,7 +18,7 @@ DESKTOP_SHORTCUT="$HOME/Desktop/InGen.command"
 LLM_MODEL="qwen3:latest"
 EMBEDDING_MODEL="qwen3-embedding"
 PROGRESS_FILE="$HOME/.ingen-install-progress"
-TOTAL_STEPS=13
+TOTAL_STEPS=12
 
 # ─── Colors ───
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'
@@ -29,7 +32,7 @@ print_header() {
     echo -e "${PURPLE}╔══════════════════════════════════════════════════════════════╗${NC}"
     echo -e "${PURPLE}║${NC}  ${BOLD}🧬 InGen — AI Productivity Dashboard Installer${NC}             ${PURPLE}║${NC}"
     echo -e "${PURPLE}║${NC}  ${CYAN}Local-first • Privacy-first • Zero cloud${NC}                    ${PURPLE}║${NC}"
-    echo -e "${PURPLE}║${NC}  ${DIM}v2.0 — with resume support & MCP tooling${NC}                    ${PURPLE}║${NC}"
+    echo -e "${PURPLE}║${NC}  ${DIM}v2.1 — with resume support & MCP tooling${NC}                    ${PURPLE}║${NC}"
     echo -e "${PURPLE}╚══════════════════════════════════════════════════════════════╝${NC}"
     echo ""
     if [[ -f "$PROGRESS_FILE" ]]; then
@@ -68,10 +71,38 @@ clear_progress() {
     rm -f "$PROGRESS_FILE"
 }
 
+# Retry a command up to N times with delay (for flaky network operations)
+retry_cmd() {
+    local max_attempts="${1:-3}" delay="${2:-5}" attempt=1
+    shift 2
+    while [[ $attempt -le $max_attempts ]]; do
+        if "$@"; then
+            return 0
+        fi
+        if [[ $attempt -lt $max_attempts ]]; then
+            print_warn "Attempt $attempt/$max_attempts failed. Retrying in ${delay}s..."
+            sleep "$delay"
+        fi
+        attempt=$((attempt + 1))
+    done
+    return 1
+}
+
+# Set a key=value in .env.local, replacing if it already exists (prevents duplicates)
+env_set() {
+    local file="$1" key="$2" value="$3"
+    if [[ -f "$file" ]] && grep -q "^${key}=" "$file" 2>/dev/null; then
+        sed -i '' "s|^${key}=.*|${key}=${value}|" "$file"
+    else
+        echo "${key}=${value}" >> "$file"
+    fi
+}
+
 # Edit JSON config using Node.js (no Python dependency)
 node_json_set() {
     local file="$1" key="$2" value="$3"
-    node -e "
+    local result
+    result=$(node -e "
 const fs = require('fs');
 const f = '$file';
 const d = JSON.parse(fs.readFileSync(f, 'utf8'));
@@ -84,7 +115,11 @@ for (let i = 0; i < keys.length - 1; i++) {
 try { obj[keys[keys.length-1]] = JSON.parse('$value'); }
 catch { obj[keys[keys.length-1]] = '$value'; }
 fs.writeFileSync(f, JSON.stringify(d, null, 2) + '\n');
-" 2>/dev/null
+console.log('OK');
+" 2>&1) || true
+    if [[ "$result" != "OK" ]]; then
+        print_warn "Failed to set ${key} in $(basename "$file"): ${result}"
+    fi
 }
 
 # ─── Step Functions ───
@@ -147,11 +182,14 @@ step_02_xcode_tools() {
         while ! xcode-select -p &>/dev/null; do
             sleep 10
             waited=$((waited + 10))
+            printf "\r  \033[0;36mℹ️  Waiting for Xcode install... (%ds / 600s)\033[0m" "$waited"
             if [[ $waited -gt 600 ]]; then
+                echo ""
                 print_fail "Xcode CLI Tools install timed out. Please install manually and re-run."
                 exit 1
             fi
         done
+        echo ""
         print_ok "Xcode Command Line Tools installed"
     else
         print_ok "Xcode Command Line Tools found"
@@ -169,8 +207,9 @@ step_02_xcode_tools() {
         if python3 -c "import setuptools" &>/dev/null 2>&1; then
             print_ok "Python setuptools installed"
         else
-            print_warn "setuptools install failed — native module builds may fail"
-            print_info "Try manually: pip3 install setuptools --break-system-packages"
+            print_warn "setuptools install failed — 'npm install' may fail on native modules (hnswlib-node, sqlite3)"
+            print_info "Fix manually: pip3 install setuptools --break-system-packages"
+            print_info "If that fails, try: brew install python-setuptools"
         fi
     fi
 
@@ -251,6 +290,18 @@ step_05_ollama() {
 
     # Ensure Ollama service is running
     if ! curl -s http://127.0.0.1:11434/api/tags &>/dev/null; then
+        # Check for port conflict before starting
+        local port_user
+        port_user=$(lsof -i :11434 -sTCP:LISTEN -t 2>/dev/null || true)
+        if [[ -n "$port_user" ]]; then
+            local port_cmd
+            port_cmd=$(ps -p "$port_user" -o comm= 2>/dev/null || echo "unknown")
+            print_warn "Port 11434 is in use by '$port_cmd' (PID $port_user)"
+            print_info "Kill it first: kill $port_user"
+            print_info "Then re-run the installer."
+            exit 1
+        fi
+
         print_info "Starting Ollama service..."
         ollama serve &>/dev/null &
         # Wait up to 30 seconds for it to come up
@@ -284,7 +335,11 @@ step_06_ai_models() {
     else
         echo ""
         print_info "Pulling $LLM_MODEL (~5.2 GB)..."
-        ollama pull "$LLM_MODEL"
+        retry_cmd 3 10 ollama pull "$LLM_MODEL" || {
+            print_fail "Failed to pull $LLM_MODEL after 3 attempts"
+            print_info "Check your network and retry: ollama pull $LLM_MODEL"
+            exit 1
+        }
         print_ok "$LLM_MODEL downloaded"
     fi
 
@@ -294,7 +349,11 @@ step_06_ai_models() {
     else
         echo ""
         print_info "Pulling $EMBEDDING_MODEL (~4.7 GB)..."
-        ollama pull "$EMBEDDING_MODEL"
+        retry_cmd 3 10 ollama pull "$EMBEDDING_MODEL" || {
+            print_fail "Failed to pull $EMBEDDING_MODEL after 3 attempts"
+            print_info "Check your network and retry: ollama pull $EMBEDDING_MODEL"
+            exit 1
+        }
         print_ok "$EMBEDDING_MODEL downloaded"
     fi
 
@@ -308,65 +367,147 @@ step_07_mcp_tooling() {
 
     local mcp_ok=true
 
-    # Check for toolbox
+    # ── Midway Authentication ──
+    echo ""
+    echo -e "  ${BOLD}🔐 Midway Authentication${NC}"
+    if command -v mwinit &>/dev/null; then
+        if mwinit -o 2>/dev/null; then
+            print_ok "Midway authenticated"
+        else
+            print_info "Midway session expired. Authenticating..."
+            if mwinit; then
+                print_ok "Midway authentication successful"
+            else
+                print_warn "Midway authentication failed"
+                print_info "MCP tools require Midway. Run 'mwinit' manually later."
+                print_info "Skipping MCP tooling setup..."
+                export MCP_AMZN_PATH="" MCP_BUILDER_PATH=""
+                step_done "step_07"
+                return
+            fi
+        fi
+    else
+        print_warn "mwinit not found — cannot verify Midway auth"
+        print_info "Install mwinit or authenticate via browser before using MCP features"
+    fi
+
+    # ── Builder Toolbox ──
+    echo ""
+    echo -e "  ${BOLD}🧰 Builder Toolbox${NC}"
     if command -v toolbox &>/dev/null || [[ -x "$HOME/.toolbox/bin/toolbox" ]]; then
         print_ok "Amazon Toolbox installed"
     else
-        print_warn "Amazon Toolbox not found"
-        print_info "Install: ${CYAN}curl -s https://gist.githubusercontent.com/nicktrav/6831bc6a5ac5e5e17e1b45b83689143f/raw | bash${NC}"
-        print_info "Or visit: https://w.amazon.com/bin/view/AmazonToolbox"
-        mcp_ok=false
+        print_info "Amazon Toolbox not found. Installing via Builder Toolbox bootstrap..."
+        local bootstrap_ok=false
+        if curl -sS -X POST \
+            --data '{"os":"osx"}' \
+            -H "Authorization: $(curl -sL \
+                --cookie "$HOME/.midway/cookie" \
+                --cookie-jar "$HOME/.midway/cookie" \
+                "https://midway-auth.amazon.com/SSO?client_id=https://us-east-1.prod.release-service.toolbox.builder-tools.aws.dev&response_type=id_token&nonce=$RANDOM&redirect_uri=https://us-east-1.prod.release-service.toolbox.builder-tools.aws.dev:443")" \
+            https://us-east-1.prod.release-service.toolbox.builder-tools.aws.dev/v1/bootstrap \
+            -o ~/toolbox-bootstrap.sh 2>/dev/null && [[ -s ~/toolbox-bootstrap.sh ]]; then
+
+            print_info "Running Toolbox installer..."
+            if bash ~/toolbox-bootstrap.sh 2>&1 | tail -5; then
+                rm -f ~/toolbox-bootstrap.sh
+                source "$HOME/.$(basename "$SHELL")rc" 2>/dev/null || true
+                export PATH="$HOME/.toolbox/bin:$PATH"
+                if command -v toolbox &>/dev/null || [[ -x "$HOME/.toolbox/bin/toolbox" ]]; then
+                    print_ok "Amazon Toolbox installed successfully"
+                    bootstrap_ok=true
+                fi
+            else
+                rm -f ~/toolbox-bootstrap.sh
+            fi
+        fi
+
+        if [[ "$bootstrap_ok" != "true" ]]; then
+            print_warn "Toolbox auto-install failed"
+            print_info "Install manually: visit https://w.amazon.com/bin/view/AmazonToolbox"
+            mcp_ok=false
+        fi
     fi
 
-    # Check for amzn-mcp
-    if command -v amzn-mcp &>/dev/null || [[ -x "$HOME/.toolbox/bin/amzn-mcp" ]]; then
-        print_ok "amzn-mcp available"
-    else
-        print_warn "amzn-mcp not found"
-        if [[ -x "$HOME/.toolbox/bin/toolbox" ]] || command -v toolbox &>/dev/null; then
+    # ── MCP Binaries (only if Toolbox is available) ──
+    if command -v toolbox &>/dev/null || [[ -x "$HOME/.toolbox/bin/toolbox" ]]; then
+        local TOOLBOX_CMD
+        TOOLBOX_CMD=$(command -v toolbox 2>/dev/null || echo "$HOME/.toolbox/bin/toolbox")
+
+        # amzn-mcp (installed directly via toolbox)
+        if command -v amzn-mcp &>/dev/null || [[ -x "$HOME/.toolbox/bin/amzn-mcp" ]]; then
+            print_ok "amzn-mcp available"
+        else
             print_info "Installing amzn-mcp via toolbox..."
-            toolbox install amzn-mcp 2>/dev/null && print_ok "amzn-mcp installed" || print_warn "amzn-mcp install failed"
-        else
-            print_info "Install toolbox first, then: toolbox install amzn-mcp"
+            "$TOOLBOX_CMD" install amzn-mcp 2>/dev/null && print_ok "amzn-mcp installed" || { print_warn "amzn-mcp install failed"; mcp_ok=false; }
         fi
-        mcp_ok=false
-    fi
 
-    # Check for builder-mcp
-    if command -v builder-mcp &>/dev/null || [[ -x "$HOME/.toolbox/bin/builder-mcp" ]]; then
-        print_ok "builder-mcp available"
-    else
-        print_warn "builder-mcp not found"
-        if [[ -x "$HOME/.toolbox/bin/toolbox" ]] || command -v toolbox &>/dev/null; then
-            print_info "Installing builder-mcp via toolbox..."
-            toolbox install builder-mcp 2>/dev/null && print_ok "builder-mcp installed" || print_warn "builder-mcp install failed"
-        else
-            print_info "Install toolbox first, then: toolbox install builder-mcp"
+        # AIM CLI (needed for builder-mcp and slack-mcp)
+        if ! command -v aim &>/dev/null && ! [[ -x "$HOME/.toolbox/bin/aim" ]]; then
+            print_info "Installing AIM CLI via toolbox..."
+            "$TOOLBOX_CMD" install aim 2>/dev/null && print_ok "AIM CLI installed" || print_warn "AIM CLI install failed"
         fi
+        local AIM_CMD
+        AIM_CMD=$(command -v aim 2>/dev/null || echo "$HOME/.toolbox/bin/aim")
+
+        # builder-mcp (installed via AIM)
+        local has_builder_mcp=false
+        if command -v builder-mcp &>/dev/null || [[ -x "$HOME/.toolbox/bin/builder-mcp" ]]; then
+            has_builder_mcp=true
+        elif [[ -x "$AIM_CMD" ]] && "$AIM_CMD" mcp list --installed 2>/dev/null | grep -q "builder-mcp"; then
+            has_builder_mcp=true
+        fi
+
+        if [[ "$has_builder_mcp" == "true" ]]; then
+            print_ok "builder-mcp available"
+        else
+            if [[ -x "$AIM_CMD" ]] || command -v aim &>/dev/null; then
+                print_info "Installing builder-mcp via AIM..."
+                "$AIM_CMD" mcp install builder-mcp 2>/dev/null && print_ok "builder-mcp installed" || { print_warn "builder-mcp install failed"; mcp_ok=false; }
+            else
+                print_warn "AIM not available — install builder-mcp later: toolbox install aim && aim mcp install builder-mcp"
+                mcp_ok=false
+            fi
+        fi
+
+        # Slack MCP via AIM (optional)
+        local has_slack_mcp=false
+        if command -v slack-mcp &>/dev/null || [[ -x "$HOME/.toolbox/bin/slack-mcp" ]]; then
+            has_slack_mcp=true
+        elif command -v aim &>/dev/null || [[ -x "$HOME/.toolbox/bin/aim" ]]; then
+            # Check if workplace-chat-mcp is installed via AIM
+            if aim mcp list --installed 2>/dev/null | grep -q "workplace-chat"; then
+                has_slack_mcp=true
+            fi
+        fi
+
+        if [[ "$has_slack_mcp" == "true" ]]; then
+            print_ok "Slack MCP available"
+        else
+            echo ""
+            read -p "$(echo -e '\033[0;36m  Would you like to enable Slack integration? [y/N]: \033[0m')" slack_choice
+            if [[ "$slack_choice" =~ ^[Yy] ]]; then
+                if [[ -x "$AIM_CMD" ]] || command -v aim &>/dev/null; then
+                    print_info "Installing Slack MCP via AIM..."
+                    "$AIM_CMD" mcp install workplace-chat-mcp 2>/dev/null \
+                        && print_ok "Slack MCP installed — enables Send to Slack, message search" \
+                        || print_warn "Slack MCP install failed (install later: aim mcp install workplace-chat-mcp)"
+                else
+                    print_warn "AIM not available — install Slack MCP later: toolbox install aim && aim mcp install workplace-chat-mcp"
+                fi
+            else
+                print_info "Skipping Slack integration (install later: aim mcp install workplace-chat-mcp)"
+            fi
+        fi
+    else
+        print_warn "Toolbox not available — skipping MCP binary installation"
+        print_info "Team Health, Code Metrics, and Ticket Health will not work without MCP tools"
         mcp_ok=false
     fi
 
     if [[ "$mcp_ok" == "false" ]]; then
         print_warn "Some MCP tools missing — Team Health, Code Metrics, and Ticket Health may not work"
         print_info "These features require VPN + Midway auth. You can set them up later."
-    fi
-
-    # Optional: Slack MCP for Slack integration (send ticket health, search messages)
-    if command -v slack-mcp &>/dev/null || [[ -x "$HOME/.toolbox/bin/slack-mcp" ]]; then
-        print_ok "slack-mcp available"
-    else
-        echo ""
-        read -p "$(echo -e '\033[0;36m  Would you like to enable Slack integration? [y/N]: \033[0m')" slack_choice
-        if [[ "$slack_choice" =~ ^[Yy] ]]; then
-            if [[ -x "$HOME/.toolbox/bin/toolbox" ]] || command -v toolbox &>/dev/null; then
-                print_info "Installing slack-mcp via toolbox..."
-                toolbox install slack-mcp 2>/dev/null && print_ok "slack-mcp installed — enables Send to Slack, message search" || print_warn "slack-mcp install failed (you can install later: toolbox install slack-mcp)"
-            else
-                print_info "Install toolbox first, then: toolbox install slack-mcp"
-            fi
-        else
-            print_info "Skipping Slack integration (install later: toolbox install slack-mcp)"
-        fi
     fi
 
     # Update MCP paths in settings.json if tools are found
@@ -437,6 +578,15 @@ step_08_install_app() {
     else
         # No source, no existing — git clone
         if command -v git &>/dev/null && [[ -n "$REPO_URL" ]]; then
+            # Pre-check SSH connectivity to avoid cryptic errors
+            print_info "Checking SSH connectivity to git.amazon.com..."
+            if ! ssh -o ConnectTimeout=10 -o StrictHostKeyChecking=no -T git.amazon.com 2>&1 | grep -qi "success\|welcome\|authenticated"; then
+                print_warn "Cannot reach git.amazon.com via SSH"
+                print_info "Make sure you are on VPN and have run 'midway' for auth"
+                print_info "Also verify SSH keys: ssh -T git.amazon.com"
+                print_fail "Fix SSH connectivity and re-run the installer."
+                exit 1
+            fi
             print_info "Cloning from $REPO_URL..."
             git clone "$REPO_URL" "$INSTALL_DIR"
             cd "$INSTALL_DIR"
@@ -449,7 +599,14 @@ step_08_install_app() {
 
     # Install Node.js dependencies
     print_info "Installing dependencies (this may take 1-2 minutes)..."
-    npm install 2>&1 | tail -5
+    if ! retry_cmd 2 5 npm install 2>&1 | tail -10; then
+        print_fail "npm install failed"
+        print_info "Common fixes:"
+        print_info "  1. Ensure Python setuptools is installed: pip3 install setuptools --break-system-packages"
+        print_info "  2. Ensure Xcode CLI Tools are up to date: xcode-select --install"
+        print_info "  3. Check npm registry access: npm ping"
+        exit 1
+    fi
 
     # Rebuild native modules
     print_info "Building native modules (hnswlib-node, sqlite3)..."
@@ -504,7 +661,12 @@ EOF
     echo -e "  ${BOLD}📅 Calendar Selection${NC}"
 
     local CALENDAR_JSON=""
-    CALENDAR_JSON=$(cd "$INSTALL_DIR" && node -e "
+    # Check if Outlook is running before trying to enumerate calendars
+    if ! pgrep -x "Microsoft Outlook" >/dev/null 2>&1; then
+        print_warn "Microsoft Outlook is not running"
+        print_info "Start Outlook, then set calendar later in Settings or config/settings.json"
+    else
+        CALENDAR_JSON=$(timeout 30 node -e "
 const {getCalendarList} = require('./services/outlook-local');
 getCalendarList().then(cals => {
     console.log(JSON.stringify(cals && cals.length > 0 ? cals : []));
@@ -525,7 +687,8 @@ console.log(d.length);
 const d=JSON.parse(require('fs').readFileSync('/dev/stdin','utf8'));
 d.forEach((c,i) => {
     const def = c.isDefault ? ' ← default' : '';
-    console.log('    ' + (i+1) + '. ' + (c.name||'Unknown') + ' (ID: ' + c.id + ')' + def);
+    const unread = c.unread !== undefined ? \` (\${c.unread} unread emails)\` : '';
+    console.log('    ' + (i+1) + '. ' + (c.name||'Unknown') + ' (ID: ' + c.id + ')' + unread + def);
 });
 " 2>/dev/null
             echo ""
@@ -550,9 +713,11 @@ else{const i=parseInt(c)-1;console.log(i>=0&&i<d.length?d[i].id:d[0].id)}
             print_info "Set later in Settings or config/settings.json"
         fi
     else
-        print_warn "Could not detect calendars (Outlook may not be running)"
-        print_info "Set later: open ~/InGen/config/settings.json → outlookCalendarId"
+        print_warn "Could not detect calendars (Outlook may need Automation permission)"
+        print_info "Grant Terminal access: System Settings → Privacy → Automation → Terminal → Microsoft Outlook"
+        print_info "Then set calendar later: ~/InGen/config/settings.json → outlookCalendarId"
     fi
+    fi  # end Outlook running check
 
     # ── Phonetool Alias ──
     echo ""
@@ -585,54 +750,22 @@ else{const i=parseInt(c)-1;console.log(i>=0&&i<d.length?d[i].id:d[0].id)}
         print_info "Skipped — enable later in Settings"
     fi
 
-    # ── LLM Provider Selection ──
+    # ── AWS Bedrock API Key (optional — enhances AI summaries on key pages) ──
     echo ""
-    echo -e "  ${BOLD}🤖 AI Provider${NC}"
-    echo -e "  ${CYAN}[1]${NC} Bedrock (recommended) — Claude Sonnet 4, no local AI needed"
-    echo -e "  ${CYAN}[2]${NC} Ollama (local) — requires ~10GB models, runs offline"
-    echo -e "  ${CYAN}[3]${NC} Auto — try Bedrock first, fall back to Ollama"
+    echo -e "  ${BOLD}🔑 AWS Bedrock API Key (optional)${NC}"
+    echo -e "  Enables Claude Sonnet for enhanced AI summaries on Team Health,"
+    echo -e "  Code Metrics, and Morning Briefing pages."
+    echo -e "  Get your own ABSK key from: ${CYAN}Bedrock API Keys console${NC}"
     echo ""
-    read -p "  Choose AI provider [1/2/3, default=1]: " LLM_CHOICE
-    LLM_CHOICE="${LLM_CHOICE:-1}"
+    read -p "  Enter Bedrock ABSK API Key (or Enter for team default): " BEDROCK_KEY
 
-    case "$LLM_CHOICE" in
-        1)
-            LLM_PROVIDER_VALUE="bedrock"
-            print_ok "AI Provider: Bedrock (Claude Sonnet)"
-            ;;
-        2)
-            LLM_PROVIDER_VALUE="ollama"
-            print_ok "AI Provider: Ollama (local)"
-            ;;
-        *)
-            LLM_PROVIDER_VALUE="auto"
-            print_ok "AI Provider: Auto (Bedrock → Ollama)"
-            ;;
-    esac
-
-    node_json_set "$SETTINGS" "llmProvider" "\"$LLM_PROVIDER_VALUE\""
-    export INGEN_LLM_PROVIDER="$LLM_PROVIDER_VALUE"
-
-    # ── AWS Bedrock API Key ──
-    if [[ "$LLM_PROVIDER_VALUE" != "ollama" ]]; then
-        echo ""
-        echo -e "  ${BOLD}🔑 AWS Bedrock API Key${NC}"
-        echo -e "  Enables Claude Sonnet 4 for AI-generated reports."
-        echo -e "  Get your ABSK key from: ${CYAN}Bedrock API Keys console${NC}"
-        echo ""
-        read -p "  Enter Bedrock ABSK API Key (or Enter to skip): " BEDROCK_KEY
-
-        if [[ -n "$BEDROCK_KEY" ]]; then
-            echo "AWS_BEARER_TOKEN_BEDROCK=$BEDROCK_KEY" >> "$INSTALL_DIR/.env.local"
-            print_ok "Bedrock API key saved to .env.local"
-        else
-            if [[ "$LLM_PROVIDER_VALUE" == "bedrock" ]]; then
-                print_warn "No Bedrock key — AI features won't work until you add AWS_BEARER_TOKEN_BEDROCK to .env.local"
-            else
-                print_info "Skipped — InGen will use local Ollama for AI. Add Bedrock key later in .env.local."
-            fi
-        fi
+    if [[ -z "$BEDROCK_KEY" ]]; then
+        BEDROCK_KEY="ABSKQmVkcm9ja0FQSUtleS1obmNtLWF0LTcwOTkyOTk2Mjg0NDp3eExsbTFiaVNQTWZGZjlwdFNCUjlLKzlwbU9xUkxXOXE2OUMyMEZGWkhQUGVST014OHM1TEY0dFpadz0="
+        print_ok "Using team default Bedrock API key"
+    else
+        print_ok "Custom Bedrock API key saved"
     fi
+    env_set "$INSTALL_DIR/.env.local" "AWS_BEARER_TOKEN_BEDROCK" "$BEDROCK_KEY"
 
     # ── SIM Goals Folder (WBR / Team Health) ──
     echo ""
@@ -720,7 +853,7 @@ step_10_org_tree() {
 
     cd "$INSTALL_DIR"
     local org_result
-    org_result=$(node -e "
+    org_result=$(timeout 120 node -e "
 const orgStore = require('./services/org-store');
 (async () => {
     try {
@@ -820,10 +953,10 @@ step_12_desktop_shortcut() {
     if is_step_done "step_12"; then print_step 12 "Desktop Shortcut ✅ (cached)"; return; fi
     print_step 12 "Creating Desktop shortcut"
 
-    cat > "$DESKTOP_SHORTCUT" << 'LAUNCHER'
+    cat > "$DESKTOP_SHORTCUT" << LAUNCHER
 #!/bin/bash
 # InGen — AI Productivity Dashboard
-cd "$HOME/InGen"
+cd "$INSTALL_DIR"
 
 echo "🧬 Starting InGen..."
 echo ""
@@ -891,19 +1024,12 @@ main() {
     step_02_xcode_tools
     step_03_homebrew
     step_04_nodejs
+    # Ollama + AI models (install before configure so models are ready)
+    step_05_ollama
+    step_06_ai_models
     step_07_mcp_tooling
     step_08_install_app
     step_09_configure
-    # Ollama + AI models: only if user chose ollama or auto (set during step_09)
-    if [[ "${INGEN_LLM_PROVIDER:-auto}" != "bedrock" ]]; then
-        step_05_ollama
-        step_06_ai_models
-    else
-        print_step 5 "Ollama — SKIPPED (using Bedrock)"
-        step_done "step_05"
-        print_step 6 "AI Models — SKIPPED (using Bedrock)"
-        step_done "step_06"
-    fi
     step_10_org_tree
     step_11_verify
     step_12_desktop_shortcut

@@ -172,7 +172,7 @@ async function fullSync() {
             
             return await new Promise((resolve) => {
                 exec(
-                    `node "${syncScript}"`,
+                    `node --no-warnings "${syncScript}"`,
                     { cwd: process.cwd(), timeout: 300000, maxBuffer: 10 * 1024 * 1024 },
                     (error, stdout, stderr) => {
                         const elapsed = Math.round((Date.now() - startTime) / 1000);

@@ -5,6 +5,7 @@ const { exec } = require('child_process');
 const vectorStore = require('./vector-store'); // Added import
 const proactiveAgent = require('./proactive-agent'); // Added import
 const localStore = require('./local-store'); // Local data cache
+const ollamaClient = require('./ollama-client'); // Ollama availability check
 const issuesParser = require('./issues-parser'); // Issues folder parser
 const issuesStore = require('./issues-store'); // Issues SQLite store
 const slackAgent = require('./slack-agent'); // Slack DM agent
@@ -90,11 +91,18 @@ async function runSync() {
                     logger.info(`Fetched ${emails.length} raw items. Found ${newEmails.length} NEW emails.`);
 
                     if (newEmails.length > 0) {
-                        logger.info(`Ingesting ${newEmails.length} emails into Vector Store...`);
+                        // Guard: check if Ollama is reachable before attempting embeddings
+                        // This prevents hundreds of "fetch failed" errors on fresh installs
+                        const ollamaAvailable = await ollamaClient.ping();
+                        if (!ollamaAvailable) {
+                            logger.warn(`Ollama not reachable — skipping vector store ingestion for ${newEmails.length} emails (they are saved in local cache and will be embedded on next successful sync)`);
+                        } else {
+                            logger.info(`Ingesting ${newEmails.length} emails into Vector Store...`);
 
-                        // Process sequentially to be nice to Ollama
-                        for (const email of newEmails) {
-                            await vectorStore.ingestEmail(email);
+                            // Process sequentially to be nice to Ollama
+                            for (const email of newEmails) {
+                                await vectorStore.ingestEmail(email);
+                            }
                         }
                     } else {
                         logger.info('No new emails.');

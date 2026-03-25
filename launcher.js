@@ -105,7 +105,7 @@ function runFirstRunSync() {
     console.log('');
 
     try {
-        execSync(`node "${SYNC_SCRIPT}"`, {
+        execSync(`node --no-warnings "${SYNC_SCRIPT}"`, {
             cwd: __dirname,
             timeout: 300000, // 5 minute timeout
             maxBuffer: 10 * 1024 * 1024,
