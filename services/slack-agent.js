@@ -206,11 +206,12 @@ async function poll() {
         const newMessages = messages.filter(msg => {
             const msgTimestamp = getMsgTs(msg);
             const msgMs = toEpochMs(msgTimestamp);
+            const text = (msg.text || '').trim();
+            
             // Already processed this session?
             if (agentState.processedTs.has(msgTimestamp)) return false;
             // Must be newer than last watermark (epoch ms comparison)
             if (msgMs <= lastWatermarkMs) return false;
-            const text = (msg.text || '').trim();
             // THE KEY FILTER: only respond to "Hey InGen ..." messages
             if (!text.toLowerCase().startsWith(TRIGGER_PHRASE)) return false;
             // Skip system messages

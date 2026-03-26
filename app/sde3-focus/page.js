@@ -132,6 +132,26 @@ export default function SDE3FocusPage() {
         statusCounts[t.status] = (statusCounts[t.status] || 0) + 1;
     }));
 
+    // Calculate P50 (median) and P99 workload
+    const taskCounts = sde3s.map(s => s.tasks.length).sort((a, b) => a - b);
+    const p50Workload = taskCounts.length > 0
+        ? (taskCounts.length % 2 === 0
+            ? (taskCounts[taskCounts.length / 2 - 1] + taskCounts[taskCounts.length / 2]) / 2
+            : taskCounts[Math.floor(taskCounts.length / 2)])
+        : 0;
+
+    const p99Workload = taskCounts.length > 0
+        ? (() => {
+            const pos = 0.99 * (taskCounts.length - 1);
+            const base = Math.floor(pos);
+            const rest = pos - base;
+            if (taskCounts[base + 1] !== undefined) {
+                return taskCounts[base] + rest * (taskCounts[base + 1] - taskCounts[base]);
+            }
+            return taskCounts[base];
+        })()
+        : 0;
+
     // Sort SDE3s by task count (busiest first)
     const sortedSDE3s = [...sde3s].sort((a, b) => b.tasks.length - a.tasks.length);
     const maxTasks = sortedSDE3s.length > 0 ? sortedSDE3s[0].tasks.length : 1;
@@ -242,27 +262,41 @@ export default function SDE3FocusPage() {
                         </div>
                     </div>
 
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '16px', marginBottom: '28px' }}>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: '16px', marginBottom: '28px' }}>
                         <div style={{ background: 'rgba(22,22,30,0.6)', borderRadius: '16px', border: '1px solid rgba(255,255,255,0.06)', padding: '20px' }}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '12px' }}>
                                 <Users size={18} color="#6366f1" />
                                 <span style={{ fontSize: '12px', fontWeight: 700, color: 'rgba(255,255,255,0.35)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Senior Engineers</span>
                             </div>
-                            <div style={{ fontSize: '32px', fontWeight: 800, color: '#fff' }}>{sde3s.length}</div>
+                            <div style={{ fontSize: '30px', fontWeight: 800, color: '#fff' }}>{sde3s.length}</div>
                         </div>
                         <div style={{ background: 'rgba(22,22,30,0.6)', borderRadius: '16px', border: '1px solid rgba(255,255,255,0.06)', padding: '20px' }}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '12px' }}>
                                 <Target size={18} color="#a855f7" />
                                 <span style={{ fontSize: '12px', fontWeight: 700, color: 'rgba(255,255,255,0.35)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Active Tasks</span>
                             </div>
-                            <div style={{ fontSize: '32px', fontWeight: 800, color: '#fff' }}>{totalTasks}</div>
+                            <div style={{ fontSize: '30px', fontWeight: 800, color: '#fff' }}>{totalTasks}</div>
                         </div>
                         <div style={{ background: 'rgba(22,22,30,0.6)', borderRadius: '16px', border: '1px solid rgba(255,255,255,0.06)', padding: '20px' }}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '12px' }}>
                                 <BarChart3 size={18} color="#22c55e" />
                                 <span style={{ fontSize: '12px', fontWeight: 700, color: 'rgba(255,255,255,0.35)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Avg Load</span>
                             </div>
-                            <div style={{ fontSize: '32px', fontWeight: 800, color: '#fff' }}>{sde3s.length > 0 ? (totalTasks / sde3s.length).toFixed(1) : 0}</div>
+                            <div style={{ fontSize: '30px', fontWeight: 800, color: '#fff' }}>{sde3s.length > 0 ? (totalTasks / sde3s.length).toFixed(1) : 0}</div>
+                        </div>
+                        <div style={{ background: 'rgba(22,22,30,0.6)', borderRadius: '16px', border: '1px solid rgba(255,255,255,0.06)', padding: '20px' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '12px' }}>
+                                <Clock size={18} color="#eab308" />
+                                <span style={{ fontSize: '12px', fontWeight: 700, color: 'rgba(255,255,255,0.35)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>P50 Load</span>
+                            </div>
+                            <div style={{ fontSize: '30px', fontWeight: 800, color: '#fff' }}>{p50Workload.toFixed(1)}</div>
+                        </div>
+                        <div style={{ background: 'rgba(22,22,30,0.6)', borderRadius: '16px', border: '1px solid rgba(255,255,255,0.06)', padding: '20px' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '12px' }}>
+                                <AlertTriangle size={18} color="#f43f5e" />
+                                <span style={{ fontSize: '12px', fontWeight: 700, color: 'rgba(255,255,255,0.35)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>P99 Load</span>
+                            </div>
+                            <div style={{ fontSize: '30px', fontWeight: 800, color: '#fff' }}>{p99Workload.toFixed(1)}</div>
                         </div>
                     </div>
 
