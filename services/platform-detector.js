@@ -43,24 +43,12 @@ class PlatformDetector {
   /**
    * Get the appropriate Outlook service for this platform / deployment mode.
    *
-   * Priority:
-   *   1. deploymentMode === 'hosted'  → outlook-mcp.js  (aws-outlook-mcp)
-   *   2. Windows                      → outlook-windows.js
-   *   3. macOS                        → outlook-local.js  (AppleScript)
+   * Always uses aws-outlook-mcp (works on Mac, Windows, Linux, and AgentSpaces).
+   * Requires: aim mcp install aws-outlook-mcp
    */
   getOutlookService() {
-    if (this.isHostedMode()) {
-      logger.info('Hosted mode: routing Outlook to aws-outlook-mcp');
-      return require('./outlook-mcp');
-    }
-    if (this.isWindows) {
-      return require('./outlook-windows');
-    } else if (this.isMac) {
-      return require('./outlook-local');
-    } else {
-      logger.warn('Unsupported platform for Outlook integration:', this.platform);
-      throw new Error(`Outlook integration not supported on ${this.platform}`);
-    }
+    logger.info('Routing Outlook to aws-outlook-mcp');
+    return require('./outlook-mcp');
   }
 
   /**

@@ -15,7 +15,7 @@
   },
   "mcpServers": {
     "aws-outlook-mcp": {
-      "command": "",
+      "command": "aws-outlook-mcp",
       "args": [],
       "env": {}
     },

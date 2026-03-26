@@ -8,6 +8,31 @@ const logger = require('./logger').child('MCPClient');
 const clientCache = new Map();
 
 /**
+ * Find the direct .cjs entry point for a toolbox-installed MCP server.
+ * Prefers this over the wrapper binary which can hang on some systems.
+ * e.g. ~/.toolbox/tools/aws-outlook-mcp/0.3.1/aws-outlook-mcp.cjs
+ */
+function resolveToolboxCjs(homedir, binaryName) {
+    try {
+        const toolsDir = path.join(homedir, '.toolbox', 'tools', binaryName);
+        if (!fs.existsSync(toolsDir)) return [];
+        // Find all version dirs and return their .cjs paths, newest version first
+        const versions = fs.readdirSync(toolsDir)
+            .filter(d => /^\d/.test(d))
+            .sort()
+            .reverse();
+        const results = [];
+        for (const ver of versions) {
+            const cjsPath = path.join(toolsDir, ver, `${binaryName}.cjs`);
+            if (fs.existsSync(cjsPath)) results.push(cjsPath);
+        }
+        return results;
+    } catch {
+        return [];
+    }
+}
+
+/**
  * Resolve MCP server command path for the current platform.
  * If the configured path doesn't exist, try the platform-appropriate toolbox path.
  */
@@ -31,6 +56,9 @@ function resolveMCPCommand(serverName, configuredCommand) {
             path.join(homedir, 'AppData', 'Local', 'Toolbox', 'bin', `${binaryName}.exe`),
         ]
         : [
+            // Prefer direct .cjs entry point — avoids the wrapper binary which can hang
+            // (glob: ~/.toolbox/tools/<name>/*/name.cjs)
+            ...resolveToolboxCjs(homedir, binaryName),
             path.join(homedir, '.toolbox', 'bin', binaryName),
             path.join(homedir, '.aim', 'mcp-servers', binaryName),
             `/opt/homebrew/bin/${binaryName}`,
@@ -38,7 +66,7 @@ function resolveMCPCommand(serverName, configuredCommand) {
         ];
     
     for (const candidate of candidates) {
-        if (fs.existsSync(candidate)) {
+        if (candidate && fs.existsSync(candidate)) {
             logger.info(`MCP ${serverName}: resolved path ${configuredCommand} → ${candidate}`);
             return candidate;
         }

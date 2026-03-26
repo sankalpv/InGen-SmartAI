@@ -1,16 +1,25 @@
 /**
- * Outlook MCP Service — Hosted/AgentSpaces mode
+ * Outlook MCP Service — works on Mac, Windows, and AgentSpaces
  *
  * Wraps the `aws-outlook-mcp` MCP server to provide the same interface as
  * `outlook-local.js` (AppleScript) and `outlook-windows.js` (PowerShell).
- * Used automatically when deploymentMode === 'hosted' in config/settings.json.
  *
  * Install: aim mcp install aws-outlook-mcp
- * Docs:    https://specs.harmony.a2z.com/package/0a29d4b1-1d59-4b3e-b7de-79b052a31a1e
+ * Docs:    https://code.amazon.com/packages/AWSOutlookMCP
+ *
+ * aws-outlook-mcp tool names (v0.3.1):
+ *   email_inbox, email_read, email_send, email_reply, email_forward,
+ *   email_search, email_folders, email_draft, email_attachments,
+ *   email_contacts, email_move, email_categories, email_update,
+ *   email_list_folders, calendar_view, calendar_meeting,
+ *   calendar_availability, calendar_room_booking, calendar_search,
+ *   calendar_shared_list, todo_lists, todo_tasks, todo_checklist
+ *
+ * Response envelope (double-wrapped):
+ *   MCP result.content[0].text  →  JSON.parse  →  outer.content[0].text
+ *   →  JSON.parse  →  { success, content: { emails/events/... } }
  */
 
-import { createRequire } from 'module';
-const require = createRequire(import.meta.url);
 const mcpClient = require('./mcp-client');
 const logger = require('./logger').child('Outlook-MCP');
 
@@ -22,16 +31,15 @@ const SERVER = 'aws-outlook-mcp';
  * Fetch emails via aws-outlook-mcp.
  * Returns normalized email objects matching the outlook-local.js format.
  */
-export async function fetchOutlookEmails(count = 20) {
+async function fetchOutlookEmails(count = 20) {
     logger.info(`[MCP] Fetching ${count} emails via ${SERVER}`);
     try {
-        const result = await mcpClient.callTool(SERVER, 'list_emails', {
+        const result = await mcpClient.callTool(SERVER, 'email_inbox', {
             maxResults: count,
-            folder: 'Inbox',
         });
 
-        const raw = extractContent(result);
-        const emails = Array.isArray(raw) ? raw : (raw?.emails || raw?.value || []);
+        const data = extractContent(result);
+        const emails = data?.emails || data?.value || (Array.isArray(data) ? data : []);
 
         return emails.map(normalizeEmail).filter(Boolean);
     } catch (error) {
@@ -55,7 +63,7 @@ export async function fetchOutlookEmails(count = 20) {
  * Fetch calendar events via aws-outlook-mcp.
  * Returns normalized event objects matching the outlook-local.js format.
  */
-export async function fetchOutlookCalendar(calendarId, lookbackDays = 30, forwardDays = 3) {
+async function fetchOutlookCalendar(calendarId, lookbackDays = 30, forwardDays = 3) {
     logger.info(`[MCP] Fetching calendar events via ${SERVER} (${lookbackDays}d back, ${forwardDays}d forward)`);
     try {
         const now = new Date();
@@ -64,14 +72,14 @@ export async function fetchOutlookCalendar(calendarId, lookbackDays = 30, forwar
         const end = new Date(now);
         end.setDate(end.getDate() + forwardDays);
 
-        const result = await mcpClient.callTool(SERVER, 'list_calendar_events', {
+        const result = await mcpClient.callTool(SERVER, 'calendar_view', {
             startDateTime: start.toISOString(),
             endDateTime: end.toISOString(),
             maxResults: 100,
         });
 
-        const raw = extractContent(result);
-        const events = Array.isArray(raw) ? raw : (raw?.events || raw?.value || []);
+        const data = extractContent(result);
+        const events = data?.events || data?.value || (Array.isArray(data) ? data : []);
 
         const normalized = events.map(normalizeCalendarEvent).filter(Boolean);
 
@@ -92,19 +100,19 @@ export async function fetchOutlookCalendar(calendarId, lookbackDays = 30, forwar
 /**
  * Clear calendar cache (no-op for MCP — no local cache maintained).
  */
-export function clearCalendarCache() {
+function clearCalendarCache() {
     // MCP calls are stateless; nothing to clear
 }
 
 /**
  * Get list of available calendars via aws-outlook-mcp.
  */
-export async function getCalendarList() {
+async function getCalendarList() {
     logger.info(`[MCP] Fetching calendar list via ${SERVER}`);
     try {
-        const result = await mcpClient.callTool(SERVER, 'list_calendars', {});
-        const raw = extractContent(result);
-        const calendars = Array.isArray(raw) ? raw : (raw?.calendars || raw?.value || []);
+        const result = await mcpClient.callTool(SERVER, 'calendar_shared_list', {});
+        const data = extractContent(result);
+        const calendars = data?.calendars || data?.value || (Array.isArray(data) ? data : []);
         return calendars.map(c => ({
             id: c.id || c.calendarId || '',
             name: c.name || c.displayName || 'Unknown',
@@ -118,45 +126,100 @@ export async function getCalendarList() {
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 /**
- * Extract content from MCP tool result (handles both direct arrays and
- * the {content: [{type:'text', text:'...'}]} envelope from the MCP SDK).
+ * Extract the actual data payload from an aws-outlook-mcp response.
+ *
+ * The response is double-wrapped:
+ *   result  (MCP SDK CallToolResult)
+ *     .content[0].text  →  JSON string  →  outer
+ *       outer.content[0].text  →  JSON string  →  inner
+ *         inner.content  →  { emails: [...] }  or  { events: [...] }  etc.
+ *
+ * Falls back gracefully at each layer.
  */
 function extractContent(result) {
-    if (!result) return [];
-    // MCP SDK wraps results in {content: [{type:'text', text:'...'}]}
-    if (result.content && Array.isArray(result.content)) {
-        for (const item of result.content) {
-            if (item.type === 'text' && item.text) {
-                try {
-                    return JSON.parse(item.text);
-                } catch {
-                    return item.text;
+    if (!result) return null;
+
+    try {
+        // Layer 1: MCP SDK envelope  {content: [{type:'text', text:'...'}]}
+        let text1 = null;
+        if (result.content && Array.isArray(result.content)) {
+            for (const item of result.content) {
+                if (item.type === 'text' && item.text) { text1 = item.text; break; }
+            }
+        } else if (typeof result === 'string') {
+            text1 = result;
+        }
+
+        if (!text1) return result;
+
+        const outer = JSON.parse(text1);
+
+        // Layer 2: aws-outlook-mcp may itself be an MCP relay wrapping another envelope
+        if (outer.content && Array.isArray(outer.content)) {
+            for (const item of outer.content) {
+                if (item.type === 'text' && item.text) {
+                    try {
+                        const inner = JSON.parse(item.text);
+                        // inner = { success: true, content: { emails: [...] } }
+                        if (inner.content && typeof inner.content === 'object' && !Array.isArray(inner.content)) {
+                            return inner.content;
+                        }
+                        return inner;
+                    } catch {
+                        return item.text;
+                    }
                 }
             }
         }
+
+        // outer itself is the payload (some tool versions return unwrapped)
+        if (outer.success && outer.content) return outer.content;
+        return outer;
+    } catch {
+        return result;
     }
-    // Direct result (some servers return unwrapped)
-    return result;
 }
 
 /**
- * Normalize a raw aws-outlook-mcp email object to InGen's internal format.
+ * Normalize a raw aws-outlook-mcp inbox conversation/email object to InGen's internal format.
+ *
+ * email_inbox returns conversation objects:
+ *   { conversationId, topic, senders[], lastDeliveryTime, preview, unreadCount, hasAttachments }
  */
 function normalizeEmail(raw) {
     if (!raw) return null;
     try {
+        // email_inbox returns conversations; email_read returns full messages
+        const isConversation = raw.topic !== undefined || raw.senders !== undefined;
+
+        const subject = raw.subject || raw.topic || '(No Subject)';
+        const dateStr = raw.receivedDateTime || raw.lastDeliveryTime || raw.date || new Date().toISOString();
+        const isUnread = isConversation
+            ? (raw.unreadCount > 0)
+            : (raw.isRead === false || raw.isUnread === true);
+
+        // Senders can be a string array (conversation) or email address object (message)
+        let from = { name: 'Unknown', email: '' };
+        if (isConversation && Array.isArray(raw.senders) && raw.senders.length > 0) {
+            from = { name: raw.senders[0], email: '' };
+        } else if (raw.from) {
+            from = parseAddress(raw.from?.emailAddress || raw.from);
+        } else if (raw.sender) {
+            from = parseAddress(raw.sender);
+        }
+
         return {
-            id: raw.id || raw.messageId || String(Math.random()),
+            id: raw.id || raw.messageId || raw.conversationId || String(Math.random()),
             source: 'outlook',
-            subject: raw.subject || '(No Subject)',
-            snippet: raw.bodyPreview || raw.snippet || '',
-            body: raw.body?.content || raw.bodyContent || raw.bodyPreview || '',
-            date: raw.receivedDateTime || raw.date || new Date().toISOString(),
-            isUnread: raw.isRead === false || raw.isUnread === true,
+            subject,
+            snippet: raw.bodyPreview || raw.preview || raw.snippet || '',
+            body: raw.body?.content || raw.bodyContent || raw.bodyPreview || raw.preview || '',
+            date: dateStr,
+            isUnread,
             labels: raw.importance === 'high' ? ['important'] : [],
             isSent: raw.isSent || false,
             folder: raw.parentFolderName || raw.folder || 'Inbox',
-            from: parseAddress(raw.from?.emailAddress || raw.from || raw.sender),
+            from,
             to: (raw.toRecipients || raw.to || []).map(r =>
                 parseAddress(r.emailAddress || r)
             ),
@@ -212,3 +275,10 @@ function parseAddress(addr) {
         email: addr.address || addr.email || '',
     };
 }
+
+module.exports = {
+    fetchOutlookEmails,
+    fetchOutlookCalendar,
+    clearCalendarCache,
+    getCalendarList,
+};
