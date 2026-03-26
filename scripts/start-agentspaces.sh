@@ -7,14 +7,15 @@
 # This script is called by the AgentSpaces deep link initial prompt.
 # It sets up and starts InGen in hosted mode on an AgentSpace VM.
 #
-# ── One-click share URL (zero typing required) ──
-# Uses sh -c '...' so the agent treats it as a single atomic command
-# without pausing to ask questions between steps.
+# ── One-click share URL ──
+# Natural-language prompt so Kiro clones first (trusted), then runs the
+# local script (already in workspace = trusted). Tested and confirmed working.
 #
-# https://agentspaces.amazon.dev/app?mode=CODE&blueprint=AgentSpacesEmptyBlueprintProd&spaceName=InGen&initialPrompt=sh+-c+'git+clone+ssh://git.amazon.com/pkg/InGen-SmartAI+~/.workspace/src/InGen-SmartAI+2>/dev/null;+bash+~/.workspace/src/InGen-SmartAI/scripts/start-agentspaces.sh'
+# PRIMARY (share this link):
+# https://agentspaces.amazon.dev/app/?mode=CODE&blueprint=AgentSpacesEmptyBlueprintProd&spaceName=InGen&initialPrompt=Clone+InGen-SmartAI+from+ssh%3A%2F%2Fgit.amazon.com%2Fpkg%2FInGen-SmartAI+into+%7E%2F.workspace%2Fsrc%2FInGen-SmartAI%2C+then+run+the+setup+script+at+%7E%2F.workspace%2Fsrc%2FInGen-SmartAI%2Fscripts%2Fstart-agentspaces.sh
 #
-# URL-encoded version (paste into browser):
-# https://agentspaces.amazon.dev/app?mode=CODE&blueprint=AgentSpacesEmptyBlueprintProd&spaceName=InGen&initialPrompt=sh+-c+%27git+clone+ssh%3A%2F%2Fgit.amazon.com%2Fpkg%2FInGen-SmartAI+%7E%2F.workspace%2Fsrc%2FInGen-SmartAI+2%3E%2Fdev%2Fnull%3B+bash+%7E%2F.workspace%2Fsrc%2FInGen-SmartAI%2Fscripts%2Fstart-agentspaces.sh%27
+# FALLBACK (if Kiro blocks — Blueprint startup script runs automatically):
+# https://devspaces.amazon.dev/blueprints/InGen-SmartAI  →  click "Create DevSpace"
 
 set -e
 
