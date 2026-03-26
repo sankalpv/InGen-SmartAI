@@ -7,11 +7,11 @@
 # This script is called by the AgentSpaces deep link initial prompt.
 # It sets up and starts InGen in hosted mode on an AgentSpace VM.
 #
-# Deep link usage:
-#   https://agentspaces.amazon.dev/app?mode=CODE
-#     &blueprint=InGen-SmartAI
-#     &spaceName=InGen
-#     &initialPrompt=Run+~/.workspace/src/InGen-SmartAI/scripts/start-agentspaces.sh
+# ── One-click share URL (zero typing required) ──
+# https://agentspaces.amazon.dev/app?mode=CODE&blueprint=AgentSpacesEmptyBlueprintProd&spaceName=InGen&initialPrompt=git+clone+ssh%3A%2F%2Fgit.amazon.com%2Fpkg%2FInGen-SmartAI+%7E%2F.workspace%2Fsrc%2FInGen-SmartAI+%26%26+bash+%7E%2F.workspace%2Fsrc%2FInGen-SmartAI%2Fscripts%2Fstart-agentspaces.sh
+#
+# If the workspace already has the repo (re-launch):
+#   https://agentspaces.amazon.dev/app?mode=CODE&blueprint=AgentSpacesEmptyBlueprintProd&spaceName=InGen&initialPrompt=bash+~/.workspace/src/InGen-SmartAI/scripts/start-agentspaces.sh
 
 set -e
 
@@ -54,6 +54,9 @@ cd "$INSTALL_DIR"
 # ── Step 2: Install dependencies ──
 echo ""
 echo -e "${BOLD}Step 2: Installing dependencies...${NC}"
+# hnswlib-node and sqlite3 require Python distutils (missing on AL2023).
+# Install setuptools first so node-gyp can compile native addons.
+pip3 install setuptools --quiet 2>/dev/null || true
 npm install 2>&1 | tail -3
 echo -e "  ${GREEN}✅${NC} Dependencies installed"
 
@@ -178,12 +181,22 @@ for i in $(seq 1 30); do
     sleep 2
 done
 
+# ── Compute external proxy URL ──
+DEVSPACE_ID=$(cat /etc/devspace/id 2>/dev/null || echo "")
+DEVSPACE_REGION=$(cat /etc/devspace/region 2>/dev/null || echo "us-west-2")
+if [ -n "$DEVSPACE_ID" ]; then
+    INGEN_URL="https://${DEVSPACE_ID}--3000.${DEVSPACE_REGION}.prod.proxy.devspaces.amazon.dev/"
+else
+    INGEN_URL="http://localhost:3000"
+fi
+
 echo ""
 echo -e "${BOLD}╔══════════════════════════════════════════════════╗${NC}"
 echo -e "${BOLD}║     🎉 InGen is running!                         ║${NC}"
 echo -e "${BOLD}╚══════════════════════════════════════════════════╝${NC}"
 echo ""
-echo -e "  ${CYAN}Access InGen at: http://localhost:3000${NC}"
+echo -e "  ${CYAN}${BOLD}Open InGen in your browser:${NC}"
+echo -e "  ${CYAN}${INGEN_URL}${NC}"
 echo ""
 echo -e "  ${BOLD}Available pages:${NC}"
 echo -e "    • Agent Workspace   — AI agent with MCP tools"
