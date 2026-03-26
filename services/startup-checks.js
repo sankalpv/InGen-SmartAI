@@ -241,14 +241,22 @@ async function runAll() {
         if (fs.existsSync(settingsPath)) {
             const settings = JSON.parse(fs.readFileSync(settingsPath, 'utf8'));
             const mcpServers = settings.mcpServers || {};
+            // Use mcp-client's resolver so bare names like "aws-outlook-mcp" are found
+            let mcpClientResolve = null;
+            try {
+                mcpClientResolve = require('./mcp-client').getMCPConfig;
+            } catch { /* mcp-client unavailable */ }
+            const resolvedConfig = mcpClientResolve ? mcpClientResolve() : null;
             for (const [name, config] of Object.entries(mcpServers)) {
                 if (config.command) {
-                    const exists = fs.existsSync(config.command);
+                    // Prefer resolved path from mcp-client if available
+                    const resolvedCmd = resolvedConfig?.[name]?.command || config.command;
+                    const exists = fs.existsSync(resolvedCmd);
                     results.push({
                         name: `MCP server: ${name}`,
                         severity: 'warning',
                         ok: exists,
-                        fix: `Binary not found at ${config.command}. Install via Amazon Toolbox or update path in Settings.`,
+                        fix: `Binary not found at ${resolvedCmd}. Install via: aim mcp install ${name}`,
                     });
                 }
             }
