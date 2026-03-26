@@ -8,7 +8,10 @@
 # It sets up and starts InGen in hosted mode on an AgentSpace VM.
 #
 # ── One-click share URL (zero typing required) ──
-# https://agentspaces.amazon.dev/app?mode=CODE&blueprint=AgentSpacesEmptyBlueprintProd&spaceName=InGen&initialPrompt=git+clone+ssh%3A%2F%2Fgit.amazon.com%2Fpkg%2FInGen-SmartAI+%7E%2F.workspace%2Fsrc%2FInGen-SmartAI+%26%26+bash+%7E%2F.workspace%2Fsrc%2FInGen-SmartAI%2Fscripts%2Fstart-agentspaces.sh
+# Uses curl|bash so the agent runs it as a single atomic shell command
+# without pausing to ask questions between steps.
+#
+# https://agentspaces.amazon.dev/app?mode=CODE&blueprint=AgentSpacesEmptyBlueprintProd&spaceName=InGen&initialPrompt=curl+-fsSL+https%3A%2F%2Fraw.githubusercontent.com%2Fsankalpv%2FInGen-SmartAI%2Fmainline%2Fscripts%2Fstart-agentspaces.sh+%7C+bash
 #
 # If the workspace already has the repo (re-launch):
 #   https://agentspaces.amazon.dev/app?mode=CODE&blueprint=AgentSpacesEmptyBlueprintProd&spaceName=InGen&initialPrompt=bash+~/.workspace/src/InGen-SmartAI/scripts/start-agentspaces.sh
