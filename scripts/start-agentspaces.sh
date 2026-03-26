@@ -42,10 +42,7 @@ echo ""
 # ── Step 1: Clone if not already present ──
 if [ ! -f "$INSTALL_DIR/package.json" ]; then
     echo -e "${BOLD}Step 1: Cloning InGen...${NC}"
-    git clone ssh://git.amazon.com/pkg/InGen-SmartAI "$INSTALL_DIR" 2>&1 || {
-        echo -e "  ${YELLOW}⚠️${NC}  code.amazon.com clone failed. Trying GitHub..."
-        git clone https://github.com/sankalpv/InGen-SmartAI.git "$INSTALL_DIR" 2>&1
-    }
+    git clone ssh://git.amazon.com/pkg/InGen-SmartAI "$INSTALL_DIR"
     echo -e "  ${GREEN}✅${NC} Cloned to $INSTALL_DIR"
 else
     echo -e "${BOLD}Step 1: InGen source already present${NC}"
