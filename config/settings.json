@@ -47,6 +47,7 @@
     "title": "Classification and Policy Platform - 2026 Goals and Projects Status",
     "staleAnnouncementDays": 6
   },
+  "bedrockBearerToken": "",
   "aiTemperature": 0.05,
   "bedrock": {
     "region": "us-west-2",

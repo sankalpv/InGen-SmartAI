@@ -34,6 +34,13 @@ function getConfig() {
 }
 
 function getBearerToken() {
+    // Priority: settings.json → env var
+    try {
+        const settings = JSON.parse(fs.readFileSync(SETTINGS_PATH, 'utf8'));
+        if (settings.bedrockBearerToken && settings.bedrockBearerToken.trim()) {
+            return settings.bedrockBearerToken.trim();
+        }
+    } catch (e) { /* settings not available */ }
     return process.env.AWS_BEARER_TOKEN_BEDROCK || null;
 }
 

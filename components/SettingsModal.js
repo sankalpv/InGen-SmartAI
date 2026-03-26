@@ -8,6 +8,7 @@ export default function SettingsModal({ isOpen, onClose }) {
     const [selectedId, setSelectedId] = useState('');
     const [promptUrl, setPromptUrl] = useState('');
     const [ignoreExternal, setIgnoreExternal] = useState(false);
+    const [bedrockBearerToken, setBedrockBearerToken] = useState('');
     const [logUploadUrl, setLogUploadUrl] = useState('');
     const [isUploadingLogs, setIsUploadingLogs] = useState(false);
     const [logUploadStatus, setLogUploadStatus] = useState(null);
@@ -30,6 +31,7 @@ export default function SettingsModal({ isOpen, onClose }) {
             const configData = await configRes.json();
             setPromptUrl(configData.promptUpdateUrl || '');
             setIgnoreExternal(configData.ignoreExternalEmails === true);
+            setBedrockBearerToken(configData.bedrockBearerToken || '');
             setLogUploadUrl(configData.logUploadUrl || '');
 
             const calRes = await fetch('/api/settings/calendars');
@@ -56,6 +58,7 @@ export default function SettingsModal({ isOpen, onClose }) {
                     outlookCalendarId: selectedId,
                     promptUpdateUrl: promptUrl,
                     ignoreExternalEmails: ignoreExternal,
+                    bedrockBearerToken: bedrockBearerToken,
                     logUploadUrl: logUploadUrl
                 })
             });
@@ -246,6 +249,32 @@ export default function SettingsModal({ isOpen, onClose }) {
                             <AlertTriangle size={12} /> Failed — check URL
                         </div>
                     )}
+                </div>
+
+                {/* Bedrock API Key */}
+                <div style={{ marginBottom: '24px' }}>
+                    {sectionTitle('🔑', 'Bedrock API Key')}
+                    <div>
+                        <label style={{ fontSize: '11px', fontWeight: 600, color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '4px', display: 'block' }}>
+                            ABSK Bearer Token
+                        </label>
+                        <input
+                            type="password"
+                            value={bedrockBearerToken}
+                            onChange={(e) => setBedrockBearerToken(e.target.value)}
+                            placeholder="Paste your Bedrock API key (ABSK)…"
+                            style={inputStyle}
+                        />
+                        <div style={{ marginTop: '6px', fontSize: '11px', color: 'var(--text-tertiary)', lineHeight: '1.5' }}>
+                            Generate at{' '}
+                            <a href="https://us-west-2.console.aws.amazon.com/bedrock/home?region=us-west-2#/api-keys"
+                                target="_blank" rel="noreferrer"
+                                style={{ color: '#a78bfa', textDecoration: 'none' }}>
+                                Bedrock Console → API Keys
+                            </a>
+                            {' '}· Never expires · Saved to settings.json
+                        </div>
+                    </div>
                 </div>
 
                 {/* Diagnostics */}
