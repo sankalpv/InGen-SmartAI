@@ -56,16 +56,14 @@ function filterMeetingsToToday(meetings) {
 const OLLAMA_MODEL = process.env.LLM_MODEL || process.env.OLLAMA_MODEL || 'qwen3:latest';
 const OLLAMA_BASE_URL = process.env.OLLAMA_BASE_URL || 'http://127.0.0.1:11434';
 
-// Windows-only: Bedrock routing for streaming
-const IS_WINDOWS_STREAM = process.platform === 'win32';
+// Bedrock routing for streaming — all platforms (Mac, Windows, AgentSpaces)
 let _bedrockStream = null;
 let _useBedrockStream = false;
-if (IS_WINDOWS_STREAM) {
-    try {
-        _bedrockStream = require('./bedrock-client');
-        _useBedrockStream = _bedrockStream.isAvailable();
-    } catch (e) { /* Bedrock not available */ }
-}
+try {
+    _bedrockStream = require('./bedrock-client');
+    _useBedrockStream = _bedrockStream.isAvailable();
+    if (_useBedrockStream) logger.info('Bedrock streaming available — will use as primary LLM');
+} catch (e) { /* Bedrock not available, will use Ollama */ }
 
 function getAiTemperature() {
     try {
@@ -88,7 +86,7 @@ export async function streamCompletion(systemPrompt, userPrompt, onChunk, option
     const configTemp = getAiTemperature();
     const { temperature = configTemp, jsonMode = false } = options;
 
-    // ─── Windows: Route through Bedrock streaming if available ───
+    // ─── Bedrock streaming if available (all platforms) ───
     if (_useBedrockStream && _bedrockStream) {
         try {
             logger.info('[Bedrock] Streaming completion via Claude...');
