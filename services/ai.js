@@ -6,20 +6,21 @@ const promptLoader = require('./prompt-loader');
 const quipFetcher = require('./quip-fetcher');
 // import vectorStore from './vector-store.js'; // Lazy loaded instead
 
-// Configuration — Ollama for Mac, Bedrock for Windows (when available)
+// Configuration
 const OLLAMA_MODEL = process.env.LLM_MODEL || process.env.OLLAMA_MODEL || 'qwen3:latest';
 const OLLAMA_BASE_URL = process.env.OLLAMA_BASE_URL || 'http://127.0.0.1:11434';
 
-// Windows-only: Bedrock routing
-const IS_WINDOWS_AI = process.platform === 'win32';
+// Bedrock: available on all platforms (Mac, Windows, AgentSpaces)
 let _bedrockClient = null;
 let _useBedrockAI = false;
-if (IS_WINDOWS_AI) {
-    try {
-        _bedrockClient = require('./bedrock-client');
-        _useBedrockAI = _bedrockClient.isAvailable();
-    } catch (e) { /* Bedrock not available */ }
-}
+try {
+    _bedrockClient = require('./bedrock-client');
+    _useBedrockAI = _bedrockClient.isAvailable();
+    if (_useBedrockAI) {
+        const _logger = require('./logger').child('AI');
+        _logger.info('Bedrock client available — will use as primary LLM');
+    }
+} catch (e) { /* Bedrock not available, fall back to Ollama */ }
 
 // SYSTEM_PROMPT is now loaded from config/prompts.json via prompt-loader (hot-reloadable)
 function getSystemPrompt() {

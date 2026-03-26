@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { Cloud, Cpu, ExternalLink, CheckCircle2, User, FileText, Sun, Moon, Database, Download, Shield, Trash2, HardDrive } from 'lucide-react';
+import { Cloud, Cpu, ExternalLink, CheckCircle2, User, FileText, Sun, Moon, Database, Download, Shield, Trash2, HardDrive, Zap } from 'lucide-react';
 import { useTheme } from '@/components/ThemeProvider';
 
 export default function SettingsPage() {
@@ -58,6 +58,16 @@ export default function SettingsPage() {
     const [dataAudit, setDataAudit] = useState(null);
     const [clearingData, setClearingData] = useState(false);
     const [clearMessage, setClearMessage] = useState('');
+
+    // AI Provider / Bedrock state
+    const [bedrockSettings, setBedrockSettings] = useState({
+        region: 'us-west-2',
+        modelId: 'us.anthropic.claude-sonnet-4-20250514-v1:0',
+        maxTokens: 8192,
+    });
+    const [bedrockLoading, setBedrockLoading] = useState(true);
+    const [bedrockSaving, setBedrockSaving] = useState(false);
+    const [bedrockMessage, setBedrockMessage] = useState('');
     
     // Load settings on mount
     useEffect(() => {
@@ -69,6 +79,7 @@ export default function SettingsPage() {
         fetchWbrSettings();
         fetchOrgStatus();
         fetchBulkStatus();
+        fetchBedrockSettings();
     }, []);
 
     async function fetchPhonetoolAlias() {
@@ -336,6 +347,46 @@ export default function SettingsPage() {
             const res = await fetch('/api/settings/data-audit');
             if (res.ok) { const data = await res.json(); setDataAudit(data); }
         } catch (e) { console.error('Data audit fetch failed:', e); }
+    }
+
+    async function fetchBedrockSettings() {
+        try {
+            const res = await fetch('/api/settings/config');
+            const data = await res.json();
+            if (data.bedrock) {
+                setBedrockSettings({
+                    region: data.bedrock.region || 'us-west-2',
+                    modelId: data.bedrock.modelId || 'us.anthropic.claude-sonnet-4-20250514-v1:0',
+                    maxTokens: data.bedrock.maxTokens || 8192,
+                });
+            }
+        } catch (error) {
+            console.error('Failed to load Bedrock settings:', error);
+        } finally {
+            setBedrockLoading(false);
+        }
+    }
+
+    async function saveBedrockSettings() {
+        setBedrockSaving(true);
+        setBedrockMessage('');
+        try {
+            const res = await fetch('/api/settings/config', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ bedrock: bedrockSettings })
+            });
+            if (res.ok) {
+                setBedrockMessage('✅ Bedrock settings saved. Restart the app for changes to take effect.');
+                setTimeout(() => setBedrockMessage(''), 5000);
+            } else {
+                setBedrockMessage('❌ Failed to save Bedrock settings');
+            }
+        } catch (error) {
+            setBedrockMessage('❌ Failed to save Bedrock settings');
+        } finally {
+            setBedrockSaving(false);
+        }
     }
 
     async function clearLocalData() {
@@ -1077,6 +1128,100 @@ export default function SettingsPage() {
                         textAlign: 'center'
                     }}>
                         {aiTempMessage}
+                    </div>
+                )}
+            </div>
+
+            {/* AI Provider Section */}
+            <div className="settings-section">
+                <div className="settings-section-title">
+                    <Zap size={20} />
+                    AI Provider
+                </div>
+
+                <div style={{
+                    padding: '12px 16px', borderRadius: '10px', marginBottom: '16px',
+                    background: 'rgba(99, 102, 241, 0.06)', border: '1px solid rgba(99, 102, 241, 0.2)',
+                    fontSize: '0.85rem', color: 'var(--text-secondary)', lineHeight: 1.6,
+                }}>
+                    ⚡ <strong>AWS Bedrock</strong> is the default AI provider (Claude via your Amazon credentials). Ollama is used as a local fallback if Bedrock is unavailable.
+                </div>
+
+                <div className="settings-card" style={{ display: 'flex', gap: '16px', flexWrap: 'wrap' }}>
+                    <div style={{ flex: '2 1 60%', minWidth: '220px' }}>
+                        <h3 style={{ fontSize: '0.95rem', marginBottom: '8px' }}>Model ID</h3>
+                        <input
+                            type="text"
+                            value={bedrockSettings.modelId}
+                            onChange={(e) => setBedrockSettings({ ...bedrockSettings, modelId: e.target.value })}
+                            disabled={bedrockLoading}
+                            placeholder="us.anthropic.claude-sonnet-4-20250514-v1:0"
+                            style={{
+                                width: '100%', padding: '8px 12px', borderRadius: '6px',
+                                border: '1px solid var(--glass-border)', background: 'var(--bg-secondary)',
+                                color: 'var(--text-primary)', fontSize: '0.85rem', fontFamily: 'monospace'
+                            }}
+                        />
+                        <span style={{ fontSize: '0.7rem', color: 'var(--text-tertiary)', marginTop: '4px', display: 'block' }}>
+                            Cross-region inference prefix (us.) recommended
+                        </span>
+                    </div>
+                    <div style={{ flex: '1 1 30%', minWidth: '160px' }}>
+                        <h3 style={{ fontSize: '0.95rem', marginBottom: '8px' }}>AWS Region</h3>
+                        <input
+                            type="text"
+                            value={bedrockSettings.region}
+                            onChange={(e) => setBedrockSettings({ ...bedrockSettings, region: e.target.value })}
+                            disabled={bedrockLoading}
+                            placeholder="us-west-2"
+                            style={{
+                                width: '100%', padding: '8px 12px', borderRadius: '6px',
+                                border: '1px solid var(--glass-border)', background: 'var(--bg-secondary)',
+                                color: 'var(--text-primary)', fontSize: '0.9rem'
+                            }}
+                        />
+                    </div>
+                </div>
+
+                <div className="settings-card">
+                    <div className="settings-card-text" style={{ width: '100%' }}>
+                        <h3 style={{ fontSize: '0.95rem', marginBottom: '8px' }}>
+                            Max Tokens: <strong style={{ color: 'var(--accent-purple)' }}>{bedrockSettings.maxTokens.toLocaleString()}</strong>
+                        </h3>
+                        <input
+                            type="range"
+                            min="1024"
+                            max="32768"
+                            step="1024"
+                            value={bedrockSettings.maxTokens}
+                            onChange={(e) => setBedrockSettings({ ...bedrockSettings, maxTokens: parseInt(e.target.value) })}
+                            disabled={bedrockLoading}
+                            style={{ width: '100%', cursor: 'pointer' }}
+                        />
+                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', color: 'var(--text-tertiary)', marginTop: '4px' }}>
+                            <span>1K (fast)</span>
+                            <span>32K (detailed)</span>
+                        </div>
+                    </div>
+                </div>
+
+                <button
+                    className="btn btn-primary"
+                    onClick={saveBedrockSettings}
+                    disabled={bedrockSaving || bedrockLoading}
+                    style={{ width: '100%', marginTop: '8px' }}
+                >
+                    {bedrockSaving ? 'Saving...' : 'Save Bedrock Settings'}
+                </button>
+
+                {bedrockMessage && (
+                    <div style={{
+                        padding: '12px', marginTop: '12px', borderRadius: '8px',
+                        background: bedrockMessage.includes('✅') ? 'rgba(34, 197, 94, 0.1)' : 'rgba(239, 68, 68, 0.1)',
+                        border: `1px solid ${bedrockMessage.includes('✅') ? 'rgba(34, 197, 94, 0.3)' : 'rgba(239, 68, 68, 0.3)'}`,
+                        fontSize: '0.9rem', textAlign: 'center'
+                    }}>
+                        {bedrockMessage}
                     </div>
                 )}
             </div>
