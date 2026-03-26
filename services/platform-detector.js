@@ -5,6 +5,7 @@
 
 const os = require('os');
 const path = require('path');
+const fs = require('fs');
 const logger = require('./logger').child('Platform');
 
 class PlatformDetector {
@@ -18,9 +19,40 @@ class PlatformDetector {
   }
 
   /**
-   * Get the appropriate Outlook service for this platform
+   * Read deploymentMode from settings.json (cached per process).
+   */
+  _getDeploymentMode() {
+    if (this._deploymentMode !== undefined) return this._deploymentMode;
+    try {
+      const settingsPath = path.join(__dirname, '..', 'config', 'settings.json');
+      const settings = JSON.parse(fs.readFileSync(settingsPath, 'utf8'));
+      this._deploymentMode = settings.deploymentMode || 'local';
+    } catch (e) {
+      this._deploymentMode = 'local';
+    }
+    return this._deploymentMode;
+  }
+
+  /**
+   * Returns true when running in AgentSpaces / hosted cloud mode.
+   */
+  isHostedMode() {
+    return this._getDeploymentMode() === 'hosted';
+  }
+
+  /**
+   * Get the appropriate Outlook service for this platform / deployment mode.
+   *
+   * Priority:
+   *   1. deploymentMode === 'hosted'  → outlook-mcp.js  (aws-outlook-mcp)
+   *   2. Windows                      → outlook-windows.js
+   *   3. macOS                        → outlook-local.js  (AppleScript)
    */
   getOutlookService() {
+    if (this.isHostedMode()) {
+      logger.info('Hosted mode: routing Outlook to aws-outlook-mcp');
+      return require('./outlook-mcp');
+    }
     if (this.isWindows) {
       return require('./outlook-windows');
     } else if (this.isMac) {
