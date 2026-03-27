@@ -1,5 +1,5 @@
 import { mockMeetings } from '@/services/mock-data';
-import { fetchOutlookCalendar } from '@/services/outlook-local';
+import { fetchOutlookCalendar } from '@/services/outlook-mcp';
 import { NextResponse } from 'next/server';
 import { createRequire } from 'module';
 

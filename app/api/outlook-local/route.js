@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { fetchOutlookEmails } from '../../../services/outlook-local';
+import { fetchOutlookEmails } from '../../../services/outlook-mcp';
 import { analyzeEmails } from '../../../services/ai';
 import { mockEmails } from '../../../services/mock-data';
 import { createRequire } from 'module';
