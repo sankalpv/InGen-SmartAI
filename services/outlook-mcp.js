@@ -73,9 +73,9 @@ async function fetchOutlookCalendar(calendarId, lookbackDays = 30, forwardDays =
         end.setDate(end.getDate() + forwardDays);
 
         const result = await mcpClient.callTool(SERVER, 'calendar_view', {
-            startDateTime: start.toISOString(),
-            endDateTime: end.toISOString(),
-            maxResults: 100,
+            start_date: start.toISOString(),
+            end_date: end.toISOString(),
+            max_results: 100,
         });
 
         const data = extractContent(result);

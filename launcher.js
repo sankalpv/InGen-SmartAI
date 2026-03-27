@@ -85,12 +85,14 @@ function isFirstRun() {
     if (!fs.existsSync(EMAILS_FILE)) return true;
     if (!fs.existsSync(CALENDAR_FILE)) return true;
 
-    // Also treat as first run if files exist but are empty/invalid
+    // Also treat as first run if files are corrupted/unparseable
     try {
         const emails = JSON.parse(fs.readFileSync(EMAILS_FILE, 'utf8'));
         const calendar = JSON.parse(fs.readFileSync(CALENDAR_FILE, 'utf8'));
-        if (!emails.data || !Array.isArray(emails.data) || emails.data.length === 0) return true;
-        if (!calendar.data || !Array.isArray(calendar.data) || calendar.data.length === 0) return true;
+        // Require valid structure but NOT non-empty data — empty calendar is valid
+        // (e.g. MCP returned 0 events on first sync, or hosted mode with no meetings)
+        if (!emails.data || !Array.isArray(emails.data)) return true;
+        if (!calendar.data || !Array.isArray(calendar.data)) return true;
     } catch (e) {
         return true; // Corrupted files — treat as first run
     }
