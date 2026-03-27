@@ -22,6 +22,15 @@ try {
     }
 } catch (e) { /* Bedrock not available, fall back to Ollama */ }
 
+/**
+ * Strip markdown code fences that LLMs sometimes wrap around JSON.
+ * e.g.  ```json\n{ ... }\n```  →  { ... }
+ */
+function stripJsonFences(raw) {
+    if (!raw || typeof raw !== 'string') return raw;
+    return raw.replace(/^```(?:json)?\s*/m, '').replace(/\s*```\s*$/m, '').trim();
+}
+
 // SYSTEM_PROMPT is now loaded from config/prompts.json via prompt-loader (hot-reloadable)
 function getSystemPrompt() {
     return promptLoader.get('system') || "You are the AI engine for 'SmartAI', a productivity dashboard. Be helpful, concise, and proactive.";
@@ -122,7 +131,7 @@ export async function analyzeEmails(emails) {
 
         let result;
         try {
-            result = JSON.parse(resultRaw);
+            result = JSON.parse(stripJsonFences(resultRaw));
         } catch (e) {
             logger.error('JSON Parse Error (Emails):', e.message);
             result = { emails: [] };
@@ -208,7 +217,7 @@ OUTPUT JSON:
     try {
         const resultRaw = await withRetry(() => generateCompletion(system, prompt, true, 0.3));
         logger.debug('Meeting Brief Raw:', resultRaw?.substring(0, 200));
-        return JSON.parse(resultRaw);
+        return JSON.parse(stripJsonFences(resultRaw));
     } catch (error) {
         logger.error('AI meeting brief failed:', error.message);
         return {
@@ -779,7 +788,7 @@ OUTPUT JSON ONLY:
 
     try {
         const resultRaw = await withRetry(() => generateCompletion(system, prompt, true, 0.2));
-        return JSON.parse(resultRaw);
+        return JSON.parse(stripJsonFences(resultRaw));
     } catch (error) {
         console.error('extractTimeConstraints failed:', error);
         return { durationMinutes: 30, preferredDays: [], preferredTimeOfDay: 'any', dateRange: 'next week' };

@@ -703,31 +703,10 @@ Do not provide an overarching team summary — only the per-engineer breakdown.`
             const userPrompt = `Here are the senior engineers, their projects, and current tasks:\n\n${lines}\n\nProvide the per-engineer summary.`;
 
             try {
-                const { createRequire } = await import('module');
-                const req2 = createRequire(import.meta.url);
-                const ai = await import('../../../services/ai.js');
-
-                // Use the non-JSON mode for plain text summary
-                const OLLAMA_MODEL = process.env.LLM_MODEL || process.env.OLLAMA_MODEL || 'qwen3:latest';
-                const OLLAMA_BASE_URL = process.env.OLLAMA_BASE_URL || 'http://127.0.0.1:11434';
-
-                const response = await fetch(`${OLLAMA_BASE_URL}/api/generate`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        model: OLLAMA_MODEL.trim(),
-                        system: systemPrompt,
-                        prompt: userPrompt,
-                        stream: false,
-                        think: false,
-                        keep_alive: '2m',
-                        options: { temperature: 0.3 }
-                    }),
-                });
-
-                if (!response.ok) throw new Error(`LLM error: ${response.status}`);
-                const result = await response.json();
-                const summary = (result.response || '').trim();
+                // Route through ai.js so Bedrock (AgentSpaces/Windows) is used when available,
+                // falling back to Ollama on Mac. Non-JSON mode, low temperature.
+                const { generateCompletion } = await import('../../../services/ai.js');
+                const summary = (await generateCompletion(systemPrompt, userPrompt, false, 0.3) || '').trim();
 
                 logger.info(`Generated AI summary (${summary.length} chars)`);
                 return NextResponse.json({ summary });
