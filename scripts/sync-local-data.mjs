@@ -6,7 +6,7 @@
  * Uses batched progressive fetching: 20 emails at a time to avoid timeout
  */
 
-import { fetchOutlookEmails, fetchOutlookCalendar } from '../services/outlook-local.js';
+import { fetchOutlookEmails, fetchOutlookCalendar } from '../services/outlook-mcp.js';
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
@@ -35,13 +35,13 @@ function isValidEmailData(emails) {
 
 const result = { emails: 0, calendar: 0, calendarWeek: 0 };
 
-// Fetch emails in batches of 20 (progressive — avoids AppleScript timeout)
-const BATCH_SIZE = 20;
-const TARGET_EMAILS = 500; // Fetch up to 500 emails (~2 months of history)
+// Fetch emails via MCP in one call (aws-outlook-mcp handles pagination internally)
+const TARGET_EMAILS = 100; // MCP call — no batch loop needed
 let allEmails = [];
 
-// Load existing cache if available (we'll append to it)
 const emailsFile = path.join(DATA_DIR, 'emails.json');
+
+// Load existing cache so we can merge (never shrink)
 try {
     if (fs.existsSync(emailsFile)) {
         const existing = JSON.parse(fs.readFileSync(emailsFile, 'utf8'));
@@ -51,74 +51,21 @@ try {
     }
 } catch (e) { /* ignore */ }
 
-// Fetch first batch (fast, reliable)
 try {
-    const firstBatch = await fetchOutlookEmails(BATCH_SIZE);
-    if (isValidEmailData(firstBatch)) {
-        // Merge new emails into existing cache (never shrink the cache during sync)
+    const fresh = await fetchOutlookEmails(TARGET_EMAILS);
+    if (isValidEmailData(fresh)) {
+        // Merge: update existing + prepend new
         const existingIds = new Set(allEmails.map(e => e.id));
-        const newFromBatch = firstBatch.filter(e => !existingIds.has(e.id));
-        // Update existing emails with fresh data, prepend truly new ones
-        const freshIds = new Set(firstBatch.map(e => e.id));
-        const updatedExisting = allEmails.map(e => {
-            const fresh = firstBatch.find(f => f.id === e.id);
-            return fresh || e;
-        });
-        allEmails = [...newFromBatch, ...updatedExisting].slice(0, TARGET_EMAILS);
+        const newEmails = fresh.filter(e => !existingIds.has(e.id));
+        allEmails = [...newEmails, ...allEmails.map(e => {
+            const f = fresh.find(x => x.id === e.id);
+            return f || e;
+        })].slice(0, TARGET_EMAILS * 5); // keep up to 500 total
         writeStore(emailsFile, allEmails);
         result.emails = allEmails.length;
-        console.error(`[Sync] First batch: ${firstBatch.length} fetched, ${newFromBatch.length} new, total: ${allEmails.length}`);
-        
-        // Fetch additional batches using offset
-        // Fix 5: Import execSync once outside the loop
-        const { execSync } = await import('child_process');
-        for (let offset = BATCH_SIZE; offset < TARGET_EMAILS; offset += BATCH_SIZE) {
-            try {
-                // Fix 5: 3-second cooldown between batches to give Outlook breathing room
-                console.error(`[Sync] Waiting 3s before next batch (offset ${offset})...`);
-                await new Promise(r => setTimeout(r, 3000));
-                
-                let raw;
-                if (IS_WINDOWS) {
-                    // Windows: Use PowerShell script with COM automation
-                    const psScriptPath = path.join(__dirname, '..', 'scripts', 'windows', 'fetch_emails_batch.ps1');
-                    raw = execSync(
-                        `powershell -NoProfile -ExecutionPolicy Bypass -File "${psScriptPath}" ${BATCH_SIZE} ${offset}`,
-                        { timeout: 60000, maxBuffer: 10 * 1024 * 1024 }
-                    ).toString();
-                } else {
-                    // macOS: Use JXA script via osascript
-                    const scriptPath = path.join(__dirname, '..', 'scripts', 'fetch_outlook_ui_optimized.js');
-                    raw = execSync(
-                        `osascript -l JavaScript "${scriptPath}" ${BATCH_SIZE} ${offset}`,
-                        { timeout: 60000, maxBuffer: 10 * 1024 * 1024 }
-                    ).toString();
-                }
-                let batch;
-                try { batch = JSON.parse(raw); } catch { batch = []; }
-                if (isValidEmailData(batch)) {
-                    // Deduplicate by ID
-                    const existingIds = new Set(allEmails.map(e => e.id));
-                    const newEmails = batch.filter(e => !existingIds.has(e.id));
-                    
-                    if (newEmails.length === 0) {
-                        console.error(`[Sync] Batch at offset ${offset}: no new emails, stopping`);
-                        break;
-                    }
-                    
-                    allEmails = [...allEmails, ...newEmails];
-                    writeStore(emailsFile, allEmails);
-                    result.emails = allEmails.length;
-                    console.error(`[Sync] Batch at offset ${offset}: +${newEmails.length} emails (total: ${allEmails.length})`);
-                } else {
-                    console.error(`[Sync] Batch at offset ${offset} returned invalid data, stopping`);
-                    break;
-                }
-            } catch (batchErr) {
-                console.error(`[Sync] Batch at offset ${offset} failed: ${batchErr.message}, stopping`);
-                break; // Stop fetching more batches but keep what we have
-            }
-        }
+        console.error(`[Sync] Emails: ${fresh.length} fetched, ${newEmails.length} new, total: ${allEmails.length}`);
+    } else {
+        console.error('[Sync] Email fetch returned no valid data');
     }
 } catch (e) {
     console.error('Email sync failed:', e.message);
