@@ -61,15 +61,55 @@ pip3 install setuptools --quiet 2>/dev/null || true
 npm install 2>&1 | tail -3
 echo -e "  ${GREEN}✅${NC} Dependencies installed"
 
-# ── Step 3: Install aws-outlook-mcp ──
+# ── Step 3: Install required MCP servers (aws-outlook-mcp + slack-mcp) ──
 echo ""
-echo -e "${BOLD}Step 3: Installing aws-outlook-mcp...${NC}"
-if command -v aim &>/dev/null; then
-    aim mcp install aws-outlook-mcp 2>&1 | tail -3 && \
-        echo -e "  ${GREEN}✅${NC} aws-outlook-mcp installed" || \
-        echo -e "  ${YELLOW}⚠️${NC}  aws-outlook-mcp install failed (email/calendar may not work)"
+echo -e "${BOLD}Step 3: Installing required MCP servers...${NC}"
+echo -e "  aws-outlook-mcp (email/calendar) and slack-mcp (Slack integration)"
+
+# Ensure aim CLI is available — install via toolbox if missing
+export PATH="$HOME/.toolbox/bin:$PATH"
+if ! command -v aim &>/dev/null; then
+    if command -v toolbox &>/dev/null; then
+        echo -e "  Installing aim CLI via toolbox..."
+        toolbox install aim 2>&1 | tail -3
+    elif [[ -x "$HOME/.toolbox/bin/toolbox" ]]; then
+        echo -e "  Installing aim CLI via toolbox..."
+        "$HOME/.toolbox/bin/toolbox" install aim 2>&1 | tail -3
+    fi
+fi
+
+AIM=$(command -v aim 2>/dev/null || echo "$HOME/.toolbox/bin/aim")
+if ! [[ -x "$AIM" ]]; then
+    echo -e "  ${RED:-\033[0;31m}❌ aim CLI not found. Cannot install required MCP servers.${NC}"
+    echo -e "     Fix: toolbox install aim  then re-run this script."
+    exit 1
+fi
+echo -e "  ${GREEN}✅${NC} aim CLI found: $AIM"
+
+# ── aws-outlook-mcp (required for email/calendar features) ──
+if command -v aws-outlook-mcp &>/dev/null || [[ -x "$HOME/.aim/mcp-servers/aws-outlook-mcp" ]]; then
+    echo -e "  ${GREEN}✅${NC} aws-outlook-mcp already installed"
 else
-    echo -e "  ${YELLOW}⚠️${NC}  aim not found — skipping aws-outlook-mcp install"
+    echo -e "  Installing aws-outlook-mcp..."
+    if ! "$AIM" mcp install aws-outlook-mcp 2>&1 | tail -5; then
+        echo -e "  ${RED:-\033[0;31m}❌ aws-outlook-mcp install failed (required for email/calendar).${NC}"
+        echo -e "     Fix: aim mcp install aws-outlook-mcp  then re-run this script."
+        exit 1
+    fi
+    echo -e "  ${GREEN}✅${NC} aws-outlook-mcp installed"
+fi
+
+# ── slack-mcp (required for Slack integration) ──
+if command -v slack-mcp &>/dev/null || [[ -x "$HOME/.aim/mcp-servers/slack-mcp" ]]; then
+    echo -e "  ${GREEN}✅${NC} slack-mcp already installed"
+else
+    echo -e "  Installing slack-mcp..."
+    if ! "$AIM" mcp install slack-mcp 2>&1 | tail -5; then
+        echo -e "  ${RED:-\033[0;31m}❌ slack-mcp install failed (required for Slack features).${NC}"
+        echo -e "     Fix: aim mcp install slack-mcp  then re-run this script."
+        exit 1
+    fi
+    echo -e "  ${GREEN}✅${NC} slack-mcp installed"
 fi
 
 # ── Step 4: Configure hosted mode ──
