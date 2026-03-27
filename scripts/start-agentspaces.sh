@@ -180,23 +180,66 @@ console.log('  phonetoolAlias=' + d.phonetoolAlias);
 "
 echo -e "  ${GREEN}✅${NC} Configured"
 
-# ── Step 5: Create .env.local ──
+# ── Step 5: Configure Bedrock bearer token ──
 echo ""
-echo -e "${BOLD}Step 5: Setting up environment...${NC}"
+echo -e "${BOLD}Step 5: Configuring Bedrock API key...${NC}"
+
+# Check if token is already in env or .env.local
+BEDROCK_TOKEN="${AWS_BEARER_TOKEN_BEDROCK:-}"
+if [ -z "$BEDROCK_TOKEN" ] && [ -f ".env.local" ]; then
+    BEDROCK_TOKEN=$(grep -m1 "^AWS_BEARER_TOKEN_BEDROCK=" .env.local 2>/dev/null | cut -d'=' -f2- || echo "")
+fi
+
+if [ -z "$BEDROCK_TOKEN" ]; then
+    echo -e "  ${RED:-\033[0;31m}❌ AWS_BEARER_TOKEN_BEDROCK is not set.${NC}"
+    echo -e ""
+    echo -e "  InGen uses Amazon Bedrock (Claude) as its AI engine in hosted mode."
+    echo -e "  You need an ABSK bearer token to call the Bedrock API."
+    echo -e ""
+    echo -e "  ${BOLD}How to get your token:${NC}"
+    echo -e "    1. Visit: https://us-east-1.console.aws.amazon.com/bedrock/home#/overview"
+    echo -e "    2. Or run:  aws sts get-session-token  (if you have AWS CLI configured)"
+    echo -e "    3. Or set the ABSK token from your Amazon credential manager"
+    echo -e ""
+    echo -e "  ${BOLD}Then re-run with:${NC}"
+    echo -e "    AWS_BEARER_TOKEN_BEDROCK=<your-token> bash scripts/start-agentspaces.sh"
+    echo -e ""
+    echo -e "  ${YELLOW}Or paste your token below and press Enter (leave blank to abort):${NC}"
+
+    # Try to read interactively (works in some AgentSpaces shells)
+    if read -r -t 60 -p "  Bearer token: " INPUT_TOKEN 2>/dev/null && [ -n "$INPUT_TOKEN" ]; then
+        BEDROCK_TOKEN="$INPUT_TOKEN"
+        echo ""
+        echo -e "  ${GREEN}✅${NC} Token received"
+    else
+        echo -e "  ${RED:-\033[0;31m}❌ No token provided. Cannot start InGen without Bedrock access.${NC}"
+        exit 1
+    fi
+fi
+
+# Write to .env.local
+SECRET=$(openssl rand -base64 32 2>/dev/null || echo "agentspaces-$(date +%s)")
 if [ ! -f ".env.local" ]; then
-    SECRET=$(openssl rand -base64 32 2>/dev/null || echo "agentspaces-$(date +%s)")
     cat > .env.local << ENVEOF
 NEXTAUTH_SECRET=$SECRET
 AUTH_SECRET=$SECRET
 AUTH_TRUST_HOST=true
+AWS_BEARER_TOKEN_BEDROCK=$BEDROCK_TOKEN
 ENVEOF
-    echo -e "  ${GREEN}✅${NC} Created .env.local"
+    echo -e "  ${GREEN}✅${NC} Created .env.local with Bedrock token"
 else
-    # Ensure AUTH_TRUST_HOST is set
+    # Ensure required vars are present
     if ! grep -q "AUTH_TRUST_HOST" .env.local; then
         echo "AUTH_TRUST_HOST=true" >> .env.local
     fi
-    echo -e "  ${GREEN}✅${NC} .env.local already exists"
+    if ! grep -q "AWS_BEARER_TOKEN_BEDROCK" .env.local; then
+        echo "AWS_BEARER_TOKEN_BEDROCK=$BEDROCK_TOKEN" >> .env.local
+        echo -e "  ${GREEN}✅${NC} Added Bedrock token to existing .env.local"
+    else
+        # Update the existing token value
+        sed -i.bak "s|^AWS_BEARER_TOKEN_BEDROCK=.*|AWS_BEARER_TOKEN_BEDROCK=$BEDROCK_TOKEN|" .env.local && rm -f .env.local.bak
+        echo -e "  ${GREEN}✅${NC} Updated Bedrock token in .env.local"
+    fi
 fi
 
 # ── Step 6: Build Next.js ──
