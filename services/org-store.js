@@ -207,6 +207,92 @@ async function isPopulated() {
     return count > 0;
 }
 
+/**
+ * Get the SDEs (non-managers) that are relevant to the current user.
+ *
+ * Primary:  direct non-manager reports of the root alias  → the user manages ICs
+ * Fallback: if no ICs report to root, look up the root's manager via Phonetool
+ *           and return the non-manager members of THAT manager's team (siblings + cousins).
+ *           This handles the case where the configured user is an SDE3 or a manager
+ *           whose direct reports are all sub-managers.
+ *
+ * Returns { members: Member[], viewingAs: 'direct' | 'manager-team', managerAlias?: string, managerName?: string }
+ */
+async function getRelevantSDEs() {
+    await init();
+
+    // ── Primary path: ICs that report to root (depth > 0, i.e. NOT the root themselves) ──
+    const rootAlias = await getRootAlias();
+    const allMembers = await dbAll(`SELECT * FROM org_members ORDER BY depth, name`);
+    const sdes = allMembers.filter(m => !m.isManager && m.alias !== rootAlias);
+    if (sdes.length > 0) {
+        return { members: sdes, viewingAs: 'direct' };
+    }
+
+    // ── Fallback: ask Phonetool for the root's manager, then get that manager's reports ──
+    logger.info('No direct SDE reports found — falling back to manager\'s team');
+    try {
+        const phonetool = require('./phonetool');
+        if (!rootAlias) return { members: [], viewingAs: 'direct' };
+
+        // Look up who the root reports to
+        const rootPerson = await phonetool.fetchPerson(rootAlias).catch(() => null);
+        const managerAlias = rootPerson?.managerAlias || rootPerson?.manager?.alias;
+        if (!managerAlias) return { members: [], viewingAs: 'direct' };
+
+        const managerPerson = await phonetool.fetchPerson(managerAlias).catch(() => null);
+        const managerName = managerPerson?.name || managerAlias;
+
+        // Fetch manager's direct reports from Phonetool (1 level deep)
+        const managerTree = await phonetool.fetchOrgTree(managerAlias, 1, false).catch(() => null);
+        if (!managerTree || !managerTree.reports) {
+            return { members: [], viewingAs: 'manager-team', managerAlias, managerName };
+        }
+
+        // Flatten: all non-manager leaf nodes under this manager
+        const siblings = [];
+        for (const report of managerTree.reports) {
+            const isManager = report.reports && report.reports.length > 0;
+            if (!isManager) {
+                siblings.push({
+                    alias: report.alias,
+                    name: report.name || report.alias,
+                    email: `${report.alias}@amazon.com`,
+                    managerAlias,
+                    depth: 1,
+                    isManager: 0,
+                    jobTitle: report.jobTitle || null,
+                    level: report.level || null,
+                    team: null,
+                    fetchedAt: new Date().toISOString(),
+                });
+            } else {
+                // Also grab one level deeper for sub-managers
+                for (const subReport of (report.reports || [])) {
+                    siblings.push({
+                        alias: subReport.alias,
+                        name: subReport.name || subReport.alias,
+                        email: `${subReport.alias}@amazon.com`,
+                        managerAlias: report.alias,
+                        depth: 2,
+                        isManager: 0,
+                        jobTitle: subReport.jobTitle || null,
+                        level: subReport.level || null,
+                        team: null,
+                        fetchedAt: new Date().toISOString(),
+                    });
+                }
+            }
+        }
+
+        logger.info(`Fallback: found ${siblings.length} SDEs under manager ${managerAlias}`);
+        return { members: siblings, viewingAs: 'manager-team', managerAlias, managerName };
+    } catch (e) {
+        logger.warn('getRelevantSDEs fallback failed:', e.message);
+        return { members: [], viewingAs: 'direct' };
+    }
+}
+
 // ─── Populate from Phonetool (convenience method) ───
 
 async function populateFromPhoneTool(alias, forceRefresh = false) {
@@ -241,5 +327,6 @@ module.exports = {
     getOrgTree,
     getLastFetched,
     isPopulated,
+    getRelevantSDEs,
     close,
 };

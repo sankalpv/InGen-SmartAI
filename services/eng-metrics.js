@@ -707,12 +707,10 @@ async function backfillYear(year = new Date().getFullYear(), onProgress = null) 
         return backfillState.result;
     }
 
-    const allMembersRaw = await orgStore.getAllMembers();
-    if (!allMembersRaw || allMembersRaw.length === 0) {
+    const { members: allMembers } = await orgStore.getRelevantSDEs();
+    if (!allMembers || allMembers.length === 0) {
         throw new Error('Org store is empty. Please sync your org first from Settings.');
     }
-    // SDEs only — exclude managers
-    const allMembers = allMembersRaw.filter(m => !m.isManager);
 
     const aliases = allMembers.map(m => m.alias);
     const memberMap = {};
@@ -987,10 +985,8 @@ async function countOrgStaleCrs() {
     const orgStore = require('./org-store');
     const mcpClient = require('./mcp-client');
 
-    const allMembersRaw = await orgStore.getAllMembers();
-    if (!allMembersRaw || allMembersRaw.length === 0) return 0;
-    // SDEs only — exclude managers
-    const allMembers = allMembersRaw.filter(m => !m.isManager);
+    const { members: allMembers } = await orgStore.getRelevantSDEs();
+    if (!allMembers || allMembers.length === 0) return { count: 0, details: [] };
 
     const aliases = allMembers.map(m => m.alias);
     const fiveDaysAgo = new Date(Date.now() - 5 * 24 * 60 * 60 * 1000);
@@ -1055,12 +1051,11 @@ async function fetchOrgMetrics(weekId = null) {
 
     logger.info(`Fetching org metrics for ${currentWeekId} (${dateRange.start} to ${dateRange.end})`);
 
-    // Get all org members (SDEs only — exclude managers)
-    const allMembersRaw = await orgStore.getAllMembers();
-    if (!allMembersRaw || allMembersRaw.length === 0) {
+    // Get all org members (SDEs only — falls back to manager's team if user has no direct reports)
+    const { members: allMembers } = await orgStore.getRelevantSDEs();
+    if (!allMembers || allMembers.length === 0) {
         throw new Error('Org store is empty. Please sync your org first from Settings.');
     }
-    const allMembers = allMembersRaw.filter(m => !m.isManager);
 
     const now = new Date().toISOString();
     let fetchedCount = 0;

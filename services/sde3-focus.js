@@ -12,10 +12,12 @@ const SDE3_CACHE_TTL = 3600 * 1000; // 1 hour
 
 /**
  * Identify SDE3s from the org structure.
+ * Falls back to the manager's team if no direct SDE reports are found.
+ * Returns { sde3s: Member[], viewingAs, managerAlias?, managerName? }
  */
 async function getSDE3s() {
-    const members = await orgStore.getAllMembers();
-    return members.filter(m => {
+    const { members, viewingAs, managerAlias, managerName } = await orgStore.getRelevantSDEs();
+    const sde3s = members.filter(m => {
         const title = (m.jobTitle || '').toLowerCase();
         if (title.includes('manager') || title.includes('mgr') || title.includes('sdm')) {
             return false;
@@ -29,6 +31,7 @@ async function getSDE3s() {
             || title.includes('senior software dev engineer')
             || title.includes('sr. sde');
     });
+    return { sde3s, viewingAs, managerAlias, managerName };
 }
 
 /**
@@ -42,9 +45,9 @@ async function getSDE3FocusData(refresh = false) {
         return sde3FocusCache;
     }
 
-    const sde3s = await getSDE3s();
+    const { sde3s, viewingAs, managerAlias, managerName } = await getSDE3s();
     if (sde3s.length === 0) {
-        return { sde3s: [], message: 'No SDE3s found in org.' };
+        return { sde3s: [], message: 'No SDE3s found in org. Please sync your org from Settings.' };
     }
 
     // Initialize metrics
@@ -179,7 +182,11 @@ async function getSDE3FocusData(refresh = false) {
 
     const result = {
         sde3s: finalizedSDE3s,
-        timestamp: new Date().toISOString()
+        timestamp: new Date().toISOString(),
+        // Context for the UI banner
+        viewingAs: viewingAs || 'direct',
+        managerAlias: managerAlias || null,
+        managerName: managerName || null,
     };
 
     sde3FocusCache = result;
