@@ -145,6 +145,7 @@ export async function GET(request) {
 
                 const mcpClient = require('../../../services/mcp-client');
                 const ollamaClient = require('../../../services/ollama-client');
+                const bedrockClient = require('../../../services/bedrock-client');
 
                 // Fetch CR details live from code.amazon.com
                 const crUrls = crIds.slice(0, 10).map(id => `https://code.amazon.com/reviews/${id}`);
@@ -207,23 +208,33 @@ Be specific. Use CR IDs. Be concise (under 150 words). Use markdown.`;
                             // Send CR details first
                             controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'cr-details', crs: crDetails.map(c => ({ id: c.id, summary: c.summary, type: c.type })) })}\n\n`));
 
-                            const response = await fetch('http://127.0.0.1:11434/api/generate', {
-                                method: 'POST',
-                                headers: { 'Content-Type': 'application/json' },
-                                body: JSON.stringify({ model: ollamaClient.getConfig().llmModel, prompt, stream: true, think: false }),
-                            });
-                            const reader = response.body.getReader();
-                            const decoder = new TextDecoder();
-                            while (true) {
-                                const { done, value } = await reader.read();
-                                if (done) break;
-                                const chunk = decoder.decode(value, { stream: true });
-                                for (const line of chunk.split('\n').filter(Boolean)) {
-                                    try {
-                                        const json = JSON.parse(line);
-                                        if (json.response) controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'chunk', text: json.response })}\n\n`));
-                                        if (json.done) controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'done' })}\n\n`));
-                                    } catch (e) { /* skip */ }
+                            if (bedrockClient.isAvailable()) {
+                                // Bedrock streaming (AgentSpaces / Windows)
+                                await bedrockClient.streamGenerate(prompt, (chunk) => {
+                                    controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'chunk', text: chunk })}\n\n`));
+                                }, { maxTokens: 2048 });
+                                controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'done' })}\n\n`));
+                            } else {
+                                // Ollama fallback (Mac)
+                                const ollamaBase = ollamaClient.getConfig().baseUrl || 'http://127.0.0.1:11434';
+                                const response = await fetch(`${ollamaBase}/api/generate`, {
+                                    method: 'POST',
+                                    headers: { 'Content-Type': 'application/json' },
+                                    body: JSON.stringify({ model: ollamaClient.getConfig().llmModel, prompt, stream: true, think: false }),
+                                });
+                                const reader = response.body.getReader();
+                                const decoder = new TextDecoder();
+                                while (true) {
+                                    const { done, value } = await reader.read();
+                                    if (done) break;
+                                    const chunk = decoder.decode(value, { stream: true });
+                                    for (const line of chunk.split('\n').filter(Boolean)) {
+                                        try {
+                                            const json = JSON.parse(line);
+                                            if (json.response) controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'chunk', text: json.response })}\n\n`));
+                                            if (json.done) controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'done' })}\n\n`));
+                                        } catch (e) { /* skip */ }
+                                    }
                                 }
                             }
                         } catch (e) {
