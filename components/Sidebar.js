@@ -37,7 +37,10 @@ export default function Sidebar() {
     useEffect(() => {
         fetch('/api/settings/config').then(r => r.ok ? r.json() : {}).then(data => {
             const settings = data.settings || data;
-            if (settings.outlookIntegration === false) setOutlookEnabled(false);
+            // In hosted mode (AgentSpaces), aws-outlook-mcp provides email/calendar —
+            // show all pages regardless of outlookIntegration flag.
+            const isHosted = settings.deploymentMode === 'hosted';
+            if (!isHosted && settings.outlookIntegration === false) setOutlookEnabled(false);
         }).catch(() => {});
     }, []);
 

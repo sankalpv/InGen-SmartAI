@@ -11,7 +11,12 @@
 # Natural-language prompt so Kiro clones first (trusted), then runs the
 # local script (already in workspace = trusted). Tested and confirmed working.
 #
-# PRIMARY (share this link):
+# PRIMARY — pass your Bedrock token as an env var prefix so Kiro won't block it:
+# (Replace YOUR_BEDROCK_TOKEN with your ABSK token before sharing)
+#
+# https://agentspaces.amazon.dev/app/?mode=CODE&blueprint=AgentSpacesEmptyBlueprintProd&spaceName=InGen&initialPrompt=Clone+InGen-SmartAI+from+ssh%3A%2F%2Fgit.amazon.com%2Fpkg%2FInGen-SmartAI+into+%7E%2F.workspace%2Fsrc%2FInGen-SmartAI%2C+then+run%3A+AWS_BEARER_TOKEN_BEDROCK%3DYOUR_BEDROCK_TOKEN+bash+%7E%2F.workspace%2Fsrc%2FInGen-SmartAI%2Fscripts%2Fstart-agentspaces.sh
+#
+# PLAIN (no token — user must configure via Settings page after startup):
 # https://agentspaces.amazon.dev/app/?mode=CODE&blueprint=AgentSpacesEmptyBlueprintProd&spaceName=InGen&initialPrompt=Clone+InGen-SmartAI+from+ssh%3A%2F%2Fgit.amazon.com%2Fpkg%2FInGen-SmartAI+into+%7E%2F.workspace%2Fsrc%2FInGen-SmartAI%2C+then+run+the+setup+script+at+%7E%2F.workspace%2Fsrc%2FInGen-SmartAI%2Fscripts%2Fstart-agentspaces.sh
 #
 # FALLBACK (if Kiro blocks — Blueprint startup script runs automatically):
@@ -190,56 +195,32 @@ if [ -z "$BEDROCK_TOKEN" ] && [ -f ".env.local" ]; then
     BEDROCK_TOKEN=$(grep -m1 "^AWS_BEARER_TOKEN_BEDROCK=" .env.local 2>/dev/null | cut -d'=' -f2- || echo "")
 fi
 
-if [ -z "$BEDROCK_TOKEN" ]; then
-    echo -e "  ${RED:-\033[0;31m}❌ AWS_BEARER_TOKEN_BEDROCK is not set.${NC}"
-    echo -e ""
-    echo -e "  InGen uses Amazon Bedrock (Claude) as its AI engine in hosted mode."
-    echo -e "  You need an ABSK bearer token to call the Bedrock API."
-    echo -e ""
-    echo -e "  ${BOLD}How to get your token:${NC}"
-    echo -e "    1. Visit: https://us-east-1.console.aws.amazon.com/bedrock/home#/overview"
-    echo -e "    2. Or run:  aws sts get-session-token  (if you have AWS CLI configured)"
-    echo -e "    3. Or set the ABSK token from your Amazon credential manager"
-    echo -e ""
-    echo -e "  ${BOLD}Then re-run with:${NC}"
-    echo -e "    AWS_BEARER_TOKEN_BEDROCK=<your-token> bash scripts/start-agentspaces.sh"
-    echo -e ""
-    echo -e "  ${YELLOW}Or paste your token below and press Enter (leave blank to abort):${NC}"
-
-    # Try to read interactively (works in some AgentSpaces shells)
-    if read -r -t 60 -p "  Bearer token: " INPUT_TOKEN 2>/dev/null && [ -n "$INPUT_TOKEN" ]; then
-        BEDROCK_TOKEN="$INPUT_TOKEN"
-        echo ""
-        echo -e "  ${GREEN}✅${NC} Token received"
-    else
-        echo -e "  ${RED:-\033[0;31m}❌ No token provided. Cannot start InGen without Bedrock access.${NC}"
-        exit 1
-    fi
-fi
-
-# Write to .env.local
+# Write base .env.local (auth secrets + trust host)
 SECRET=$(openssl rand -base64 32 2>/dev/null || echo "agentspaces-$(date +%s)")
 if [ ! -f ".env.local" ]; then
     cat > .env.local << ENVEOF
 NEXTAUTH_SECRET=$SECRET
 AUTH_SECRET=$SECRET
 AUTH_TRUST_HOST=true
-AWS_BEARER_TOKEN_BEDROCK=$BEDROCK_TOKEN
 ENVEOF
-    echo -e "  ${GREEN}✅${NC} Created .env.local with Bedrock token"
-else
-    # Ensure required vars are present
-    if ! grep -q "AUTH_TRUST_HOST" .env.local; then
-        echo "AUTH_TRUST_HOST=true" >> .env.local
-    fi
+fi
+# Ensure AUTH_TRUST_HOST is set
+if ! grep -q "AUTH_TRUST_HOST" .env.local; then
+    echo "AUTH_TRUST_HOST=true" >> .env.local
+fi
+
+if [ -n "$BEDROCK_TOKEN" ]; then
+    # Token was provided via env var (e.g. AWS_BEARER_TOKEN_BEDROCK=... bash start-agentspaces.sh)
     if ! grep -q "AWS_BEARER_TOKEN_BEDROCK" .env.local; then
         echo "AWS_BEARER_TOKEN_BEDROCK=$BEDROCK_TOKEN" >> .env.local
-        echo -e "  ${GREEN}✅${NC} Added Bedrock token to existing .env.local"
     else
-        # Update the existing token value
         sed -i.bak "s|^AWS_BEARER_TOKEN_BEDROCK=.*|AWS_BEARER_TOKEN_BEDROCK=$BEDROCK_TOKEN|" .env.local && rm -f .env.local.bak
-        echo -e "  ${GREEN}✅${NC} Updated Bedrock token in .env.local"
     fi
+    echo -e "  ${GREEN}✅${NC} Bedrock token configured"
+else
+    echo -e "  ${YELLOW}⚠️  AWS_BEARER_TOKEN_BEDROCK not set — AI features will be unavailable until configured.${NC}"
+    echo -e "  ${YELLOW}   Add it via Settings → API Keys after startup, or re-run with:${NC}"
+    echo -e "  ${YELLOW}   AWS_BEARER_TOKEN_BEDROCK=<token> bash scripts/start-agentspaces.sh${NC}"
 fi
 
 # ── Step 6: Build Next.js ──
