@@ -511,7 +511,7 @@ step_07_mcp_tooling() {
     fi
 
     # Update MCP paths in settings.json if tools are found
-    local amzn_path="" builder_path=""
+    local amzn_path="" builder_path="" slack_path=""
     if [[ -x "$HOME/.toolbox/bin/amzn-mcp" ]]; then
         amzn_path="$HOME/.toolbox/bin/amzn-mcp"
     elif command -v amzn-mcp &>/dev/null; then
@@ -522,10 +522,17 @@ step_07_mcp_tooling() {
     elif command -v builder-mcp &>/dev/null; then
         builder_path="$(which builder-mcp)"
     fi
+    # AIM installs slack-mcp to ~/.aim/mcp-servers/
+    if [[ -x "$HOME/.aim/mcp-servers/slack-mcp" ]]; then
+        slack_path="$HOME/.aim/mcp-servers/slack-mcp"
+    elif command -v slack-mcp &>/dev/null; then
+        slack_path="$(which slack-mcp)"
+    fi
 
     # Save paths for step_09 to use
     export MCP_AMZN_PATH="$amzn_path"
     export MCP_BUILDER_PATH="$builder_path"
+    export MCP_SLACK_PATH="$slack_path"
 
     step_done "step_07"
 }
@@ -654,6 +661,10 @@ EOF
     if [[ -n "$MCP_BUILDER_PATH" ]]; then
         node_json_set "$SETTINGS" "mcpServers.builder-mcp.command" "\"$MCP_BUILDER_PATH\""
         print_ok "builder-mcp path: $MCP_BUILDER_PATH"
+    fi
+    if [[ -n "$MCP_SLACK_PATH" ]]; then
+        node_json_set "$SETTINGS" "mcpServers.slack-mcp.command" "\"$MCP_SLACK_PATH\""
+        print_ok "slack-mcp path: $MCP_SLACK_PATH"
     fi
 
     # ── Calendar Selection ──

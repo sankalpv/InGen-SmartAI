@@ -5,7 +5,7 @@
   "ignoreExternalEmails": true,
   "insightConfidenceThreshold": 0.5,
   "lowPowerMode": false,
-  "phonetoolAlias": "sankalpv",
+  "phonetoolAlias": "",
   "promptUpdateUrl": "https://code.amazon.com/packages/InGen-SmartAI/blobs/mainline/--/config/prompts.json",
   "quip": {
     "enabled": false,
@@ -30,7 +30,7 @@
       "env": {}
     },
     "slack-mcp": {
-      "command": "/Users/sankalpv/.aim/mcp-servers/slack-mcp",
+      "command": "",
       "args": [],
       "env": {}
     },

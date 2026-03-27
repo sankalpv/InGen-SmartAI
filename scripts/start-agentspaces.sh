@@ -126,10 +126,12 @@ if (d.mcpServers) {
     const bp = findBinary('builder-mcp');
     const ap = findBinary('amzn-mcp');
     const op = findBinary('aws-outlook-mcp');
+    const sp = findBinary('slack-mcp');
     if (bp && d.mcpServers['builder-mcp']) d.mcpServers['builder-mcp'].command = bp;
     if (ap && d.mcpServers['amzn-mcp']) d.mcpServers['amzn-mcp'].command = ap;
     if (op && d.mcpServers['aws-outlook-mcp']) d.mcpServers['aws-outlook-mcp'].command = op;
-    console.log('  MCP paths: builder-mcp=' + (bp || 'not found') + ', amzn-mcp=' + (ap || 'not found') + ', aws-outlook-mcp=' + (op || 'not found'));
+    if (sp && d.mcpServers['slack-mcp']) d.mcpServers['slack-mcp'].command = sp;
+    console.log('  MCP paths: builder-mcp=' + (bp || 'not found') + ', amzn-mcp=' + (ap || 'not found') + ', aws-outlook-mcp=' + (op || 'not found') + ', slack-mcp=' + (sp || 'not found'));
 }
 
 fs.writeFileSync(f, JSON.stringify(d, null, 2) + '\n');

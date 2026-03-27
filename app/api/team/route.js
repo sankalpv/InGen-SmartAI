@@ -674,17 +674,33 @@ export async function POST(request) {
                 return NextResponse.json({ summary: 'No SDE3 data available for summarization.' });
             }
 
-            // Build a compact prompt from task titles grouped by person
+            // Build an enriched prompt: include topDeliverables (project names) + parentGoalTitle per task
             const lines = sde3s.map(s => {
-                const taskList = s.tasks.slice(0, 8).map(t => t.title).join('; ');
-                return `${s.name} (@${s.alias}): ${taskList || 'no active tasks'}`;
-            }).join('\n');
+                const deliverables = (s.topDeliverables || [])
+                    .map(d => d.title)
+                    .filter(t => t && t !== 'Other Deliverables' && t !== 'Task')
+                    .join(', ');
+                const taskList = s.tasks.slice(0, 12).map(t => {
+                    const proj = (t.parentGoalTitle && t.parentGoalTitle !== 'Other Deliverables' && t.parentGoalTitle !== 'Task')
+                        ? ` [${t.parentGoalTitle}]` : '';
+                    return t.title + proj;
+                }).join('; ');
+                const openCount = s.tasks.filter(t => t.status !== 'Closed').length;
+                const closedCount = s.tasks.filter(t => t.status === 'Closed').length;
+                return `${s.name} (@${s.alias}):\n  Projects: ${deliverables || 'unknown'}\n  Tasks (${openCount} open, ${closedCount} closed this year): ${taskList || 'no active tasks'}`;
+            }).join('\n\n');
 
-            const systemPrompt = `You are an engineering manager's assistant analytical AI. Given a list of senior engineers and their assigned tickets/SIMs, provide a per-engineer summary. For each engineer, write 1 concise sentence explaining what they are working on.
-CRITICAL INSTRUCTION: If you see project names in the ticket titles (especially in brackets like [Orion], [Phoenix], [Khoj], [Embedding Excellence], etc.), you MUST include those project names in your summary sentence.
-Format the output as a simple list with each engineer's name in bold, followed by their sentence (e.g., "**Abhijit Shanbhag**: He is working on the Embedding Excellence project, specifically X and Y."). Do not provide an overarching summary, only the per-engineer breakdown.`;
+            const systemPrompt = `You are an engineering manager's assistant analytical AI. Given a list of senior engineers, their project areas, and their assigned tickets/tasks, provide a per-engineer summary.
 
-            const userPrompt = `Here are the senior engineers and their current assigned tasks:\n\n${lines}\n\nProvide the per-engineer summary, ensuring you mention project names.`;
+For each engineer, write 2-3 sentences:
+1. Name the project(s) they are working on — always use the "Projects:" field first, then reinforce with any [bracketed project names] found in task titles.
+2. Describe what they are specifically doing within those projects (reference concrete task titles where helpful).
+3. Note their workload pattern (e.g. number of open tasks, whether they are closing work out, or appear overloaded).
+
+Format: each engineer's name in bold, followed by their paragraph. Example: "**Deqian Chen**: He is primarily focused on the Drift Detection project, working on..."
+Do not provide an overarching team summary — only the per-engineer breakdown.`;
+
+            const userPrompt = `Here are the senior engineers, their projects, and current tasks:\n\n${lines}\n\nProvide the per-engineer summary.`;
 
             try {
                 const { createRequire } = await import('module');
