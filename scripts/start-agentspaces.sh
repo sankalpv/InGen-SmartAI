@@ -233,8 +233,10 @@ echo -e "  ${GREEN}✅${NC} Build complete"
 echo ""
 echo -e "${BOLD}Step 7: Starting InGen...${NC}"
 
-# Start in production mode, backgrounded
-node launcher.js --production &
+# Start in production mode directly — bypass launcher.js (Mac-only Outlook sync + ADA creds
+# would block for minutes on a fresh AgentSpace VM before Next.js ever starts).
+# npm start = "next start -H 0.0.0.0" which is all we need in hosted mode.
+npm start &
 INGEN_PID=$!
 
 echo -e "  ${GREEN}✅${NC} InGen starting (PID: $INGEN_PID)"
