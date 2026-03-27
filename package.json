@@ -6,7 +6,7 @@
     "dev": "next dev",
     "clean": "rm -rf .next",
     "build": "next build",
-    "start": "next start",
+    "start": "next start -H 0.0.0.0",
     "prod": "next build && next start",
     "lint": "eslint",
     "demo": "node scripts/record-demo.js",
