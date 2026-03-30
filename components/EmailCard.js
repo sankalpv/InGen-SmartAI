@@ -1,3 +1,4 @@
+'use client';
 import { useState } from 'react';
 import { ChevronDown, ChevronUp, Sparkles, Copy, Send, Clock, X, RefreshCw, MessageSquare } from 'lucide-react';
 
@@ -27,7 +28,6 @@ function getInitials(name) {
         .slice(0, 2) || 'U';
 }
 
-// Safely extract sender display name from email.from (handles both object and string formats)
 function getSenderName(from) {
     if (!from) return 'Unknown';
     if (typeof from === 'string') return from;
@@ -43,6 +43,100 @@ function timeAgo(dateStr) {
     return `${Math.floor(diff / 1440)}d ago`;
 }
 
+/** Strips HTML tags, collapses whitespace, returns plain text */
+function htmlToText(html) {
+    if (!html) return '';
+    // Remove style/script blocks
+    let text = html.replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '');
+    text = text.replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '');
+    // Replace block-level tags with newlines
+    text = text.replace(/<br\s*\/?>/gi, '\n');
+    text = text.replace(/<\/?(p|div|tr|li|h[1-6]|blockquote)[^>]*>/gi, '\n');
+    // Strip remaining tags
+    text = text.replace(/<[^>]+>/g, '');
+    // Decode common HTML entities
+    text = text.replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#39;/g, "'");
+    // Collapse excessive blank lines
+    text = text.replace(/\n{3,}/g, '\n\n').trim();
+    return text;
+}
+
+/** A single message bubble inside the thread */
+function ThreadMessage({ msg, senderName, defaultOpen }) {
+    const [open, setOpen] = useState(defaultOpen);
+    const plainBody = htmlToText(msg.body);
+    const preview = plainBody.slice(0, 120).replace(/\n/g, ' ');
+
+    return (
+        <div
+            style={{
+                border: '1px solid rgba(255,255,255,0.08)',
+                borderRadius: '10px',
+                overflow: 'hidden',
+                background: open ? 'rgba(255,255,255,0.03)' : 'transparent',
+            }}
+        >
+            {/* Message header — always visible */}
+            <div
+                onClick={(e) => { e.stopPropagation(); setOpen(o => !o); }}
+                style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '10px',
+                    padding: '10px 12px',
+                    cursor: 'pointer',
+                }}
+            >
+                <div
+                    style={{
+                        width: '32px', height: '32px', borderRadius: '50%', flexShrink: 0,
+                        background: getAvatarColor(senderName),
+                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        fontSize: '12px', fontWeight: '700', color: 'white',
+                    }}
+                >
+                    {getInitials(senderName)}
+                </div>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontWeight: '600', fontSize: '13px', color: 'var(--text-primary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                        {senderName}
+                    </div>
+                    {!open && (
+                        <div style={{ fontSize: '12px', color: 'var(--text-tertiary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                            {preview}
+                        </div>
+                    )}
+                </div>
+                <div style={{ fontSize: '12px', color: 'var(--text-tertiary)', flexShrink: 0 }}>
+                    {msg.receivedAt ? timeAgo(msg.receivedAt) : ''}
+                </div>
+                <div style={{ flexShrink: 0, color: 'var(--text-tertiary)' }}>
+                    {open ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+                </div>
+            </div>
+
+            {/* Message body */}
+            {open && (
+                <div
+                    style={{
+                        padding: '0 12px 14px 54px',
+                        fontSize: '0.88rem',
+                        lineHeight: '1.65',
+                        color: 'var(--text-secondary)',
+                        whiteSpace: 'pre-wrap',
+                        wordBreak: 'break-word',
+                        maxHeight: '500px',
+                        overflowY: 'auto',
+                    }}
+                    onClick={(e) => e.stopPropagation()}
+                >
+                    {plainBody || '(no body)'}
+                </div>
+            )}
+        </div>
+    );
+}
+
 export default function EmailCard({ email }) {
     const [expanded, setExpanded] = useState(false);
     const [copied, setCopied] = useState(false);
@@ -52,6 +146,11 @@ export default function EmailCard({ email }) {
     const [showSlots, setShowSlots] = useState(false);
     const [slots, setSlots] = useState([]);
     const [constraints, setConstraints] = useState(null);
+
+    // Thread state
+    const [thread, setThread] = useState(null);
+    const [threadLoading, setThreadLoading] = useState(false);
+    const [threadError, setThreadError] = useState(null);
 
     // Ask Question State
     const [question, setQuestion] = useState('');
@@ -65,6 +164,29 @@ export default function EmailCard({ email }) {
     };
 
     const category = categoryConfig[email.aiCategory] || categoryConfig.fyi;
+
+    const handleToggle = async () => {
+        const opening = !expanded;
+        setExpanded(opening);
+        // Fetch thread on first open
+        if (opening && !thread && !threadLoading && email.conversationId) {
+            setThreadLoading(true);
+            setThreadError(null);
+            try {
+                const res = await fetch(`/api/email-thread?conversationId=${encodeURIComponent(email.conversationId)}`);
+                const data = await res.json();
+                if (data.success) {
+                    setThread(data.messages);
+                } else {
+                    setThreadError(data.error || 'Failed to load thread');
+                }
+            } catch (e) {
+                setThreadError(e.message);
+            } finally {
+                setThreadLoading(false);
+            }
+        }
+    };
 
     const handleCopy = (e) => {
         e.stopPropagation();
@@ -100,7 +222,6 @@ export default function EmailCard({ email }) {
         e.stopPropagation();
         const text = `I'm free on ${slot.label}. Does that work for you?`;
         navigator.clipboard.writeText(text);
-        // Optional: Auto-populate draft
         setDraft(prev => (prev ? prev + '\n\n' + text : text));
     };
 
@@ -116,15 +237,9 @@ export default function EmailCard({ email }) {
                     intent: customIntent || 'Reply positively and succinctly.'
                 })
             });
-            if (!res.ok) {
-                const errorText = await res.text();
-                console.error('Draft API Error:', errorText);
-                throw new Error(`Server Error: ${res.status} ${res.statusText}`);
-            }
+            if (!res.ok) throw new Error(`Server Error: ${res.status} ${res.statusText}`);
             const data = await res.json();
-            if (data.draft) {
-                setDraft(data.draft);
-            }
+            if (data.draft) setDraft(data.draft);
         } catch (error) {
             console.error('Failed to generate draft:', error);
         } finally {
@@ -144,13 +259,11 @@ export default function EmailCard({ email }) {
                 body: JSON.stringify({
                     emailBody: email.body || email.snippet,
                     question: question,
-                    email: email  // Pass full email object for Quip URL detection
+                    email: email
                 })
             });
             const data = await res.json();
-            if (data.answer) {
-                setAnswer(data.answer);
-            }
+            if (data.answer) setAnswer(data.answer);
         } catch (error) {
             console.error('Ask Question failed:', error);
         } finally {
@@ -161,7 +274,7 @@ export default function EmailCard({ email }) {
     return (
         <div
             className={`card animate-in ${expanded ? 'expanded' : ''}`}
-            onClick={() => setExpanded(!expanded)}
+            onClick={handleToggle}
         >
             <div className="email-card-header">
                 <div
@@ -190,9 +303,9 @@ export default function EmailCard({ email }) {
 
             {expanded && (
                 <>
-                    {/* AI Summary Section */}
+                    {/* AI Summary */}
                     {email.summary && (
-                        <div className="email-summary-box" style={{
+                        <div style={{
                             background: 'rgba(59, 130, 246, 0.1)',
                             padding: '12px',
                             borderRadius: '8px',
@@ -203,14 +316,58 @@ export default function EmailCard({ email }) {
                                 <Sparkles size={14} style={{ marginRight: '6px' }} />
                                 AI Summary
                             </div>
-                            <div style={{ fontSize: '0.9rem', lineHeight: '1.4' }}>
-                                {email.summary}
-                            </div>
+                            <div style={{ fontSize: '0.9rem', lineHeight: '1.4' }}>{email.summary}</div>
                         </div>
                     )}
 
-                    {/* Ask Question UI */}
-                    <div className="ask-question-section" style={{ marginBottom: '16px', padding: '12px', background: '#1e293b', borderRadius: '8px', border: '1px solid #334155' }}>
+                    {/* Full Conversation Thread */}
+                    {threadLoading && (
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '12px 0', color: 'var(--text-tertiary)', fontSize: '13px' }}>
+                            <div className="loading-spinner" style={{ width: 14, height: 14 }} />
+                            Loading conversation…
+                        </div>
+                    )}
+                    {threadError && (
+                        <div style={{ padding: '10px 12px', background: 'rgba(239,68,68,0.08)', borderRadius: '8px', color: '#f87171', fontSize: '13px', marginBottom: '12px' }}>
+                            Could not load thread: {threadError}
+                        </div>
+                    )}
+                    {thread && thread.length > 0 && (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginBottom: '16px' }}>
+                            <div style={{ fontSize: '11px', fontWeight: '600', textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-tertiary)', marginBottom: '2px' }}>
+                                Conversation · {thread.length} message{thread.length !== 1 ? 's' : ''}
+                            </div>
+                            {thread.map((msg, idx) => (
+                                <ThreadMessage
+                                    key={msg.id || idx}
+                                    msg={msg}
+                                    senderName={msg.sender?.name || msg.sender?.email || 'Unknown'}
+                                    defaultOpen={idx === thread.length - 1}
+                                />
+                            ))}
+                        </div>
+                    )}
+                    {/* Fallback: show cached body while thread loads */}
+                    {!thread && !threadLoading && (
+                        <div style={{
+                            whiteSpace: 'pre-wrap',
+                            wordBreak: 'break-word',
+                            overflowY: 'auto',
+                            maxHeight: '300px',
+                            fontSize: '0.9rem',
+                            lineHeight: '1.65',
+                            color: 'var(--text-secondary)',
+                            padding: '12px',
+                            background: 'rgba(0,0,0,0.2)',
+                            borderRadius: '8px',
+                            marginBottom: '12px',
+                        }}>
+                            {htmlToText(email.body) || email.snippet}
+                        </div>
+                    )}
+
+                    {/* Ask Question */}
+                    <div style={{ marginBottom: '16px', padding: '12px', background: '#1e293b', borderRadius: '8px', border: '1px solid #334155' }}>
                         <div style={{ display: 'flex', gap: '8px' }}>
                             <input
                                 type="text"
@@ -227,9 +384,7 @@ export default function EmailCard({ email }) {
                                     color: 'white',
                                     fontSize: '0.9rem'
                                 }}
-                                onKeyDown={(e) => {
-                                    if (e.key === 'Enter') handleAskQuestion(e);
-                                }}
+                                onKeyDown={(e) => { if (e.key === 'Enter') handleAskQuestion(e); }}
                             />
                             <button
                                 className="btn btn-primary"
@@ -247,24 +402,7 @@ export default function EmailCard({ email }) {
                         )}
                     </div>
 
-                    <div style={{
-                        whiteSpace: 'pre-wrap',
-                        wordBreak: 'break-all',
-                        overflowWrap: 'anywhere',
-                        overflowY: 'auto',
-                        overflowX: 'hidden',
-                        maxHeight: '400px',
-                        fontSize: '0.9rem',
-                        lineHeight: '1.65',
-                        color: 'var(--text-secondary)',
-                        padding: '12px',
-                        background: 'rgba(0,0,0,0.2)',
-                        borderRadius: '8px',
-                        marginTop: '8px',
-                    }}>
-                        {email.body || email.snippet}
-                    </div>
-
+                    {/* Draft Reply */}
                     {(draft || isGenerating) ? (
                         <div className="email-reply-section">
                             <div className="email-reply-label" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -301,8 +439,6 @@ export default function EmailCard({ email }) {
 
                             {!isGenerating && (
                                 <div className="email-reply-actions" style={{ flexDirection: 'column', gap: '8px', alignItems: 'stretch' }}>
-
-                                    {/* Action Row */}
                                     <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end', marginTop: '8px' }}>
                                         <button className="btn btn-secondary" onClick={handleCopy}>
                                             <Copy size={14} />
@@ -313,23 +449,14 @@ export default function EmailCard({ email }) {
                                             Send Reply
                                         </button>
                                     </div>
-
-                                    {/* Regeneration Options */}
                                     <div style={{ display: 'flex', gap: '6px', overflowX: 'auto', paddingBottom: '4px', borderTop: '1px solid #334155', paddingTop: '8px' }}>
                                         <span style={{ fontSize: '0.8rem', color: '#94a3b8', alignSelf: 'center', marginRight: '4px' }}>Regenerate:</span>
-                                        <button className="btn btn-secondary btn-xs" onClick={(e) => handleGenerateDraft(e)} title="Retry with default settings">
-                                            <RefreshCw size={12} style={{ marginRight: '4px' }} />
-                                            Retry
+                                        <button className="btn btn-secondary btn-xs" onClick={(e) => handleGenerateDraft(e)}>
+                                            <RefreshCw size={12} style={{ marginRight: '4px' }} /> Retry
                                         </button>
-                                        <button className="btn btn-secondary btn-xs" onClick={(e) => handleGenerateDraft(e, 'Write a detailed and professional reply.')}>
-                                            Detailed
-                                        </button>
-                                        <button className="btn btn-secondary btn-xs" onClick={(e) => handleGenerateDraft(e, 'Write a concise and short reply.')}>
-                                            Concise
-                                        </button>
-                                        <button className="btn btn-secondary btn-xs" onClick={(e) => handleGenerateDraft(e, 'Write a polite but firm decline reply.')}>
-                                            Decline
-                                        </button>
+                                        <button className="btn btn-secondary btn-xs" onClick={(e) => handleGenerateDraft(e, 'Write a detailed and professional reply.')}>Detailed</button>
+                                        <button className="btn btn-secondary btn-xs" onClick={(e) => handleGenerateDraft(e, 'Write a concise and short reply.')}>Concise</button>
+                                        <button className="btn btn-secondary btn-xs" onClick={(e) => handleGenerateDraft(e, 'Write a polite but firm decline reply.')}>Decline</button>
                                     </div>
                                 </div>
                             )}
@@ -347,15 +474,9 @@ export default function EmailCard({ email }) {
                         </div>
                     )}
 
-                    {/* Time Slots Popover */}
+                    {/* Time Slots */}
                     {showSlots && (
-                        <div className="slots-popover animate-in" style={{
-                            marginTop: '10px',
-                            background: '#1e293b',
-                            border: '1px solid #334155',
-                            borderRadius: '8px',
-                            padding: '12px'
-                        }}>
+                        <div style={{ marginTop: '10px', background: '#1e293b', border: '1px solid #334155', borderRadius: '8px', padding: '12px' }}>
                             <div style={{ fontSize: '0.85rem', color: '#94a3b8', marginBottom: '8px', display: 'flex', justifyContent: 'space-between' }}>
                                 <span>Based on: {constraints?.durationMinutes}m, {constraints?.dateRange}</span>
                                 <button onClick={() => setShowSlots(false)}><X size={14} /></button>
@@ -364,18 +485,8 @@ export default function EmailCard({ email }) {
                                 {slots.map((slot, i) => (
                                     <button
                                         key={i}
-                                        className="slot-btn"
                                         onClick={(e) => handleSlotClick(slot, e)}
-                                        style={{
-                                            padding: '8px',
-                                            fontSize: '0.85rem',
-                                            background: '#334155',
-                                            border: 'none',
-                                            borderRadius: '6px',
-                                            color: 'white',
-                                            cursor: 'pointer',
-                                            textAlign: 'left'
-                                        }}
+                                        style={{ padding: '8px', fontSize: '0.85rem', background: '#334155', border: 'none', borderRadius: '6px', color: 'white', cursor: 'pointer', textAlign: 'left' }}
                                     >
                                         {slot.label}
                                     </button>
