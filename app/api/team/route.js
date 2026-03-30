@@ -530,8 +530,11 @@ Be specific. Use goal IDs. Quote numbers. Do not be generic.`;
                         commentLimit: 0
                     });
                     const text = result.content?.map(c => c.text || '').join('') || '{}';
+                    console.log(`[subtasks] raw text preview: ${text.slice(0, 300)}`);
                     const taskData = JSON.parse(text);
-                    const rootTask = taskData.task || {};
+                    console.log(`[subtasks] taskData top-level keys: ${Object.keys(taskData).join(', ')}`);
+                    // TaskeiGetTask may return { task: {...} } or just the task object directly
+                    const rootTask = taskData.task || taskData.data?.task || taskData.data || taskData || {};
                     const fmtDate = (d) => {
                         if (!d) return 'Missing';
                         try {
