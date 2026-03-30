@@ -164,6 +164,11 @@ function extractContent(result) {
                         if (inner.content && typeof inner.content === 'object' && !Array.isArray(inner.content)) {
                             return inner.content;
                         }
+                        // aws-outlook-mcp v0.3.1 returns a numeric-keyed object for calendar_view
+                        // e.g. { '0': {...event}, '1': {...event} } — convert to array
+                        if (typeof inner === 'object' && !Array.isArray(inner) && Object.keys(inner).every(k => !isNaN(k))) {
+                            return Object.values(inner);
+                        }
                         return inner;
                     } catch {
                         return item.text;
@@ -174,6 +179,10 @@ function extractContent(result) {
 
         // outer itself is the payload (some tool versions return unwrapped)
         if (outer.success && outer.content) return outer.content;
+        // outer is a numeric-keyed object — convert to array
+        if (typeof outer === 'object' && !Array.isArray(outer) && Object.keys(outer).every(k => !isNaN(k))) {
+            return Object.values(outer);
+        }
         return outer;
     } catch {
         return result;
@@ -251,26 +260,49 @@ function normalizeEmail(raw) {
 
 /**
  * Normalize a raw aws-outlook-mcp calendar event to InGen's internal format.
+ *
+ * aws-outlook-mcp v0.3.1 calendar_view returns:
+ *   { meetingId, subject, start (ISO string), end (ISO string), location (string),
+ *     status ('Free'|'Busy'|'Tentative'|...), organizer: {name, email},
+ *     isAllDay, isCanceled, isRecurring, response, categories, attendees? }
  */
 function normalizeCalendarEvent(raw) {
     if (!raw) return null;
     try {
+        // startTime: prefer nested dateTime, then plain string fields
+        const startTime = raw.start?.dateTime || raw.startDateTime || raw.startTime ||
+            (typeof raw.start === 'string' ? raw.start : null) || new Date().toISOString();
+        const endTime = raw.end?.dateTime || raw.endDateTime || raw.endTime ||
+            (typeof raw.end === 'string' ? raw.end : null) || new Date().toISOString();
+
+        // busyStatus: aws-outlook-mcp uses 'status' field with values like 'Free', 'Busy'
+        const busyStatus = (raw.showAs || raw.busyStatus || raw.status || 'busy').toLowerCase();
+
+        // attendees: may be absent in calendar_view; normalize if present
+        const attendees = (raw.attendees || raw.requiredAttendees || []).map(a => ({
+            name: a.emailAddress?.name || a.name || '',
+            email: a.emailAddress?.address || a.email || '',
+        }));
+
+        // organizer: aws-outlook-mcp returns { name, email } directly (not nested in emailAddress)
+        const organizer = {
+            name: raw.organizer?.emailAddress?.name || raw.organizer?.name || '',
+            email: raw.organizer?.emailAddress?.address || raw.organizer?.email || '',
+        };
+
         return {
-            id: raw.id || raw.eventId || String(Math.random()),
+            id: raw.meetingId || raw.id || raw.eventId || String(Math.random()),
             title: raw.subject || raw.title || 'Untitled',
-            startTime: raw.start?.dateTime || raw.startDateTime || raw.startTime || new Date().toISOString(),
-            endTime: raw.end?.dateTime || raw.endDateTime || raw.endTime || new Date().toISOString(),
-            location: raw.location?.displayName || raw.location || '',
+            startTime,
+            endTime,
+            location: raw.location?.displayName || (typeof raw.location === 'string' ? raw.location : '') || '',
             description: raw.bodyPreview || raw.description || '',
-            busyStatus: (raw.showAs || raw.busyStatus || 'busy').toLowerCase(),
-            attendees: (raw.attendees || []).map(a => ({
-                name: a.emailAddress?.name || a.name || '',
-                email: a.emailAddress?.address || a.email || '',
-            })),
-            organizer: {
-                name: raw.organizer?.emailAddress?.name || '',
-                email: raw.organizer?.emailAddress?.address || '',
-            },
+            busyStatus,
+            isAllDay: raw.isAllDay || false,
+            isCanceled: raw.isCanceled || raw.isCancelled || false,
+            isRecurring: raw.isRecurring || false,
+            attendees,
+            organizer,
             source: 'outlook-mcp',
         };
     } catch (e) {
