@@ -1,6 +1,5 @@
 import { NextResponse } from 'next/server';
-import { fetchOutlookCalendar } from '../../../services/outlook-local.js';
-import { fetchOutlookEmails } from '../../../services/outlook-local.js';
+import { fetchOutlookCalendar } from '../../../services/outlook-mcp.js';
 import { createRequire } from 'module';
 import fs from 'fs';
 import path from 'path';
@@ -92,13 +91,13 @@ export async function GET(request) {
             }
         }
         
-        // Strategy 3: Live fetch from Outlook
+        // Strategy 3: Live fetch from Outlook MCP (do NOT save to shared local-store
+        // as it uses a different date range and would poison morning briefing cache)
         if (meetings.length === 0) {
-            logger.info('No local calendar data, fetching from Outlook...');
+            logger.info('No local calendar data, fetching live from Outlook MCP...');
             meetings = await fetchOutlookCalendar(null, 0, 8);
-            if (meetings && meetings.length > 0) {
-                localStore.saveCalendar(meetings);
-            }
+            // Note: intentionally NOT saving to localStore here — the background sync
+            // (sync-local-data.mjs) is the single writer for calendar.json
         }
 
         const now = new Date();
