@@ -43,9 +43,48 @@ function timeAgo(dateStr) {
     return `${Math.floor(diff / 1440)}d ago`;
 }
 
-/** Strips HTML tags, collapses whitespace, returns plain text */
+/**
+ * Decode a raw MIME body (multipart/base64) to plain text.
+ * Runs client-side as a fallback for emails already cached before the
+ * server-side decodeMimeBody fix was deployed.
+ */
+function decodeMimeBodyClient(raw) {
+    if (!raw) return '';
+    if (!raw.includes('Content-Type:') && !raw.includes('--=')) return raw;
+
+    try {
+        // Find text/plain parts first, then text/html
+        const partRegex = /Content-Type:\s*(text\/(?:plain|html))[^\n]*\n(?:Content-Transfer-Encoding:\s*(\S+)\s*\n)?(?:[^\n]+\n)*?\n([\s\S]*?)(?=--=|$)/gim;
+        const parts = [];
+        let match;
+        while ((match = partRegex.exec(raw)) !== null) {
+            const mimeType = match[1].toLowerCase();
+            const encoding = (match[2] || 'plain').toLowerCase().trim();
+            let content = match[3] || '';
+            if (encoding === 'base64') {
+                try {
+                    content = atob(content.replace(/\s+/g, ''));
+                } catch { content = ''; }
+            } else if (encoding === 'quoted-printable') {
+                content = content.replace(/=\r?\n/g, '').replace(/=([0-9A-Fa-f]{2})/g, (_, h) => String.fromCharCode(parseInt(h, 16)));
+            }
+            content = content.trim();
+            if (content) parts.push({ mimeType, content });
+        }
+        const plain = parts.find(p => p.mimeType === 'text/plain');
+        const html = parts.find(p => p.mimeType === 'text/html');
+        const chosen = plain || html;
+        if (chosen) return chosen.content;
+    } catch { /* fall through */ }
+
+    return raw;
+}
+
+/** Strips HTML tags and decodes MIME/base64, returns plain text */
 function htmlToText(html) {
     if (!html) return '';
+    // Decode raw MIME bodies (e.g. from aws-outlook-mcp returning multipart messages)
+    html = decodeMimeBodyClient(html);
     // Remove style/script blocks
     let text = html.replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '');
     text = text.replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '');

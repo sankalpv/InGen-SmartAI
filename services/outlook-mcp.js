@@ -197,6 +197,77 @@ function extractContent(result) {
  * email_read returns full message objects:
  *   { id, subject, from, toRecipients, ccRecipients, body, receivedDateTime, isRead, ... }
  */
+/**
+ * Decode a raw MIME email body to plain text.
+ * Handles:
+ *  - multipart/mixed and multipart/alternative MIME envelopes
+ *  - base64 Content-Transfer-Encoding parts
+ *  - quoted-printable Content-Transfer-Encoding
+ *  - plain HTML (strips tags)
+ *  - already-plain text (passthrough)
+ */
+function decodeMimeBody(raw) {
+    if (!raw) return '';
+
+    // Not a MIME message — return as-is
+    if (!raw.includes('Content-Type:') && !raw.includes('--=')) return raw;
+
+    try {
+        // Extract all MIME parts recursively
+        const parts = [];
+        const partRegex = /Content-Type:\s*(text\/(?:plain|html))[^\n]*\n(?:Content-Transfer-Encoding:\s*(\S+)\s*\n)?(?:[^\n]+\n)*?\n([\s\S]*?)(?=--=|\z)/gim;
+        let match;
+        while ((match = partRegex.exec(raw)) !== null) {
+            const mimeType = match[1].toLowerCase();
+            const encoding = (match[2] || 'plain').toLowerCase().trim();
+            let content = match[3] || '';
+
+            if (encoding === 'base64') {
+                // Remove whitespace/line breaks from base64 blob
+                const b64 = content.replace(/\s+/g, '');
+                try {
+                    content = Buffer.from(b64, 'base64').toString('utf8');
+                } catch { content = ''; }
+            } else if (encoding === 'quoted-printable') {
+                content = content
+                    .replace(/=\r?\n/g, '')          // soft line breaks
+                    .replace(/=([0-9A-Fa-f]{2})/g, (_, h) => String.fromCharCode(parseInt(h, 16)));
+            }
+
+            // Strip HTML tags for html parts
+            if (mimeType === 'text/html') {
+                content = content
+                    .replace(/<br\s*\/?>/gi, '\n')
+                    .replace(/<\/p>/gi, '\n')
+                    .replace(/<[^>]+>/g, '')
+                    .replace(/&nbsp;/gi, ' ')
+                    .replace(/&amp;/gi, '&')
+                    .replace(/&lt;/gi, '<')
+                    .replace(/&gt;/gi, '>')
+                    .replace(/&quot;/gi, '"')
+                    .replace(/&#39;/gi, "'");
+            }
+
+            content = content.trim();
+            if (content) parts.push({ mimeType, content });
+        }
+
+        // Prefer plain text; fall back to html
+        const plainPart = parts.find(p => p.mimeType === 'text/plain');
+        const htmlPart = parts.find(p => p.mimeType === 'text/html');
+        const chosen = (plainPart || htmlPart);
+        if (chosen) return chosen.content;
+
+        // Fallback: try decoding the whole thing as base64 if it looks like one big blob
+        const stripped = raw.replace(/\s+/g, '');
+        if (/^[A-Za-z0-9+/]+=*$/.test(stripped) && stripped.length > 40) {
+            try { return Buffer.from(stripped, 'base64').toString('utf8'); } catch { /* */ }
+        }
+    } catch (e) { /* ignore — return original */ }
+
+    return raw;
+}
+
 function normalizeEmail(raw) {
     if (!raw) return null;
     try {
@@ -239,7 +310,7 @@ function normalizeEmail(raw) {
             source:         'outlook',
             subject,
             snippet:        raw.bodyPreview || raw.preview || raw.snippet || '',
-            body:           raw.body?.content || raw.bodyContent || raw.bodyPreview || raw.preview || '',
+            body:           decodeMimeBody(raw.body?.content || raw.bodyContent || raw.bodyPreview || raw.preview || ''),
             date:           dateStr,
             isUnread,
             labels,
