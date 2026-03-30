@@ -320,15 +320,30 @@ async function streamChat(query, history, pageContext) {
         }
 
         // Step 3: Calendar search — OPT-IN only when query explicitly asks about meetings/schedule
-        const calendarTriggers = /\b(meeting|meetings|calendar|schedule|when\s+is|agenda|attendees?|invite|1:1|1-on-1|prep\s+for|prepare\s+for|debrief|prebrief|interview)\b/i;
+        const calendarTriggers = /\b(meeting|meetings|calendar|schedule|when\s+is|agenda|attendees?|invite|1:1|1-on-1|prep\s+for|prepare\s+for|debrief|prebrief|interview|busiest|free\s+time|free\s+slot|availability|busy|block|my\s+week|this\s+week|next\s+week|today['']?s?\s+(schedule|meeting)|tomorrow['']?s?\s+(schedule|meeting)|day\s+this\s+week)\b/i;
         if (calendarTriggers.test(query)) {
             try {
-                const fs = await import('fs');
-                const path = await import('path');
-                const calPath = path.default.join(process.cwd(), 'data', 'calendar.json');
-                if (fs.default.existsSync(calPath)) {
-                    const raw = JSON.parse(fs.default.readFileSync(calPath, 'utf8'));
-                    const events = raw.data || [];
+                // Fetch live from MCP so the AI always sees current calendar data
+                const outlookMcp = require('../../../services/outlook-mcp');
+                // lookbackDays=1 (include today), forwardDays=14
+                let events = [];
+                try {
+                    events = await outlookMcp.fetchOutlookCalendar(null, 1, 14);
+                    console.log(`[Chat] Live MCP calendar: ${events.length} events`);
+                    // Also write-through so other consumers stay fresh
+                    const localStore = require('../../../services/local-store');
+                    if (events.length > 0) localStore.saveCalendar(events);
+                } catch (mcpErr) {
+                    console.warn('[Chat] MCP calendar fetch failed, falling back to file:', mcpErr.message);
+                    const fs = await import('fs');
+                    const path = await import('path');
+                    const calPath = path.default.join(process.cwd(), 'data', 'calendar.json');
+                    if (fs.default.existsSync(calPath)) {
+                        const raw = JSON.parse(fs.default.readFileSync(calPath, 'utf8'));
+                        events = raw.data || [];
+                    }
+                }
+                if (events.length > 0) {
 
                     // --- Date-aware calendar search ---
                     // Parse natural language dates from the query
@@ -381,6 +396,31 @@ async function streamChat(query, history, pageContext) {
                     if (calHits.length > 0) {
                         contextDocs = [...contextDocs, ...calHits];
                         console.log(`[Chat] Calendar search added ${calHits.length} meeting results`);
+                    }
+
+                    // For "busiest day / free time / my week" queries include ALL events this week
+                    const weekOverviewTrigger = /\b(busiest|free\s+time|availability|my\s+week|this\s+week|next\s+week|free\s+slot|busy|day\s+this\s+week)\b/i;
+                    if (weekOverviewTrigger.test(query) && calHits.length === 0) {
+                        const now = new Date();
+                        const weekEnd = new Date(now);
+                        weekEnd.setDate(weekEnd.getDate() + 7);
+                        const weekEvents = events.filter(e => {
+                            if (!e.startTime) return false;
+                            const d = new Date(e.startTime);
+                            return d >= now && d <= weekEnd;
+                        }).sort((a, b) => new Date(a.startTime) - new Date(b.startTime));
+                        if (weekEvents.length > 0) {
+                            contextDocs = [...contextDocs, ...weekEvents.map(e => ({
+                                id: `cal-${e.id}`,
+                                subject: `📅 ${e.title}`,
+                                sender: 'Calendar',
+                                received: e.startTime,
+                                snippet: `${e.title} — ${new Date(e.startTime).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })} ${new Date(e.startTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}–${new Date(e.endTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}${e.location ? ` (${e.location})` : ''}`,
+                                similarity: 0.9,
+                                source: 'calendar'
+                            }))];
+                            console.log(`[Chat] Week overview: injected ${weekEvents.length} events`);
+                        }
                     }
                 }
             } catch (e) {
