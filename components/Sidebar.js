@@ -197,23 +197,6 @@ export default function Sidebar() {
                     {!collapsed && 'Collapse'}
                 </button>
 
-                {/* System Status — hidden when collapsed */}
-                {!collapsed && (
-                    <>
-                        <div className="sidebar-section-title" style={{ marginTop: '8px', marginBottom: '12px', paddingLeft: '12px', fontSize: '0.75rem', textTransform: 'uppercase', color: 'var(--text-tertiary)', letterSpacing: '1px', fontWeight: 600 }}>System Status</div>
-                        <div className="connections-list">
-                            {connections.map((conn) => (
-                                <div key={conn.name} className={`connection-item ${conn.status}`}>
-                                    <div className="connection-info">
-                                        <span className="connection-icon-wrapper">{conn.emoji}</span>
-                                        <span className="connection-name">{conn.name}</span>
-                                    </div>
-                                    <span className={`connection-dot ${conn.status}`} />
-                                </div>
-                            ))}
-                        </div>
-                    </>
-                )}
             </div>
         </aside>
     );
