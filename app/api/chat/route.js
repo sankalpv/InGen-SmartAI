@@ -219,7 +219,13 @@ async function streamChat(query, history, pageContext) {
         }
     }
 
-    // Targeted query: use RAG vector search + keyword fallback + calendar
+    // Step 3 (calendar) always runs when query mentions meetings/schedule —
+    // run it unconditionally AFTER Steps 1+2 so we always have live calendar
+    // even when RAG already returned email results.
+    const calendarTriggers = /\b(meeting|meetings|calendar|schedule|when\s+is|agenda|attendees?|invite|1:1|1-on-1|prep\s+for|prepare\s+for|debrief|prebrief|interview|busiest|free\s+time|free\s+slot|availability|busy|block|my\s+week|this\s+week|next\s+week|today['']?s?\s+(schedule|meeting)|tomorrow['']?s?\s+(schedule|meeting)|day\s+this\s+week)\b/i;
+    const needsCalendar = calendarTriggers.test(query);
+
+    // Targeted query: use RAG vector search + keyword fallback
     if (contextDocs.length === 0) {
         // Step 1: RAG vector search (semantic similarity)
         try {
@@ -319,9 +325,10 @@ async function streamChat(query, history, pageContext) {
             console.error('Keyword search failed:', e.message);
         }
 
-        // Step 3: Calendar search — OPT-IN only when query explicitly asks about meetings/schedule
-        const calendarTriggers = /\b(meeting|meetings|calendar|schedule|when\s+is|agenda|attendees?|invite|1:1|1-on-1|prep\s+for|prepare\s+for|debrief|prebrief|interview|busiest|free\s+time|free\s+slot|availability|busy|block|my\s+week|this\s+week|next\s+week|today['']?s?\s+(schedule|meeting)|tomorrow['']?s?\s+(schedule|meeting)|day\s+this\s+week)\b/i;
-        if (calendarTriggers.test(query)) {
+    } // end if (contextDocs.length === 0)
+
+    // Step 3: Calendar — always run when query is about meetings/schedule/week
+    if (needsCalendar) {
             try {
                 // Fetch live from MCP so the AI always sees current calendar data
                 const outlookMcp = require('../../../services/outlook-mcp');
@@ -426,7 +433,6 @@ async function streamChat(query, history, pageContext) {
             } catch (e) {
                 console.error('Calendar search failed:', e.message);
             }
-        }
     }
 
     const stream = new ReadableStream({
