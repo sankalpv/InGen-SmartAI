@@ -41,6 +41,22 @@ function ensureLeadershipChain() {
     });
 }
 
+// Try to load leadership chain from file cache synchronously at startup
+// so it's available immediately on first request, before async fetch completes
+try {
+    const fs = require('fs');
+    const path = require('path');
+    const chainPath = path.join(process.cwd(), 'brain', 'leadership-chain.json');
+    if (fs.existsSync(chainPath)) {
+        const cached = JSON.parse(fs.readFileSync(chainPath, 'utf8'));
+        if (cached.chain && Array.isArray(cached.chain) && (Date.now() - (cached.timestamp || 0) < LEADERSHIP_TTL)) {
+            leadershipEmailSet = new Set(cached.chain.map(p => p.email.toLowerCase()));
+            leadershipLoadedAt = cached.timestamp || Date.now();
+            console.log(`[API/Outlook] Leadership chain pre-loaded from disk: ${[...leadershipEmailSet].join(', ')}`);
+        }
+    }
+} catch (e) { /* ignore */ }
+
 // Kick off leadership chain load at module startup (non-blocking)
 ensureLeadershipChain();
 
@@ -182,11 +198,25 @@ async function upgradeWithAI(emails) {
 }
 
 function applyCategories(emails) {
-    return emails.map(e => ({
-        ...e,
-        // Priority: AI cache > existing aiCategory > rule-based (always computed)
-        aiCategory: aiCategoryCache.get(e.id) || e.aiCategory || ruleBasedCategory(e),
-    }));
+    return emails.map(e => {
+        // Leadership check always wins — cannot be overridden by stale AI/rule cache
+        const leadershipCategory = (() => {
+            const senderEmail = (typeof e.from === 'string' ? e.from : e.from?.email || '').toLowerCase();
+            const senderAlias = senderEmail.replace(/@.*$/, '');
+            if (leadershipEmailSet && leadershipEmailSet.size > 0) {
+                if (leadershipEmailSet.has(senderEmail) || leadershipEmailSet.has(`${senderAlias}@amazon.com`)) {
+                    return 'respond_now';
+                }
+            }
+            return null;
+        })();
+
+        return {
+            ...e,
+            // Priority: leadership > AI cache > existing aiCategory > rule-based
+            aiCategory: leadershipCategory || aiCategoryCache.get(e.id) || e.aiCategory || ruleBasedCategory(e),
+        };
+    });
 }
 
 export async function GET(request) {
