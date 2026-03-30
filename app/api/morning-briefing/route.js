@@ -48,12 +48,51 @@ function writeCache(data) {
     try { ensureDataDir(); fs.writeFileSync(CACHE_FILE, JSON.stringify(data, null, 2)); } catch (e) { /* ignore */ }
 }
 
+// ─── Rule-based email triage (module-level so all sections share it) ───
+
+function quickCategory(e) {
+    if (e.aiCategory && e.aiCategory !== 'fyi') return e.aiCategory;
+    const subject = (e.subject || '').toLowerCase();
+    const snippet = (e.snippet || e.body || '').toLowerCase().slice(0, 300);
+    const from = typeof e.from === 'string' ? e.from.toLowerCase()
+        : `${e.from?.name || ''} ${e.from?.email || ''}`.toLowerCase();
+    const combined = `${subject} ${snippet} ${from}`;
+    const recipientCount = (e.recipients || []).length;
+
+    // FYI — automated / system senders
+    if (/\bno[-_]?reply\b|\bnewsletter\b|\bunsubscribe\b|\bauto[-_]?generated\b|\bdo not reply\b/.test(combined)) return 'fyi';
+    if (from.includes('no-reply') || from.includes('noreply') || from.includes('donotreply')) return 'fyi';
+    if (from.includes('notification') || from.includes('elmo-') || from.includes('alerts@') || from.includes('reports@') || from.includes('sdo-') || from.includes('security-') || from.includes('aws-') || from.includes('jira@') || from.includes('github@') || from.includes('pagerduty')) return 'fyi';
+    if (recipientCount > 10) return 'fyi';
+    if (/\booo\b|out of office|on vacation/.test(combined)) return 'fyi';
+    if (/\b(weekly|daily|monthly)\s+(report|digest|summary|newsletter)\b/.test(subject)) return 'fyi';
+    if (/^(member (added|removed)|you (have been|were) (added|removed|subscribed|unsubscribed))/.test(subject)) return 'fyi';
+    if (/\b(shepherd report|security report|compliance report|audit report)\b/.test(subject)) return 'fyi';
+    if (/^(re: action required|fyi:|for your information)/.test(subject) && recipientCount > 5) return 'fyi';
+    if (/\b(build (succeeded|failed)|pipeline|deployment|test results|alarm (triggered|resolved))\b/.test(subject)) return 'fyi';
+
+    // respond_now
+    if (/\baction required\b|\burgent\b|\basap\b|\bblocking\b|\bplease (review|approve|confirm|respond|reply)\b|\baction item\b|\bescalat/.test(combined)) return 'respond_now';
+    if (/\bneed your (approval|sign-?off|input|feedback|decision)\b|\bwhat (do you think|are your thoughts)\b/.test(combined)) return 'respond_now';
+
+    // respond_today
+    if (/\bfollowing up\b|\bfollow.?up\b|\bcircling back\b|\bany update\b|\blet me know\b|\blmk\b|\bquick (question|ask)\b/.test(combined)) return 'respond_today';
+    if (/\bimportant\b|\bdeadline\b|\b1:1|one.on.one\b/.test(combined)) return 'respond_today';
+
+    // Small direct email, recent
+    if (recipientCount <= 3) {
+        const ageMs = Date.now() - new Date(e.date || e.received || 0).getTime();
+        if (ageMs / (1000 * 60 * 60 * 24) <= 2) return 'respond_today';
+    }
+    return 'fyi';
+}
+
 // ─── Gather all data sources ───
 
 async function gatherAllData() {
     const sources = {};
 
-    // 1. Emails
+    // 1. Emails — use quickCategory() for consistent triage (aiCategory may not be populated)
     try {
         const emailCache = localStore.getEmails ? localStore.getEmails() : { data: null };
         const allEmails = emailCache.data || [];
@@ -61,13 +100,16 @@ async function gatherAllData() {
         const todayEmails = filterToToday(received, 'received').length > 0
             ? filterToToday(received, 'received')
             : filterToToday(received, 'date');
-        const urgent = todayEmails.filter(e => (e.aiCategory || '').toLowerCase() === 'respond_now');
-        const topSenders = [...new Set(urgent.map(e => (e.from || e.sender || '').split('<')[0].trim()))].slice(0, 3);
+        const urgent = todayEmails.filter(e => quickCategory(e) === 'respond_now');
+        const topSenders = [...new Set(urgent.map(e => {
+            const f = e.from || e.sender || '';
+            return typeof f === 'string' ? f.split('<')[0].trim() : (f?.name || f?.email || 'Unknown');
+        }))].slice(0, 3);
         sources.emails = {
             total: todayEmails.length,
             urgent: urgent.length,
             topUrgentSenders: topSenders,
-            respondToday: todayEmails.filter(e => (e.aiCategory || '').toLowerCase() === 'respond_today').length,
+            respondToday: todayEmails.filter(e => quickCategory(e) === 'respond_today').length,
         };
     } catch (e) { sources.emails = { total: 0, urgent: 0, topUrgentSenders: [], error: e.message }; }
 
@@ -180,40 +222,6 @@ async function gatherAllData() {
         const emailCache = localStore.getEmails ? localStore.getEmails() : { data: null };
         const allEmails = emailCache.data || [];
         const inbox = allEmails.filter(e => !e.isSent && e.folder !== 'Sent Items');
-
-        // Inline rule-based triage — same heuristics as outlook-local route
-        // but applied here so we don't depend on aiCategory being pre-populated
-        function quickCategory(e) {
-            // Pre-existing AI/rule category wins if already set
-            if (e.aiCategory && e.aiCategory !== 'fyi') return e.aiCategory;
-            const subject = (e.subject || '').toLowerCase();
-            const snippet = (e.snippet || e.body || '').toLowerCase().slice(0, 300);
-            const from = typeof e.from === 'string' ? e.from.toLowerCase()
-                : `${e.from?.name || ''} ${e.from?.email || ''}`.toLowerCase();
-            const combined = `${subject} ${snippet} ${from}`;
-            const recipientCount = (e.recipients || []).length;
-
-            // FYI signals
-            if (/\bno[-_]?reply\b|\bnewsletter\b|\bunsubscribe\b|\bauto[-_]?generated\b|\bdo not reply\b/.test(combined)) return 'fyi';
-            if (from.includes('no-reply') || from.includes('noreply') || from.includes('donotreply')) return 'fyi';
-            if (recipientCount > 10) return 'fyi';
-            if (/\booo\b|out of office|on vacation/.test(combined)) return 'fyi';
-
-            // respond_now
-            if (/\baction required\b|\burgent\b|\basap\b|\bblocking\b|\bplease (review|approve|confirm|respond|reply)\b|\baction item\b|\bescalat/.test(combined)) return 'respond_now';
-            if (/\bneed your (approval|sign-?off|input|feedback|decision)\b|\bwhat (do you think|are your thoughts)\b/.test(combined)) return 'respond_now';
-
-            // respond_today
-            if (/\bfollowing up\b|\bfollow.?up\b|\bcircling back\b|\bany update\b|\blet me know\b|\blmk\b|\bquick (question|ask)\b/.test(combined)) return 'respond_today';
-            if (/\bimportant\b|\bdeadline\b|\b1:1|one.on.one\b/.test(combined)) return 'respond_today';
-
-            // Small direct email, recent
-            if (recipientCount <= 3) {
-                const ageMs = Date.now() - new Date(e.date || e.received || 0).getTime();
-                if (ageMs / (1000 * 60 * 60 * 24) <= 2) return 'respond_today';
-            }
-            return 'fyi';
-        }
 
         // Follow-up detection: sent emails >3 days ago with no reply
         const sentEmails = await fetchSentEmails(60, 7);
