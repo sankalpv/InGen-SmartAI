@@ -518,177 +518,92 @@ Be specific. Use goal IDs. Quote numbers. Do not be generic.`;
             }
 
             case 'subtasks': {
-                // Fetch subtasks for a specific issue on-demand
+                // Serve subtasks from WBR cache — zero extra API calls, near-instant response.
+                // The WBR cache (brain/wbr-cache.json) is refreshed every 6 days or on manual refresh,
+                // and already contains every goal with its direct subtasks and full metadata.
+                //
+                // Hierarchy: goal (depth 0) → milestones/tasks (depth 1) → if any depth-1 item is
+                // itself a top-level WBR goal (e.g. CPP2026Goal-14), expand its subtasks at depth 2.
                 if (!alias) {
                     return NextResponse.json({ error: 'alias parameter required (issue ID)' }, { status: 400 });
                 }
-                const mcpClient = require('../../../services/mcp-client');
-
-                // Helper: call TaskeiGetTask with retry on ThrottlingException
-                const callWithRetry = async (taskId, maxRetries = 3) => {
-                    for (let attempt = 0; attempt < maxRetries; attempt++) {
-                        if (attempt > 0) {
-                            const delay = 1500 * Math.pow(2, attempt - 1); // 1.5s, 3s, 6s
-                            console.log(`[subtasks] Throttled, retrying ${taskId} in ${delay}ms (attempt ${attempt + 1})`);
-                            await new Promise(r => setTimeout(r, delay));
-                        }
-                        const res = await mcpClient.callTool('builder-mcp', 'TaskeiGetTask', {
-                            taskId,
-                            includeCustomAttributes: false,
-                            commentLimit: 0
-                        });
-                        const txt = res.content?.map(c => c.text || '').join('') || '{}';
-                        const parsed = JSON.parse(txt);
-                        if (parsed.error && String(parsed.error).includes('Throttling')) {
-                            if (attempt === maxRetries - 1) throw new Error(`ThrottlingException after ${maxRetries} retries`);
-                            continue; // retry
-                        }
-                        return parsed;
-                    }
-                };
-
                 try {
-                    const taskData = await callWithRetry(alias);
-                    // TaskeiGetTask may return { task: {...} } or just the task object directly
-                    const rootTask = taskData.task || taskData.data?.task || taskData.data || (taskData.error ? {} : taskData) || {};
-                    if (taskData.error) {
-                        console.warn(`[subtasks] TaskeiGetTask returned error for ${alias}: ${taskData.error}`);
+                    const wbrData = await wbrReport.generateWbrReport(false);
+
+                    // Build a flat map of all WBR goals keyed by ID for O(1) lookup
+                    const allWbrGoals = (wbrData?.sections || []).flatMap(s => s.goals || []);
+                    const goalById = new Map(allWbrGoals.map(g => [g.id, g]));
+
+                    // Find the requested goal
+                    const rootGoal = goalById.get(alias);
+
+                    if (!rootGoal) {
+                        // Goal not in WBR cache — return empty with a helpful message
+                        data = { id: alias, subtasks: [], error: `Goal ${alias} not found in WBR cache. Refresh Team Health to update the cache.` };
+                        break;
                     }
-                    const fmtDate = (d) => {
-                        if (!d) return 'Missing';
-                        try {
-                            const dt = new Date(d);
-                            return `${String(dt.getMonth()+1).padStart(2,'0')}-${String(dt.getDate()).padStart(2,'0')}-${dt.getFullYear()}`;
-                        } catch(e) { return 'Missing'; }
-                    };
 
-                    // The parent goal itself
+                    // Parent row (depth 0)
                     const parentRow = {
-                        id: rootTask.shortId || rootTask.id || alias,
-                        title: rootTask.name || '',
-                        status: rootTask.status || 'Open',
-                        workflowAction: rootTask.workflowAction || '',
-                        assignee: rootTask.assignee?.username || 'unassigned',
-                        assigneeName: rootTask.assignee?.name || '',
-                        ecd: fmtDate(rootTask.estimatedCompletionDate),
-                        priority: rootTask.classicPriority || rootTask.priority || rootTask.severity || 'P3',
-                        blocked: !!rootTask.isBlocked || !!rootTask.blocked || rootTask.status === 'Blocked' || (rootTask.tags || []).includes('blocked'),
+                        id: rootGoal.id,
+                        title: rootGoal.title || '',
+                        status: rootGoal.status || 'Open',
+                        workflowAction: '',
+                        assignee: rootGoal.assignee || 'unassigned',
+                        assigneeName: rootGoal.assigneeName || '',
+                        ecd: rootGoal.ecd || 'Missing',
+                        priority: 'P3',
+                        blocked: rootGoal.blocked || false,
                         isParent: true,
-                        depth: 0
+                        depth: 0,
                     };
 
-                    const enrichedSubtasks = [];
-                    let fetches = 0;
-                    const maxFetches = 40;
-                    const seenIds = new Set([parentRow.id]);
+                    const rows = [];
 
-                    // Recursive scanner: fetch task, enrich it, and scan its subtasks
-                    const scanLevel = async (shallowTasks, currentDepth) => {
-                        if (fetches >= maxFetches || currentDepth > 3) return;
-                        
-                        // Batch fetch current level
-                        const batchSize = 5;
-                        for (let i = 0; i < shallowTasks.length; i += batchSize) {
-                            if (fetches >= maxFetches) break;
-                            const batch = shallowTasks.slice(i, i + batchSize).filter(s => {
-                                const sid = s.id || s.shortId;
-                                return sid && !seenIds.has(sid);
-                            });
-                            
-                            if (batch.length === 0) continue;
+                    // Depth-1: direct subtasks of the requested goal
+                    for (const s of (rootGoal.subtasks || [])) {
+                        const childGoal = goalById.get(s.id); // is this subtask itself a top-level goal?
+                        rows.push({
+                            id: s.id,
+                            title: s.title || s.name || '',
+                            status: s.status || 'Open',
+                            workflowAction: '',
+                            assignee: s.assignee || 'unassigned',
+                            assigneeName: s.assigneeName || '',
+                            ecd: s.ecd || 'Missing',
+                            priority: '—',
+                            blocked: false,
+                            depth: 1,
+                        });
 
-                            const results = await Promise.all(batch.map(async (s) => {
-                                fetches++;
-                                const sid = s.id || s.shortId;
-                                seenIds.add(sid);
-                                try {
-                                    const subData_raw = await callWithRetry(s.id || s.shortId);
-                                    const subData = subData_raw.task || subData_raw.data?.task || subData_raw.data || (subData_raw.error ? {} : subData_raw) || {};
-                                    return {
-                                        id: subData.shortId || subData.id || sid || 'Unknown',
-                                        title: subData.name || s.name || '',
-                                        status: subData.status || s.status || 'Open',
-                                        workflowAction: subData.workflowAction || s.workflowAction || '',
-                                        assignee: subData.assignee?.username || s.assignee?.username || 'unassigned',
-                                        assigneeName: subData.assignee?.name || s.assignee?.name || '',
-                                        ecd: fmtDate(subData.estimatedCompletionDate),
-                                        priority: subData.classicPriority || subData.priority || subData.severity || s.classicPriority || 'P3',
-                                        blocked: !!subData.isBlocked || !!subData.blocked || subData.status === 'Blocked' || (subData.tags || []).includes('blocked'),
-                                        depth: currentDepth,
-                                        // Merge subtasks + child goals (Taskei stores child goals in children/childGoals)
-                                        rawSubtasks: [
-                                            ...(subData.subtasks || []),
-                                            ...(subData.children || []),
-                                            ...(subData.childGoals || []),
-                                        ]
-                                    };
-                                } catch (e) {
-                                    return {
-                                        id: sid || s.id || s.shortId || 'Unknown',
-                                        title: s.name || '',
-                                        status: s.status || 'Open',
-                                        workflowAction: s.workflowAction || '',
-                                        assignee: s.assignee?.username || 'unassigned',
-                                        assigneeName: s.assignee?.name || '',
-                                        ecd: fmtDate(s.estimatedCompletionDate),
-                                        priority: s.classicPriority || '—',
-                                        blocked: !!s.isBlocked || !!s.blocked || s.status === 'Blocked' || (s.tags || []).includes('blocked'),
-                                        depth: currentDepth,
-                                        rawSubtasks: [
-                                            ...(s.subtasks || []),
-                                            ...(s.children || []),
-                                            ...(s.childGoals || []),
-                                        ]
-                                    };
-                                }
-                            }));
-
-                            // Insert results into flattened array and recursively resolve children
-                            for (const res of results) {
-                                enrichedSubtasks.push({
-                                    id: res.id, title: res.title, status: res.status, workflowAction: res.workflowAction,
-                                    assignee: res.assignee, assigneeName: res.assigneeName, ecd: res.ecd,
-                                    priority: res.priority, blocked: res.blocked, depth: res.depth
+                        // Depth-2: if this depth-1 item is itself a top-level WBR goal (e.g. CPP2026Goal-14),
+                        // inline its children so they appear indented beneath it
+                        if (childGoal && (childGoal.subtasks || []).length > 0) {
+                            for (const gs of childGoal.subtasks) {
+                                rows.push({
+                                    id: gs.id,
+                                    title: gs.title || gs.name || '',
+                                    status: gs.status || 'Open',
+                                    workflowAction: '',
+                                    assignee: gs.assignee || 'unassigned',
+                                    assigneeName: gs.assigneeName || '',
+                                    ecd: gs.ecd || 'Missing',
+                                    priority: '—',
+                                    blocked: false,
+                                    depth: 2,
                                 });
-                                
-                                if (res.rawSubtasks.length > 0 && fetches < maxFetches && res.status !== 'Closed') {
-                                    await scanLevel(res.rawSubtasks, currentDepth + 1);
-                                }
                             }
                         }
-                    };
-
-                    // Debug: log what fields rootTask has so we can find where children live
-                    const rootKeys = Object.keys(rootTask);
-                    console.log(`[subtasks] rootTask keys for ${alias}: ${rootKeys.join(', ')}`);
-                    console.log(`[subtasks] subtasks.length=${(rootTask.subtasks||[]).length} children.length=${(rootTask.children||[]).length} childGoals.length=${(rootTask.childGoals||[]).length}`);
-                    // Log any array-valued keys with items
-                    for (const k of rootKeys) {
-                        if (Array.isArray(rootTask[k]) && rootTask[k].length > 0) {
-                            console.log(`[subtasks] rootTask.${k} has ${rootTask[k].length} items, first id/shortId: ${rootTask[k][0]?.id || rootTask[k][0]?.shortId || JSON.stringify(rootTask[k][0]).slice(0,80)}`);
-                        }
                     }
 
-                    // Collect all array children from any field
-                    const allChildren = [
-                        ...(rootTask.subtasks || []),
-                        ...(rootTask.children || []),
-                        ...(rootTask.childGoals || []),
-                        ...(rootTask.items || []),
-                        ...(rootTask.tasks || []),
-                    ];
-
-                    // Seed with subtasks AND child goals — Taskei stores child goals in children/childGoals
-                    await scanLevel(allChildren, 1);
-
                     data = {
-                        id: rootTask.shortId || rootTask.id || alias,
-                        name: rootTask.name || '',
-                        status: rootTask.status || 'Open',
-                        workflowAction: rootTask.workflowAction || '',
-                        ecd: fmtDate(rootTask.estimatedCompletionDate),
-                        subtasks: [parentRow, ...enrichedSubtasks],
-                        _debug: { rootKeys, childCount: allChildren.length }
+                        id: rootGoal.id,
+                        name: rootGoal.title || '',
+                        status: rootGoal.status || 'Open',
+                        workflowAction: '',
+                        ecd: rootGoal.ecd || 'Missing',
+                        subtasks: [parentRow, ...rows],
+                        _source: 'wbr-cache',
                     };
                 } catch (e) {
                     data = { id: alias, subtasks: [], error: e.message };
