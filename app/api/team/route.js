@@ -641,12 +641,28 @@ Be specific. Use goal IDs. Quote numbers. Do not be generic.`;
                         }
                     };
 
-                    // Seed with subtasks AND child goals — Taskei stores child goals in children/childGoals
-                    await scanLevel([
+                    // Debug: log what fields rootTask has so we can find where children live
+                    const rootKeys = Object.keys(rootTask);
+                    console.log(`[subtasks] rootTask keys for ${alias}: ${rootKeys.join(', ')}`);
+                    console.log(`[subtasks] subtasks.length=${(rootTask.subtasks||[]).length} children.length=${(rootTask.children||[]).length} childGoals.length=${(rootTask.childGoals||[]).length}`);
+                    // Log any array-valued keys with items
+                    for (const k of rootKeys) {
+                        if (Array.isArray(rootTask[k]) && rootTask[k].length > 0) {
+                            console.log(`[subtasks] rootTask.${k} has ${rootTask[k].length} items, first id/shortId: ${rootTask[k][0]?.id || rootTask[k][0]?.shortId || JSON.stringify(rootTask[k][0]).slice(0,80)}`);
+                        }
+                    }
+
+                    // Collect all array children from any field
+                    const allChildren = [
                         ...(rootTask.subtasks || []),
                         ...(rootTask.children || []),
                         ...(rootTask.childGoals || []),
-                    ], 1);
+                        ...(rootTask.items || []),
+                        ...(rootTask.tasks || []),
+                    ];
+
+                    // Seed with subtasks AND child goals — Taskei stores child goals in children/childGoals
+                    await scanLevel(allChildren, 1);
 
                     data = {
                         id: rootTask.shortId || rootTask.id || alias,
@@ -654,7 +670,8 @@ Be specific. Use goal IDs. Quote numbers. Do not be generic.`;
                         status: rootTask.status || 'Open',
                         workflowAction: rootTask.workflowAction || '',
                         ecd: fmtDate(rootTask.estimatedCompletionDate),
-                        subtasks: [parentRow, ...enrichedSubtasks]
+                        subtasks: [parentRow, ...enrichedSubtasks],
+                        _debug: { rootKeys, childCount: allChildren.length }
                     };
                 } catch (e) {
                     data = { id: alias, subtasks: [], error: e.message };
