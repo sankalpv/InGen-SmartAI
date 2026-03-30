@@ -142,9 +142,18 @@ async function getClient(serverName) {
         
         if (serverConfig.command) {
             // Stdio transport (most common for local MCP servers)
+            // If the command is a .cjs file, run it explicitly with process.execPath
+            // to avoid the shebang resolving to /usr/bin/env node (system Node v20)
+            // which breaks aws-outlook-mcp that requires Node v22+.
+            let mcpCommand = serverConfig.command;
+            let mcpArgs = serverConfig.args || [];
+            if (mcpCommand.endsWith('.cjs') || mcpCommand.endsWith('.js') || mcpCommand.endsWith('.mjs')) {
+                mcpArgs = [mcpCommand, ...mcpArgs];
+                mcpCommand = process.execPath;
+            }
             transport = new StdioClientTransport({
-                command: serverConfig.command,
-                args: serverConfig.args || [],
+                command: mcpCommand,
+                args: mcpArgs,
                 env: serverConfig.env || {}
             });
         } else {
