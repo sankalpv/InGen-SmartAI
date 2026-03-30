@@ -61,6 +61,41 @@ try {
 ensureLeadershipChain();
 
 /**
+ * Extract a clean lowercase email address from various from-field formats:
+ *   - Object: { name: 'Robert', email: 'tekielar@amazon.com' }
+ *   - String: 'Tekiela, Robert <tekielar@amazon.com>'
+ *   - String: 'tekielar@amazon.com'
+ */
+function extractSenderEmail(from) {
+    if (!from) return '';
+    if (typeof from === 'object') {
+        const email = (from.email || from.address || '').toLowerCase().trim();
+        if (email) return email;
+        // Fallback: try to parse name field as email string
+        return extractSenderEmail(from.name || '');
+    }
+    // String: extract from angle brackets first
+    const angleMatch = from.match(/<([^>]+)>/);
+    if (angleMatch) return angleMatch[1].toLowerCase().trim();
+    // Plain email address
+    if (from.includes('@')) return from.toLowerCase().trim();
+    return '';
+}
+
+/**
+ * Check if a sender email/alias is in the leadership chain.
+ */
+function isLeadershipSender(from) {
+    if (!leadershipEmailSet || leadershipEmailSet.size === 0) return false;
+    const email = extractSenderEmail(from);
+    if (!email) return false;
+    if (leadershipEmailSet.has(email)) return true;
+    // Also match by alias (part before @)
+    const alias = email.replace(/@.*$/, '');
+    return leadershipEmailSet.has(`${alias}@amazon.com`);
+}
+
+/**
  * Fast rule-based email triage — no AI required, runs synchronously.
  * Returns 'respond_now' | 'respond_today' | 'fyi'
  *
@@ -79,13 +114,7 @@ function ruleBasedCategory(email) {
     const recipientCount = (email.recipients || []).length;
 
     // ── Leadership chain check — highest priority: always respond_now ────
-    const senderEmail = (typeof email.from === 'string' ? email.from : email.from?.email || '').toLowerCase();
-    const senderAlias = senderEmail.replace(/@.*$/, '');
-    if (leadershipEmailSet && leadershipEmailSet.size > 0) {
-        if (leadershipEmailSet.has(senderEmail) || leadershipEmailSet.has(`${senderAlias}@amazon.com`)) {
-            return 'respond_now';
-        }
-    }
+    if (isLeadershipSender(email.from)) return 'respond_now';
 
     // ── FYI signals — check first so we don't mis-upgrade noise ──────────
     const fyiPatterns = [
@@ -200,16 +229,7 @@ async function upgradeWithAI(emails) {
 function applyCategories(emails) {
     return emails.map(e => {
         // Leadership check always wins — cannot be overridden by stale AI/rule cache
-        const leadershipCategory = (() => {
-            const senderEmail = (typeof e.from === 'string' ? e.from : e.from?.email || '').toLowerCase();
-            const senderAlias = senderEmail.replace(/@.*$/, '');
-            if (leadershipEmailSet && leadershipEmailSet.size > 0) {
-                if (leadershipEmailSet.has(senderEmail) || leadershipEmailSet.has(`${senderAlias}@amazon.com`)) {
-                    return 'respond_now';
-                }
-            }
-            return null;
-        })();
+        const leadershipCategory = isLeadershipSender(e.from) ? 'respond_now' : null;
 
         return {
             ...e,
