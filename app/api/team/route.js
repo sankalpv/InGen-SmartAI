@@ -518,93 +518,157 @@ Be specific. Use goal IDs. Quote numbers. Do not be generic.`;
             }
 
             case 'subtasks': {
-                // Serve subtasks from WBR cache — zero extra API calls, near-instant response.
-                // The WBR cache (brain/wbr-cache.json) is refreshed every 6 days or on manual refresh,
-                // and already contains every goal with its direct subtasks and full metadata.
-                //
-                // Hierarchy: goal (depth 0) → milestones/tasks (depth 1) → if any depth-1 item is
-                // itself a top-level WBR goal (e.g. CPP2026Goal-14), expand its subtasks at depth 2.
+                // Hybrid approach:
+                //   1. If the alias is a top-level WBR goal → serve from cache instantly (no API calls).
+                //      Child goals (e.g. CPP2026Goal-14) are also in the cache and are inlined at depth+1.
+                //   2. If the alias is NOT a WBR goal (e.g. a milestone CPP-46078) → make one
+                //      TaskeiGetTask call to get that item's direct children (for lazy-expand in Team Health).
                 if (!alias) {
                     return NextResponse.json({ error: 'alias parameter required (issue ID)' }, { status: 400 });
                 }
-                try {
-                    const wbrData = await wbrReport.generateWbrReport(false);
 
-                    // Build a flat map of all WBR goals keyed by ID for O(1) lookup
+                const mcpClient = require('../../../services/mcp-client');
+
+                // Retry helper for single-item TaskeiGetTask calls
+                const callWithRetry = async (taskId, maxRetries = 3) => {
+                    for (let attempt = 0; attempt < maxRetries; attempt++) {
+                        if (attempt > 0) {
+                            const delay = 1500 * Math.pow(2, attempt - 1);
+                            await new Promise(r => setTimeout(r, delay));
+                        }
+                        const res = await mcpClient.callTool('builder-mcp', 'TaskeiGetTask', {
+                            taskId,
+                            includeCustomAttributes: false,
+                            commentLimit: 0
+                        });
+                        const txt = res.content?.map(c => c.text || '').join('') || '{}';
+                        const parsed = JSON.parse(txt);
+                        if (parsed.error && String(parsed.error).includes('Throttling')) {
+                            if (attempt === maxRetries - 1) throw new Error(`ThrottlingException after ${maxRetries} retries`);
+                            continue;
+                        }
+                        return parsed;
+                    }
+                };
+
+                const fmtDate = (d) => {
+                    if (!d) return 'Missing';
+                    try {
+                        const dt = new Date(d);
+                        return `${String(dt.getMonth()+1).padStart(2,'0')}-${String(dt.getDate()).padStart(2,'0')}-${dt.getFullYear()}`;
+                    } catch(e) { return 'Missing'; }
+                };
+
+                try {
+                    // Always load WBR cache for goal lookup (returns from cache instantly)
+                    const wbrData = await wbrReport.generateWbrReport(false);
                     const allWbrGoals = (wbrData?.sections || []).flatMap(s => s.goals || []);
                     const goalById = new Map(allWbrGoals.map(g => [g.id, g]));
 
-                    // Find the requested goal
                     const rootGoal = goalById.get(alias);
 
-                    if (!rootGoal) {
-                        // Goal not in WBR cache — return empty with a helpful message
-                        data = { id: alias, subtasks: [], error: `Goal ${alias} not found in WBR cache. Refresh Team Health to update the cache.` };
-                        break;
-                    }
-
-                    // Parent row (depth 0)
-                    const parentRow = {
-                        id: rootGoal.id,
-                        title: rootGoal.title || '',
-                        status: rootGoal.status || 'Open',
-                        workflowAction: '',
-                        assignee: rootGoal.assignee || 'unassigned',
-                        assigneeName: rootGoal.assigneeName || '',
-                        ecd: rootGoal.ecd || 'Missing',
-                        priority: 'P3',
-                        blocked: rootGoal.blocked || false,
-                        isParent: true,
-                        depth: 0,
-                    };
-
-                    const rows = [];
-
-                    // Depth-1: direct subtasks of the requested goal
-                    for (const s of (rootGoal.subtasks || [])) {
-                        const childGoal = goalById.get(s.id); // is this subtask itself a top-level goal?
-                        rows.push({
-                            id: s.id,
-                            title: s.title || s.name || '',
-                            status: s.status || 'Open',
+                    if (rootGoal) {
+                        // ── PATH 1: WBR goal → serve from cache (0 API calls) ──
+                        const parentRow = {
+                            id: rootGoal.id,
+                            title: rootGoal.title || '',
+                            status: rootGoal.status || 'Open',
                             workflowAction: '',
-                            assignee: s.assignee || 'unassigned',
-                            assigneeName: s.assigneeName || '',
-                            ecd: s.ecd || 'Missing',
-                            priority: '—',
-                            blocked: false,
-                            depth: 1,
-                        });
+                            assignee: rootGoal.assignee || 'unassigned',
+                            assigneeName: rootGoal.assigneeName || '',
+                            ecd: rootGoal.ecd || 'Missing',
+                            priority: 'P3',
+                            blocked: rootGoal.blocked || false,
+                            isParent: true,
+                            depth: 0,
+                        };
 
-                        // Depth-2: if this depth-1 item is itself a top-level WBR goal (e.g. CPP2026Goal-14),
-                        // inline its children so they appear indented beneath it
-                        if (childGoal && (childGoal.subtasks || []).length > 0) {
-                            for (const gs of childGoal.subtasks) {
-                                rows.push({
-                                    id: gs.id,
-                                    title: gs.title || gs.name || '',
-                                    status: gs.status || 'Open',
-                                    workflowAction: '',
-                                    assignee: gs.assignee || 'unassigned',
-                                    assigneeName: gs.assigneeName || '',
-                                    ecd: gs.ecd || 'Missing',
-                                    priority: '—',
-                                    blocked: false,
-                                    depth: 2,
-                                });
+                        const rows = [];
+                        for (const s of (rootGoal.subtasks || [])) {
+                            const childGoal = goalById.get(s.id);
+                            rows.push({
+                                id: s.id,
+                                title: s.title || s.name || '',
+                                status: s.status || 'Open',
+                                workflowAction: '',
+                                assignee: s.assignee || 'unassigned',
+                                assigneeName: s.assigneeName || '',
+                                ecd: s.ecd || 'Missing',
+                                priority: '—',
+                                blocked: false,
+                                depth: 1,
+                            });
+                            // If depth-1 item is itself a WBR goal, inline its children at depth 2
+                            if (childGoal && (childGoal.subtasks || []).length > 0) {
+                                for (const gs of childGoal.subtasks) {
+                                    rows.push({
+                                        id: gs.id,
+                                        title: gs.title || gs.name || '',
+                                        status: gs.status || 'Open',
+                                        workflowAction: '',
+                                        assignee: gs.assignee || 'unassigned',
+                                        assigneeName: gs.assigneeName || '',
+                                        ecd: gs.ecd || 'Missing',
+                                        priority: '—',
+                                        blocked: false,
+                                        depth: 2,
+                                    });
+                                }
                             }
                         }
-                    }
 
-                    data = {
-                        id: rootGoal.id,
-                        name: rootGoal.title || '',
-                        status: rootGoal.status || 'Open',
-                        workflowAction: '',
-                        ecd: rootGoal.ecd || 'Missing',
-                        subtasks: [parentRow, ...rows],
-                        _source: 'wbr-cache',
-                    };
+                        data = {
+                            id: rootGoal.id,
+                            name: rootGoal.title || '',
+                            status: rootGoal.status || 'Open',
+                            workflowAction: '',
+                            ecd: rootGoal.ecd || 'Missing',
+                            subtasks: [parentRow, ...rows],
+                            _source: 'wbr-cache',
+                        };
+                    } else {
+                        // ── PATH 2: non-goal item (milestone/task) → single TaskeiGetTask call ──
+                        const taskData = await callWithRetry(alias);
+                        const t = taskData.task || taskData.data?.task || taskData.data || (taskData.error ? {} : taskData) || {};
+
+                        const parentRow = {
+                            id: t.shortId || t.id || alias,
+                            title: t.name || '',
+                            status: t.status || 'Open',
+                            workflowAction: t.workflowAction || '',
+                            assignee: t.assignee?.username || 'unassigned',
+                            assigneeName: t.assignee?.name || '',
+                            ecd: fmtDate(t.estimatedCompletionDate),
+                            priority: t.classicPriority || t.priority || 'P3',
+                            blocked: !!t.blocked || t.status === 'Blocked',
+                            isParent: true,
+                            depth: 0,
+                        };
+
+                        const children = [...(t.subtasks || []), ...(t.children || []), ...(t.childGoals || [])];
+                        const rows = children.map(s => ({
+                            id: s.shortId || s.id,
+                            title: s.name || '',
+                            status: s.status || 'Open',
+                            workflowAction: s.workflowAction || '',
+                            assignee: s.assignee?.username || 'unassigned',
+                            assigneeName: s.assignee?.name || '',
+                            ecd: fmtDate(s.estimatedCompletionDate),
+                            priority: s.classicPriority || '—',
+                            blocked: !!s.blocked || s.status === 'Blocked',
+                            depth: 1,
+                        }));
+
+                        data = {
+                            id: t.shortId || t.id || alias,
+                            name: t.name || '',
+                            status: t.status || 'Open',
+                            workflowAction: t.workflowAction || '',
+                            ecd: fmtDate(t.estimatedCompletionDate),
+                            subtasks: [parentRow, ...rows],
+                            _source: 'taskei-live',
+                        };
+                    }
                 } catch (e) {
                     data = { id: alias, subtasks: [], error: e.message };
                 }
