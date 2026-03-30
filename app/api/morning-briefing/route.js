@@ -181,6 +181,40 @@ async function gatherAllData() {
         const allEmails = emailCache.data || [];
         const inbox = allEmails.filter(e => !e.isSent && e.folder !== 'Sent Items');
 
+        // Inline rule-based triage — same heuristics as outlook-local route
+        // but applied here so we don't depend on aiCategory being pre-populated
+        function quickCategory(e) {
+            // Pre-existing AI/rule category wins if already set
+            if (e.aiCategory && e.aiCategory !== 'fyi') return e.aiCategory;
+            const subject = (e.subject || '').toLowerCase();
+            const snippet = (e.snippet || e.body || '').toLowerCase().slice(0, 300);
+            const from = typeof e.from === 'string' ? e.from.toLowerCase()
+                : `${e.from?.name || ''} ${e.from?.email || ''}`.toLowerCase();
+            const combined = `${subject} ${snippet} ${from}`;
+            const recipientCount = (e.recipients || []).length;
+
+            // FYI signals
+            if (/\bno[-_]?reply\b|\bnewsletter\b|\bunsubscribe\b|\bauto[-_]?generated\b|\bdo not reply\b/.test(combined)) return 'fyi';
+            if (from.includes('no-reply') || from.includes('noreply') || from.includes('donotreply')) return 'fyi';
+            if (recipientCount > 10) return 'fyi';
+            if (/\booo\b|out of office|on vacation/.test(combined)) return 'fyi';
+
+            // respond_now
+            if (/\baction required\b|\burgent\b|\basap\b|\bblocking\b|\bplease (review|approve|confirm|respond|reply)\b|\baction item\b|\bescalat/.test(combined)) return 'respond_now';
+            if (/\bneed your (approval|sign-?off|input|feedback|decision)\b|\bwhat (do you think|are your thoughts)\b/.test(combined)) return 'respond_now';
+
+            // respond_today
+            if (/\bfollowing up\b|\bfollow.?up\b|\bcircling back\b|\bany update\b|\blet me know\b|\blmk\b|\bquick (question|ask)\b/.test(combined)) return 'respond_today';
+            if (/\bimportant\b|\bdeadline\b|\b1:1|one.on.one\b/.test(combined)) return 'respond_today';
+
+            // Small direct email, recent
+            if (recipientCount <= 3) {
+                const ageMs = Date.now() - new Date(e.date || e.received || 0).getTime();
+                if (ageMs / (1000 * 60 * 60 * 24) <= 2) return 'respond_today';
+            }
+            return 'fyi';
+        }
+
         // Follow-up detection: sent emails >3 days ago with no reply
         const sentEmails = await fetchSentEmails(60, 7);
         const inboxConvIds = new Set(inbox.map(e => e.conversationId || e.id).filter(Boolean));
@@ -201,6 +235,7 @@ async function gatherAllData() {
         }));
 
         // Needs-reply: actionable inbox emails not yet replied to
+        // Uses quickCategory() so we don't need aiCategory to be pre-populated
         let sentConvIds = new Set();
         try { sentConvIds = new Set(sentEmails.map(e => e.conversationId || e.id).filter(Boolean)); } catch {}
         const needsReply = inbox.filter(e => {
@@ -211,16 +246,19 @@ async function gatherAllData() {
             if (ageMs < 2 * 60 * 60 * 1000) return false;
             const convId = e.conversationId || e.id;
             if (convId && sentConvIds.has(convId)) return false;
-            return e.aiCategory === 'respond_now' || e.aiCategory === 'respond_today';
+            const cat = quickCategory(e);
+            return cat === 'respond_now' || cat === 'respond_today';
         }).sort((a, b) => {
-            if (a.aiCategory === 'respond_now' && b.aiCategory !== 'respond_now') return -1;
-            if (b.aiCategory === 'respond_now' && a.aiCategory !== 'respond_now') return 1;
+            const catA = quickCategory(a);
+            const catB = quickCategory(b);
+            if (catA === 'respond_now' && catB !== 'respond_now') return -1;
+            if (catB === 'respond_now' && catA !== 'respond_now') return 1;
             return new Date(b.date || 0) - new Date(a.date || 0);
         }).slice(0, 5).map(e => ({
             subject: e.subject,
             from: typeof e.from === 'string' ? e.from.split('<')[0].trim() : (e.from?.name || e.from?.email || 'Unknown'),
             ageHours: Math.round((nowMs - new Date(e.date || 0).getTime()) / (1000 * 60 * 60)),
-            priority: e.aiCategory || 'respond_today',
+            priority: quickCategory(e),
         }));
 
         sources.emailIntel = { followups, needsReply };
