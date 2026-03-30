@@ -2,7 +2,41 @@ import { NextResponse } from 'next/server';
 import { createRequire } from 'module';
 const require = createRequire(import.meta.url);
 const mcpClient = require('../../../services/mcp-client');
+const { normalizeEmail } = require('../../../services/outlook-mcp');
 const logger = require('../../../services/logger').child('EmailThread');
+
+/**
+ * Decode a raw MIME body (multipart / base64 / quoted-printable) to plain text.
+ * Mirrors the server-side decodeMimeBody() in outlook-mcp.js.
+ */
+function decodeMimeBody(raw) {
+    if (!raw) return '';
+    if (!raw.includes('Content-Type:') && !raw.includes('--=')) return raw;
+    try {
+        const parts = [];
+        const partRegex = /Content-Type:\s*(text\/(?:plain|html))[^\n]*\n(?:Content-Transfer-Encoding:\s*(\S+)\s*\n)?(?:[^\n]+\n)*?\n([\s\S]*?)(?=--=|$)/gim;
+        let m;
+        while ((m = partRegex.exec(raw)) !== null) {
+            const mimeType = m[1].toLowerCase();
+            const encoding = (m[2] || 'plain').toLowerCase().trim();
+            let content = m[3] || '';
+            if (encoding === 'base64') {
+                try { content = Buffer.from(content.replace(/\s+/g, ''), 'base64').toString('utf8'); } catch { content = ''; }
+            } else if (encoding === 'quoted-printable') {
+                content = content.replace(/=\r?\n/g, '').replace(/=([0-9A-Fa-f]{2})/g, (_, h) => String.fromCharCode(parseInt(h, 16)));
+            }
+            if (mimeType === 'text/html') {
+                content = content.replace(/<br\s*\/?>/gi, '\n').replace(/<\/p>/gi, '\n').replace(/<[^>]+>/g, '')
+                    .replace(/&nbsp;/gi, ' ').replace(/&amp;/gi, '&').replace(/&lt;/gi, '<').replace(/&gt;/gi, '>');
+            }
+            content = content.trim();
+            if (content) parts.push({ mimeType, content });
+        }
+        const chosen = parts.find(p => p.mimeType === 'text/plain') || parts.find(p => p.mimeType === 'text/html');
+        if (chosen) return chosen.content;
+    } catch { /* fall through */ }
+    return raw;
+}
 
 export async function GET(request) {
     const { searchParams } = new URL(request.url);
@@ -41,7 +75,7 @@ export async function GET(request) {
             sender: m.sender || {},
             receivedAt: m.recievedAt,
             subject: m.subject,
-            body: m.body || '',         // HTML body
+            body: decodeMimeBody(m.body || ''),
             recipients: m.recipients || [],
             cc: m.ccRecipients || [],
         }));
