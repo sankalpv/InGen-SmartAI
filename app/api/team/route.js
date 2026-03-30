@@ -598,7 +598,12 @@ Be specific. Use goal IDs. Quote numbers. Do not be generic.`;
                                         priority: subData.classicPriority || subData.priority || subData.severity || s.classicPriority || 'P3',
                                         blocked: !!subData.isBlocked || !!subData.blocked || subData.status === 'Blocked' || (subData.tags || []).includes('blocked'),
                                         depth: currentDepth,
-                                        rawSubtasks: subData.subtasks || []
+                                        // Merge subtasks + child goals (Taskei stores child goals in children/childGoals)
+                                        rawSubtasks: [
+                                            ...(subData.subtasks || []),
+                                            ...(subData.children || []),
+                                            ...(subData.childGoals || []),
+                                        ]
                                     };
                                 } catch (e) {
                                     return {
@@ -612,7 +617,11 @@ Be specific. Use goal IDs. Quote numbers. Do not be generic.`;
                                         priority: s.classicPriority || '—',
                                         blocked: !!s.isBlocked || !!s.blocked || s.status === 'Blocked' || (s.tags || []).includes('blocked'),
                                         depth: currentDepth,
-                                        rawSubtasks: []
+                                        rawSubtasks: [
+                                            ...(s.subtasks || []),
+                                            ...(s.children || []),
+                                            ...(s.childGoals || []),
+                                        ]
                                     };
                                 }
                             }));
@@ -632,7 +641,12 @@ Be specific. Use goal IDs. Quote numbers. Do not be generic.`;
                         }
                     };
 
-                    await scanLevel(rootTask.subtasks || [], 1);
+                    // Seed with subtasks AND child goals — Taskei stores child goals in children/childGoals
+                    await scanLevel([
+                        ...(rootTask.subtasks || []),
+                        ...(rootTask.children || []),
+                        ...(rootTask.childGoals || []),
+                    ], 1);
 
                     data = {
                         id: rootTask.shortId || rootTask.id || alias,
