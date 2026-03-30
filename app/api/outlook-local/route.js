@@ -159,10 +159,14 @@ export async function GET(request) {
             return NextResponse.json({ emails: mockEmails, source: 'mock' });
         }
 
+        // Helper: filter out MCP error sentinel emails
+        const isErrorSentinel = (e) => !e?.id || e.id === 'error' || e.id === 'mcp-error' || String(e.id).startsWith('mcp-');
+
         // LOCAL STORE FIRST — instant response from cached data
         const cached = localStore.getEmails();
-        if (cached.exists && cached.data && cached.data.length > 0 && cached.data[0]?.id !== 'error') {
-            const emails = applyCategories(cached.data.slice(0, count));
+        const cleanCached = (cached.data || []).filter(e => !isErrorSentinel(e));
+        if (cached.exists && cleanCached.length > 0) {
+            const emails = applyCategories(cleanCached.slice(0, count));
             console.log(`[API/Outlook] ${emails.length} emails | rule-based + ${aiCategoryCache.size} AI-upgraded`);
 
             if (cached.isStale) {
@@ -170,7 +174,7 @@ export async function GET(request) {
             }
 
             // Background AI upgrade (fire-and-forget)
-            upgradeWithAI(cached.data).catch(() => {});
+            upgradeWithAI(cleanCached).catch(() => {});
 
             return NextResponse.json({ emails, source: 'local', ageMinutes: cached.ageMinutes });
         }
@@ -178,17 +182,20 @@ export async function GET(request) {
         // FALLBACK — no local data, fetch live from MCP
         console.log(`[API/Outlook] No local data, fetching from MCP...`);
         const rawEmails = await fetchOutlookEmails(Math.min(count, 50));
+        const realEmails = rawEmails.filter(e => !isErrorSentinel(e));
 
-        if (rawEmails.length > 0 && rawEmails[0].id === 'error') {
-            return NextResponse.json({ error: rawEmails[0].subject }, { status: 500 });
+        if (realEmails.length === 0 && rawEmails.length > 0) {
+            // All results were error sentinels — MCP connection issue
+            const errMsg = rawEmails[0]?.subject || 'MCP connection failed';
+            return NextResponse.json({ error: errMsg }, { status: 503 });
         }
 
-        if (rawEmails.length > 0) {
-            localStore.saveEmails(rawEmails);
-            upgradeWithAI(rawEmails).catch(() => {});
+        if (realEmails.length > 0) {
+            localStore.saveEmails(realEmails);
+            upgradeWithAI(realEmails).catch(() => {});
         }
 
-        return NextResponse.json({ emails: applyCategories(rawEmails), source: 'live' });
+        return NextResponse.json({ emails: applyCategories(realEmails), source: 'live' });
     } catch (error) {
         console.error('Outlook API Error:', error);
         return NextResponse.json({ error: 'Failed to fetch Outlook emails' }, { status: 500 });
