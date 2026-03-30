@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { fetchOutlookEmails } from '../../../services/outlook-mcp';
+import { fetchOutlookEmails, fetchSentEmails } from '../../../services/outlook-mcp';
 import { analyzeEmails } from '../../../services/ai';
 import { mockEmails } from '../../../services/mock-data';
 import { createRequire } from 'module';
@@ -284,12 +284,123 @@ export async function GET(request) {
     try {
         const useMock = process.env.USE_MOCK_DATA === 'true';
         const { searchParams } = new URL(request.url);
+        const view = searchParams.get('view') || 'inbox';
         const count = parseInt(searchParams.get('count') || '100');
 
         if (useMock) {
             return NextResponse.json({ emails: mockEmails, source: 'mock' });
         }
 
+        // ── View: followups ─────────────────────────────────────────────────────
+        // Sent emails >3 days ago that have received no reply in the inbox.
+        if (view === 'followups') {
+            const daysBack = parseInt(searchParams.get('days') || '7');
+            const thresholdDays = parseInt(searchParams.get('threshold') || '3');
+            const [sentEmails, inboxCached] = await Promise.all([
+                fetchSentEmails(60, daysBack),
+                Promise.resolve(localStore.getEmails()),
+            ]);
+
+            const inbox = (inboxCached.data || []).filter(e => !e.isSent && e.folder !== 'Sent Items');
+            // Build a Set of conversationIds that received a reply
+            const repliedConversationIds = new Set(
+                inbox.map(e => e.conversationId || e.id).filter(Boolean)
+            );
+
+            const nowMs = Date.now();
+            const thresholdMs = thresholdDays * 24 * 60 * 60 * 1000;
+
+            const followups = sentEmails
+                .filter(e => {
+                    if (!e.subject || !e.date) return false;
+                    // Skip auto-generated, calendar, system emails
+                    const subj = (e.subject || '').toLowerCase();
+                    if (/^(re:|fwd:|fw:)/.test(subj)) return false; // replies/forwards you sent
+                    if (/calendar|invite|declined|accepted|tentative/.test(subj)) return false;
+                    if (/no-?reply|noreply|donotreply/.test((e.from?.email || ''))) return false;
+                    const sentMs = new Date(e.date).getTime();
+                    const ageDays = (nowMs - sentMs) / (1000 * 60 * 60 * 24);
+                    // Only emails older than threshold and not yet replied to
+                    if (ageDays < thresholdDays) return false;
+                    const convId = e.conversationId || e.id;
+                    return convId && !repliedConversationIds.has(convId);
+                })
+                .slice(0, 20)
+                .map(e => ({
+                    id: e.id,
+                    subject: e.subject,
+                    to: e.recipients || [],
+                    sentAt: e.date,
+                    daysSinceSent: Math.floor((nowMs - new Date(e.date).getTime()) / (1000 * 60 * 60 * 24)),
+                    conversationId: e.conversationId || e.id,
+                    snippet: (e.snippet || e.body || '').slice(0, 200),
+                }));
+
+            return NextResponse.json({ followups, count: followups.length, source: 'mcp+local' });
+        }
+
+        // ── View: needs-reply ────────────────────────────────────────────────────
+        // Inbox emails addressed to you that likely need a response, not yet replied to.
+        if (view === 'needs-reply') {
+            const isErrorSentinel = (e) => !e?.id || e.id === 'error' || e.id === 'mcp-error' || String(e.id).startsWith('mcp-');
+
+            // Get inbox from local store (fast)
+            const cached = localStore.getEmails();
+            const allEmails = (cached.data || []).filter(e => !isErrorSentinel(e));
+            const inbox = allEmails.filter(e => !e.isSent && e.folder !== 'Sent Items');
+
+            // Get sent emails to cross-reference for "already replied"
+            let sentConversationIds = new Set();
+            try {
+                const sent = await fetchSentEmails(100, 14);
+                sentConversationIds = new Set(sent.map(e => e.conversationId || e.id).filter(Boolean));
+            } catch (e) {
+                console.warn('[API/Outlook] Could not fetch sent for needs-reply cross-ref:', e.message);
+            }
+
+            const nowMs = Date.now();
+            const minAgeMs = 2 * 60 * 60 * 1000; // at least 2 hours old
+
+            const candidates = inbox.filter(e => {
+                const from = typeof e.from === 'string' ? e.from : (e.from?.email || e.from?.name || '');
+                // Skip no-reply, newsletters, large DLs
+                if (/no-?reply|noreply|donotreply/.test(from.toLowerCase())) return false;
+                if ((e.recipients || []).length > 10) return false;
+                // Must be old enough to need a reply
+                const ageMs = nowMs - new Date(e.date || e.received || 0).getTime();
+                if (ageMs < minAgeMs) return false;
+                // Skip if we already replied to this conversation
+                const convId = e.conversationId || e.id;
+                if (convId && sentConversationIds.has(convId)) return false;
+                // Must look actionable
+                const cat = aiCategoryCache.get(e.id) || ruleBasedCategory(e);
+                return cat === 'respond_now' || cat === 'respond_today';
+            });
+
+            // Sort: respond_now first, then by date (newest first)
+            candidates.sort((a, b) => {
+                const catA = aiCategoryCache.get(a.id) || ruleBasedCategory(a);
+                const catB = aiCategoryCache.get(b.id) || ruleBasedCategory(b);
+                if (catA === 'respond_now' && catB !== 'respond_now') return -1;
+                if (catB === 'respond_now' && catA !== 'respond_now') return 1;
+                return new Date(b.date || 0) - new Date(a.date || 0);
+            });
+
+            const top = candidates.slice(0, 15).map(e => ({
+                id: e.id,
+                subject: e.subject,
+                from: e.from,
+                receivedAt: e.date || e.received,
+                ageHours: Math.round((nowMs - new Date(e.date || 0).getTime()) / (1000 * 60 * 60)),
+                conversationId: e.conversationId || e.id,
+                snippet: (e.snippet || e.body || '').slice(0, 300),
+                priority: aiCategoryCache.get(e.id) || ruleBasedCategory(e),
+            }));
+
+            return NextResponse.json({ needsReply: top, count: top.length, source: 'local' });
+        }
+
+        // ── View: inbox (default) ────────────────────────────────────────────────
         // Helper: filter out MCP error sentinel emails
         const isErrorSentinel = (e) => !e?.id || e.id === 'error' || e.id === 'mcp-error' || String(e.id).startsWith('mcp-');
 
