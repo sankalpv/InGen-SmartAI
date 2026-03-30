@@ -16,7 +16,9 @@ export async function GET(req) {
         // agents have a fresh local copy.
         console.log('[API/Calendar] Fetching live from MCP (aws-outlook-mcp)...');
 
-        const events = await fetchOutlookCalendar(null, 7, 7);
+        // lookbackDays=0 so we start from today (not last week)
+        // forwardDays=14 to show two full weeks ahead
+        const events = await fetchOutlookCalendar(null, 0, 14);
 
         console.log(`[API/Calendar] MCP returned ${events.length} events`);
 
