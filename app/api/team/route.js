@@ -523,18 +523,37 @@ Be specific. Use goal IDs. Quote numbers. Do not be generic.`;
                     return NextResponse.json({ error: 'alias parameter required (issue ID)' }, { status: 400 });
                 }
                 const mcpClient = require('../../../services/mcp-client');
+
+                // Helper: call TaskeiGetTask with retry on ThrottlingException
+                const callWithRetry = async (taskId, maxRetries = 3) => {
+                    for (let attempt = 0; attempt < maxRetries; attempt++) {
+                        if (attempt > 0) {
+                            const delay = 1500 * Math.pow(2, attempt - 1); // 1.5s, 3s, 6s
+                            console.log(`[subtasks] Throttled, retrying ${taskId} in ${delay}ms (attempt ${attempt + 1})`);
+                            await new Promise(r => setTimeout(r, delay));
+                        }
+                        const res = await mcpClient.callTool('builder-mcp', 'TaskeiGetTask', {
+                            taskId,
+                            includeCustomAttributes: false,
+                            commentLimit: 0
+                        });
+                        const txt = res.content?.map(c => c.text || '').join('') || '{}';
+                        const parsed = JSON.parse(txt);
+                        if (parsed.error && String(parsed.error).includes('Throttling')) {
+                            if (attempt === maxRetries - 1) throw new Error(`ThrottlingException after ${maxRetries} retries`);
+                            continue; // retry
+                        }
+                        return parsed;
+                    }
+                };
+
                 try {
-                    const result = await mcpClient.callTool('builder-mcp', 'TaskeiGetTask', {
-                        taskId: alias,
-                        includeCustomAttributes: false,
-                        commentLimit: 0
-                    });
-                    const text = result.content?.map(c => c.text || '').join('') || '{}';
-                    console.log(`[subtasks] raw text preview: ${text.slice(0, 300)}`);
-                    const taskData = JSON.parse(text);
-                    console.log(`[subtasks] taskData top-level keys: ${Object.keys(taskData).join(', ')}`);
+                    const taskData = await callWithRetry(alias);
                     // TaskeiGetTask may return { task: {...} } or just the task object directly
-                    const rootTask = taskData.task || taskData.data?.task || taskData.data || taskData || {};
+                    const rootTask = taskData.task || taskData.data?.task || taskData.data || (taskData.error ? {} : taskData) || {};
+                    if (taskData.error) {
+                        console.warn(`[subtasks] TaskeiGetTask returned error for ${alias}: ${taskData.error}`);
+                    }
                     const fmtDate = (d) => {
                         if (!d) return 'Missing';
                         try {
@@ -583,13 +602,8 @@ Be specific. Use goal IDs. Quote numbers. Do not be generic.`;
                                 const sid = s.id || s.shortId;
                                 seenIds.add(sid);
                                 try {
-                                    const subRes = await mcpClient.callTool('builder-mcp', 'TaskeiGetTask', {
-                                        taskId: s.id || s.shortId,
-                                        includeCustomAttributes: false,
-                                        commentLimit: 0
-                                    });
-                                    const subText = subRes.content?.map(c => c.text || '').join('') || '{}';
-                                    const subData = JSON.parse(subText).task || {};
+                                    const subData_raw = await callWithRetry(s.id || s.shortId);
+                                    const subData = subData_raw.task || subData_raw.data?.task || subData_raw.data || (subData_raw.error ? {} : subData_raw) || {};
                                     return {
                                         id: subData.shortId || subData.id || sid || 'Unknown',
                                         title: subData.name || s.name || '',
