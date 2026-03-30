@@ -4,12 +4,8 @@ import { useState, useEffect, useCallback } from 'react';
 import {
     Mail,
     Calendar,
-    Sparkles,
     AlertTriangle,
-    Clock,
     Inbox,
-    RefreshCw, // Added
-    BarChart2, // Added
 } from 'lucide-react';
 import Header from '@/components/Header';
 import EmailCard from '@/components/EmailCard';
@@ -18,7 +14,6 @@ import WeeklyRetroModal from '@/components/WeeklyRetroModal'; // Added
 import InsightNotifications from '@/components/InsightNotifications'; // Added
 
 import AIChat from '@/components/AIChat'; // Added
-import StreamingBriefing from '@/components/StreamingBriefing'; // Phase 3: ChatGPT-style streaming
 import MorningBriefing from '@/components/MorningBriefing'; // Cinematic voice briefing
 
 // Email Priority Lanes Component - Visual swim lanes by urgency
@@ -245,26 +240,21 @@ function EmailPriorityLanes({ emails }) {
 
 export default function Dashboard() {
     const [activeTab, setActiveTab] = useState('emails');
-    const [briefing, setBriefing] = useState(null);
     const [emails, setEmails] = useState([]);
     const [meetings, setMeetings] = useState([]);
     const [stats, setStats] = useState({ emails: 0, meetings: 0 }); // Added
     const [isLoading, setIsLoading] = useState(true);
-    const [isBriefingLoading, setIsBriefingLoading] = useState(false);
     const [isRefreshing, setIsRefreshing] = useState(false);
     const [error, setError] = useState(null);
     const [showRetro, setShowRetro] = useState(false); // Added
     const [showInsightFeed, setShowInsightFeed] = useState(false); // Added
     const [selectedInsight, setSelectedInsight] = useState(null); // Added
     const [emailSource, setEmailSource] = useState('outlook');
-    const [isStreamingBriefing, setIsStreamingBriefing] = useState(false);
     const [showMorningBriefing, setShowMorningBriefing] = useState(false);
 
     const fetchData = useCallback(async (sourceOverride) => {
         const currentSource = sourceOverride || emailSource;
         setError(null);
-        setBriefing(null);
-        setIsBriefingLoading(true); // Show skeleton immediately
 
         try {
             // PHASE 1: Fast initial load (20 emails + calendar) - target <3s
@@ -302,34 +292,10 @@ export default function Dashboard() {
             // Note: Phase 1 now requests full cache (count=200), so no need for a second email fetch
 
 
-            // Briefing — try cached first (instant), then use streaming for fresh generation
-            try {
-                const res = await fetch(`/api/analyze?source=${currentSource}`);
-                const data = await res.json();
-                if (!data.error) {
-                    setBriefing(data);
-                    setIsBriefingLoading(false);
-                    
-                    if (data.source === 'cached') {
-                        console.log(`[Dashboard] Serving cached briefing (${data.cacheAge}s old)`);
-                    }
-                } else {
-                    // No cache available — use streaming mode (ChatGPT-style)
-                    console.log('[Dashboard] No cached briefing, switching to streaming mode');
-                    setIsBriefingLoading(false);
-                    setIsStreamingBriefing(true);
-                }
-            } catch (e) {
-                console.error('Analysis fetch failed, switching to streaming mode', e);
-                setIsBriefingLoading(false);
-                setIsStreamingBriefing(true);
-            }
-
         } catch (error) {
             console.error('Failed to fetch data:', error);
             setError('System error: Failed to fetch data');
             setIsLoading(false);
-            setIsBriefingLoading(false);
         }
     }, [emailSource]);
 
@@ -355,7 +321,6 @@ export default function Dashboard() {
         setIsLoading(true);
         // Clear current data to indicate loading
         setEmails([]);
-        setBriefing(null);
 
         await fetchData(source);
         setIsLoading(false);
@@ -604,130 +569,6 @@ export default function Dashboard() {
             />
 
             <WeeklyRetroModal isOpen={showRetro} onClose={() => setShowRetro(false)} />
-
-            {/* AI Briefing — Streaming mode (ChatGPT-style word-by-word) */}
-            {isStreamingBriefing && !briefing && (
-                <StreamingBriefing 
-                    onComplete={(parsed) => {
-                        setBriefing(parsed);
-                        setIsStreamingBriefing(false);
-                    }}
-                />
-            )}
-
-            {/* AI Briefing Skeleton — shown briefly while checking cache */}
-            {isBriefingLoading && !briefing && !isStreamingBriefing && (
-                <div className="ai-briefing animate-in" style={{ position: 'relative', overflow: 'hidden' }}>
-                    <div className="ai-briefing-header">
-                        <div className="ai-badge">
-                            <Sparkles size={12} className="sparkle" />
-                            AI Daily Briefing
-                        </div>
-                        <span style={{ fontSize: '12px', color: 'var(--text-muted)', marginLeft: '8px', display: 'flex', alignItems: 'center', gap: '5px' }}>
-                            <span style={{
-                                display: 'inline-block',
-                                width: '8px',
-                                height: '8px',
-                                borderRadius: '50%',
-                                background: 'var(--accent-purple)',
-                                animation: 'pulse 1.2s ease-in-out infinite',
-                            }} />
-                            Checking cache…
-                        </span>
-                    </div>
-                    {[100, 85, 92, 60].map((w, i) => (
-                        <div key={i} style={{
-                            height: '14px',
-                            width: `${w}%`,
-                            borderRadius: '6px',
-                            background: 'var(--glass-border, rgba(255,255,255,0.08))',
-                            marginTop: i === 0 ? '12px' : '8px',
-                            animation: `shimmer 1.6s ease-in-out ${i * 0.12}s infinite`,
-                            backgroundSize: '200% 100%',
-                            backgroundImage: 'linear-gradient(90deg, transparent 0%, rgba(255,255,255,0.06) 50%, transparent 100%)',
-                        }} />
-                    ))}
-                </div>
-            )}
-
-            {/* AI Briefing — shown when ready */}
-            {briefing && (
-                <div className="ai-briefing animate-in">
-                    <div className="ai-briefing-header">
-                        <div className="ai-badge">
-                            <Sparkles size={12} className="sparkle" />
-                            AI Daily Briefing
-                        </div>
-                    </div>
-                    <p className="ai-briefing-text">{briefing.greeting}</p>
-
-                    {briefing.linkedDocuments && (
-                        <div className="linked-documents">
-                            <h3 style={{
-                                fontSize: '0.9rem',
-                                fontWeight: '700',
-                                textTransform: 'uppercase',
-                                letterSpacing: '0.05em',
-                                color: 'var(--accent-blue)',
-                                marginBottom: '12px',
-                                marginTop: '20px',
-                                display: 'flex',
-                                alignItems: 'center',
-                                gap: '8px'
-                            }}>
-                                <span style={{
-                                    fontSize: '1.1rem'
-                                }}>📄</span>
-                                Linked Documents
-                            </h3>
-                            <div style={{
-                                whiteSpace: 'pre-wrap',
-                                fontSize: '0.9rem',
-                                lineHeight: '1.7',
-                                color: 'var(--text-primary)',
-                                background: 'rgba(59, 130, 246, 0.05)',
-                                padding: '16px',
-                                borderRadius: '8px',
-                                border: '1px solid rgba(59, 130, 246, 0.15)',
-                                fontFamily: 'inherit'
-                            }}>
-                                {briefing.linkedDocuments}
-                            </div>
-                        </div>
-                    )}
-
-                    {briefing.topPriorities && briefing.topPriorities.length > 0 && (
-                        <div className="priorities-list">
-                            <h3 style={{
-                                fontSize: '0.9rem',
-                                fontWeight: '700',
-                                textTransform: 'uppercase',
-                                letterSpacing: '0.05em',
-                                color: 'var(--accent-purple)',
-                                marginBottom: '12px',
-                                marginTop: '20px'
-                            }}>
-                                Top Priorities
-                            </h3>
-                            {briefing.topPriorities.map((p, i) => (
-                                <div key={i} className="priority-item">
-                                    <span className={`priority-badge ${p.urgency}`}>{p.urgency}</span>
-                                    <div className="priority-content">
-                                        <div className="priority-title">{p.title}</div>
-                                        <div className="priority-reason">{p.reason}</div>
-                                    </div>
-                                    {p.deadline && (
-                                        <span className="priority-deadline">
-                                            <Clock size={12} style={{ marginRight: 4, verticalAlign: 'middle' }} />
-                                            {p.deadline}
-                                        </span>
-                                    )}
-                                </div>
-                            ))}
-                        </div>
-                    )}
-                </div>
-            )}
 
             {/* Section Tabs */}
             <div className="section-tabs">
