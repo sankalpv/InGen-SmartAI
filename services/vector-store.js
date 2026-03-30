@@ -1,175 +1,427 @@
-let HierarchicalNSW;
-let VECTOR_STORE_AVAILABLE = false;
-try {
-    HierarchicalNSW = require('hnswlib-node').HierarchicalNSW;
-    VECTOR_STORE_AVAILABLE = true;
-} catch (e) {
-    console.error('[VectorStore] hnswlib-node not available. Vector search disabled. Run: npm install');
-}
-const fs = require('fs');
+/**
+ * Vector Store — sqlite-vec backend
+ *
+ * Replaces the previous hnswlib-node binary index with a single SQLite database
+ * (`brain/vectors.db`) that supports:
+ *   - Native SQL WHERE filtering (hasActionItem, folder, sender, date range, etc.)
+ *   - Atomic batch ingestion (one transaction for N emails)
+ *   - Full inspect-ability via any SQLite viewer
+ *   - O(1) duplicate detection via outlookId UNIQUE constraint
+ *
+ * Schema:
+ *   documents(id, type, outlookId, subject, sender, fromAddr, toAddr, folder,
+ *             received, snippet, fullBody,
+ *             hasActionItem, hasDecision, hasBlocker, requiresReply,
+ *             sentiment, urgency, topics,
+ *             fromManager, userEngaged, engagedAt, userMarkedImportant,
+ *             createdAt, lastUpdated,
+ *             embedding BLOB)   ← float32 vector stored as sqlite-vec blob
+ *
+ * Usage:
+ *   const vs = require('./vector-store');
+ *   await vs.init();
+ *   await vs.ingestEmail(email);
+ *   const results = await vs.search('project timeline', 5, { hasActionItem: true });
+ */
+
+const Database = require('better-sqlite3');
+const sqliteVec = require('sqlite-vec');
 const path = require('path');
+const fs = require('fs');
 const logger = require('./logger').child('VectorStore');
 const ollamaClient = require('./ollama-client');
 
-// Configuration - Updated for qwen3-embedding (4096 dimensions)
 const VECTOR_DIMENSION = parseInt(process.env.EMBEDDING_DIMENSIONS || '4096');
 const EMBEDDING_MODEL = process.env.EMBEDDING_MODEL || 'qwen3-embedding';
-const INDEX_PATH = path.join(process.cwd(), 'brain', 'vector_index.bin');
-const METADATA_PATH = path.join(process.cwd(), 'brain', 'vector_metadata.json');
 const BRAIN_DIR = path.join(process.cwd(), 'brain');
+const DB_PATH = path.join(BRAIN_DIR, 'vectors.db');
 
-// Ensure brain dir exists
-if (!fs.existsSync(BRAIN_DIR)) {
-    fs.mkdirSync(BRAIN_DIR, { recursive: true });
+// Calendar noise prefixes to skip
+const CALENDAR_NOISE = ['accepted:', 'declined:', 'canceled:', 'cancelled:', 'tentative:'];
+
+// ─── Body Cleaner ─────────────────────────────────────────────────────────────
+
+/**
+ * Strip HTML tags, URL-encoded noise, Zoom/Teams boilerplate, and excess whitespace
+ * from email body before embedding. Produces clean semantic text.
+ */
+function cleanBody(text) {
+    if (!text) return '';
+
+    let t = text;
+
+    // Remove HTML tags
+    t = t.replace(/<[^>]*>/g, ' ');
+
+    // Decode common HTML entities
+    t = t.replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>')
+         .replace(/&nbsp;/g, ' ').replace(/&quot;/g, '"').replace(/&#39;/g, "'");
+
+    // Remove URLs (http/https)
+    t = t.replace(/https?:\/\/\S+/g, '');
+
+    // Remove URL-encoded SharePoint/OneDrive paths
+    t = t.replace(/<https?:\/\/[^>]+>/g, '');
+
+    // Remove Zoom boilerplate patterns (meeting ID, passcode, dial-in lines)
+    t = t.replace(/Join Zoom Meeting[\s\S]*?(?=\n\n|$)/gi, '');
+    t = t.replace(/(Meeting\s+)?(URL|ID|Passcode|Password|Passcode):\s*[\d\w\s.]+/gi, '');
+    t = t.replace(/One tap mobile:[\s\S]*?(?=\n\n|$)/gi, '');
+    t = t.replace(/Join by Telephone[\s\S]*?(?=\n\n|$)/gi, '');
+    t = t.replace(/International numbers[\s\S]*?(?=\n\n|$)/gi, '');
+    t = t.replace(/Join from a SIP room system[\s\S]*?(?=\n\n|$)/gi, '');
+    t = t.replace(/\d{3}\s\d{3,4}\s\d{4}/g, ''); // meeting IDs like "123 456 7890"
+    t = t.replace(/\+1\d{10}[,#*\d]*/g, ''); // phone numbers
+
+    // Remove Teams boilerplate
+    t = t.replace(/Microsoft Teams meeting[\s\S]*?(?=\n\n|\z)/gi, '');
+    t = t.replace(/Click here to join the meeting[\s\S]*?(?=\n\n)/gi, '');
+
+    // Remove base64-like blobs and encoded tokens
+    t = t.replace(/[A-Za-z0-9+/]{60,}={0,2}/g, '');
+
+    // Remove carets used in email quoting chains (>>>, >>, >)
+    t = t.replace(/^[>\s]+/gm, '');
+
+    // Collapse whitespace
+    t = t.replace(/\r\n/g, '\n').replace(/\n{3,}/g, '\n\n').replace(/[ \t]{2,}/g, ' ');
+
+    return t.trim();
 }
+
+// ─── VectorStore class ────────────────────────────────────────────────────────
 
 class VectorStore {
     constructor() {
-        this.index = null;
-        this.metadata = {}; // ID -> Email Data
-        this.currentId = 0;
+        this.db = null;
         this.loaded = false;
+        // Prepared statements (set during init)
+        this._stmtInsert = null;
+        this._stmtGetByOutlookId = null;
+        this._stmtUpdateMeta = null;
     }
+
+    // ── Init ──────────────────────────────────────────────────────────────────
 
     async init() {
         if (this.loaded) return;
-        if (!VECTOR_STORE_AVAILABLE) {
-            logger.warn('Vector store unavailable (hnswlib-node missing). Skipping init.');
-            return;
+
+        if (!fs.existsSync(BRAIN_DIR)) {
+            fs.mkdirSync(BRAIN_DIR, { recursive: true });
         }
 
-        // Load Metadata
-        if (fs.existsSync(METADATA_PATH)) {
-            try {
-                this.metadata = JSON.parse(fs.readFileSync(METADATA_PATH, 'utf8'));
-                // Find max ID
-                const ids = Object.keys(this.metadata).map(Number);
-                this.currentId = ids.length > 0 ? Math.max(...ids) + 1 : 0;
-            } catch (e) {
-                console.error('Failed to load metadata:', e);
-                this.metadata = {};
-            }
-        }
+        this.db = new Database(DB_PATH);
+        sqliteVec.load(this.db);
 
-        // Initialize Index
-        this.index = new HierarchicalNSW('l2', VECTOR_DIMENSION);
+        // Performance pragmas
+        this.db.pragma('journal_mode = WAL');
+        this.db.pragma('synchronous = NORMAL');
+        this.db.pragma('cache_size = -64000'); // 64 MB page cache
 
-        if (fs.existsSync(INDEX_PATH)) {
-            try {
-                this.index.readIndexSync(INDEX_PATH);
-            } catch (e) {
-                logger.error('Failed to read index, creating new one:', e.message);
-                this.index.initIndex(10000);
-            }
-        } else {
-            this.index.initIndex(10000);
-        }
+        // Create documents table (rich metadata schema)
+        this.db.exec(`
+            CREATE TABLE IF NOT EXISTS documents (
+                id               INTEGER PRIMARY KEY AUTOINCREMENT,
+                type             TEXT    NOT NULL DEFAULT 'email',
+                outlookId        TEXT    UNIQUE,
+                subject          TEXT,
+                sender           TEXT,
+                fromAddr         TEXT,
+                toAddr           TEXT,
+                folder           TEXT    DEFAULT 'Inbox',
+                received         TEXT,
+                snippet          TEXT,
+                fullBody         TEXT,
+
+                -- AI enrichment tags (populated by email-tagger.js)
+                hasActionItem    INTEGER DEFAULT 0,
+                hasDecision      INTEGER DEFAULT 0,
+                hasBlocker       INTEGER DEFAULT 0,
+                requiresReply    INTEGER DEFAULT 0,
+                sentiment        TEXT,
+                urgency          TEXT    DEFAULT 'normal',
+                topics           TEXT    DEFAULT '[]',
+
+                -- Org context
+                fromManager      INTEGER DEFAULT 0,
+
+                -- User engagement signals
+                userEngaged      INTEGER DEFAULT 0,
+                engagedAt        TEXT,
+                userMarkedImportant INTEGER DEFAULT 0,
+
+                createdAt        TEXT    DEFAULT (datetime('now')),
+                lastUpdated      TEXT    DEFAULT (datetime('now'))
+            );
+
+            CREATE TABLE IF NOT EXISTS document_vectors (
+                id        INTEGER PRIMARY KEY,
+                embedding BLOB NOT NULL
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_type     ON documents(type);
+            CREATE INDEX IF NOT EXISTS idx_folder   ON documents(folder);
+            CREATE INDEX IF NOT EXISTS idx_received ON documents(received);
+            CREATE INDEX IF NOT EXISTS idx_action   ON documents(hasActionItem);
+            CREATE INDEX IF NOT EXISTS idx_reply    ON documents(requiresReply);
+            CREATE INDEX IF NOT EXISTS idx_manager  ON documents(fromManager);
+        `);
+
+        // Prepare reusable statements
+        this._stmtInsert = this.db.prepare(`
+            INSERT OR IGNORE INTO documents
+                (type, outlookId, subject, sender, fromAddr, toAddr, folder, received, snippet, fullBody)
+            VALUES
+                (@type, @outlookId, @subject, @sender, @fromAddr, @toAddr, @folder, @received, @snippet, @fullBody)
+        `);
+
+        this._stmtInsertVec = this.db.prepare(`
+            INSERT OR REPLACE INTO document_vectors (id, embedding) VALUES (?, ?)
+        `);
+
+        this._stmtGetByOutlookId = this.db.prepare(
+            'SELECT id FROM documents WHERE outlookId = ?'
+        );
+
+        this._stmtUpdateMeta = this.db.prepare(`
+            UPDATE documents SET
+                hasActionItem = @hasActionItem,
+                hasDecision   = @hasDecision,
+                hasBlocker    = @hasBlocker,
+                requiresReply = @requiresReply,
+                sentiment     = @sentiment,
+                urgency       = @urgency,
+                topics        = @topics,
+                fromManager   = @fromManager,
+                lastUpdated   = datetime('now')
+            WHERE id = @id
+        `);
 
         this.loaded = true;
+        const count = this.db.prepare('SELECT COUNT(*) as c FROM documents').get();
+        logger.info(`VectorStore initialized: ${count.c} documents, model=${EMBEDDING_MODEL} ${VECTOR_DIMENSION}d, db=${DB_PATH}`);
     }
+
+    // ── Embedding ─────────────────────────────────────────────────────────────
 
     async getEmbedding(text) {
-        try {
-            // Use new ollama-client with 8k token support (30k chars)
-            const embedding = await ollamaClient.embed(text, { maxLength: 30000 });
-            
-            if (embedding.length !== VECTOR_DIMENSION) {
-                logger.error(`Dimension mismatch: Got ${embedding.length}, expected ${VECTOR_DIMENSION}`);
-                throw new Error(`Vector dimension mismatch: ${embedding.length} !== ${VECTOR_DIMENSION}`);
-            }
-            
-            return embedding;
-        } catch (e) {
-            logger.error(`Failed to generate embedding with ${EMBEDDING_MODEL}:`, e.message);
-            throw e;
+        const embedding = await ollamaClient.embed(text, { maxLength: 30000 });
+        if (embedding.length !== VECTOR_DIMENSION) {
+            throw new Error(`Dimension mismatch: got ${embedding.length}, expected ${VECTOR_DIMENSION}`);
         }
+        return embedding;
     }
 
-    async ingestEmail(email) {
-        if (!VECTOR_STORE_AVAILABLE) {
-            logger.warn('Skipping ingestion — vector store unavailable.');
-            return;
+    /**
+     * Serialize a JS float[] to a Float32 Buffer for sqlite-vec storage.
+     */
+    _toBlob(vector) {
+        const buf = Buffer.allocUnsafe(vector.length * 4);
+        for (let i = 0; i < vector.length; i++) {
+            buf.writeFloatLE(vector[i], i * 4);
         }
+        return buf;
+    }
+
+    // ── Ingest single email ───────────────────────────────────────────────────
+
+    async ingestEmail(email) {
         if (!this.loaded) await this.init();
 
-        // Check for duplicates via ID provided in email (Outlook ID)
-        // Inefficient: iterate metadata?
-        // Better: use a separate map for OutlookID -> InternalID
-        const existingInternalId = Object.keys(this.metadata).find(key => this.metadata[key].outlookId === email.id);
-        if (existingInternalId) {
-            console.log(`Email ${email.id} already exists. Skipping.`);
-            return;
-        }
-
-        // Filter out calendar noise — these have tiny bodies and pollute search results
+        // Skip calendar noise
         const subjectLower = (email.subject || '').toLowerCase();
-        const calendarNoise = ['accepted:', 'declined:', 'canceled:', 'cancelled:', 'tentative:'];
-        if (calendarNoise.some(prefix => subjectLower.startsWith(prefix))) {
-            logger.info(`Skipping calendar noise: ${email.subject}`);
-            return;
+        if (CALENDAR_NOISE.some(p => subjectLower.startsWith(p))) {
+            logger.debug(`Skipping calendar noise: ${email.subject}`);
+            return { skipped: true, reason: 'calendar-noise' };
         }
 
-        let textToEmbed = `Subject: ${email.subject}\nFrom: ${email.sender}\nDate: ${email.received}\n\n${email.body}`;
+        // O(1) duplicate check via UNIQUE constraint
+        const existing = this._stmtGetByOutlookId.get(email.id || email.outlookId);
+        if (existing) {
+            logger.debug(`Already indexed: ${email.subject}`);
+            return { skipped: true, reason: 'duplicate' };
+        }
 
-        // qwen3-embedding supports 8k tokens (~30k chars) - no need to truncate as aggressively
-        // The embed function will handle truncation if needed
+        // Clean body before embedding
+        const rawBody = email.body || email.fullBody || email.snippet || '';
+        const cleanedBody = cleanBody(rawBody);
+
+        // Text to embed: subject + sender + cleaned body
+        const textToEmbed = [
+            `Subject: ${email.subject || ''}`,
+            `From: ${email.from?.name || email.sender || ''}`,
+            `Date: ${email.date || email.received || ''}`,
+            '',
+            cleanedBody.substring(0, 8000), // ~2k tokens safety cap
+        ].join('\n');
+
+        // Skip if body is essentially empty after cleaning
+        if (cleanedBody.length < 20) {
+            logger.debug(`Skipping near-empty body: ${email.subject}`);
+            return { skipped: true, reason: 'empty-body' };
+        }
 
         try {
             const vector = await this.getEmbedding(textToEmbed);
-            if (vector.length !== VECTOR_DIMENSION) {
-                logger.error(`Dimension mismatch: Model produced ${vector.length}, expected ${VECTOR_DIMENSION}`);
-                return;
+            const blob = this._toBlob(vector);
+
+            // Safely extract sender address — from may be string "Name <email>" or object
+            let fromAddr = '';
+            if (typeof email.from === 'object' && email.from !== null) {
+                fromAddr = email.from.email || email.from.address || '';
+            } else if (typeof email.from === 'string') {
+                const m = email.from.match(/<([^>]+)>/);
+                fromAddr = m ? m[1] : (email.from.includes('@') ? email.from : '');
+            }
+            if (!fromAddr && email.fromAddr) fromAddr = String(email.fromAddr);
+            if (!fromAddr && email.sender) fromAddr = String(email.sender);
+
+            // Safely stringify toAddr — to may be array of objects, array of strings, or string
+            let toAddr = '';
+            if (Array.isArray(email.to)) {
+                toAddr = email.to.map(r => {
+                    if (typeof r === 'string') return r;
+                    if (typeof r === 'object' && r !== null) return r.email || r.address || r.name || '';
+                    return '';
+                }).filter(Boolean).join(', ');
+            } else if (typeof email.to === 'string') {
+                toAddr = email.to;
             }
 
-            const internalId = this.currentId++;
-            this.index.addPoint(vector, internalId);
+            // Insert document metadata
+            const info = this._stmtInsert.run({
+                type:      email.type || 'email',
+                outlookId: email.id || email.outlookId,
+                subject:   email.subject || '',
+                sender:    email.from?.name || email.sender || '',
+                fromAddr,
+                toAddr,
+                folder:    email.folder || 'Inbox',
+                received:  email.date || email.received || new Date().toISOString(),
+                snippet:   cleanedBody.substring(0, 500),
+                fullBody:  cleanedBody,
+            });
 
-            // Enhanced metadata for leadership features
-            this.metadata[internalId] = {
-                type: 'email',
-                outlookId: email.id,
-                subject: email.subject,
-                sender: email.sender,
-                from: email.from || email.sender,
-                to: email.to || '',
-                received: email.received,
-                date: email.received,
-                snippet: email.body.substring(0, 500), // Longer snippet
-                fullBody: email.body,
-                // Leadership analytics metadata (to be enhanced)
-                hasActionItem: false,
-                hasDecision: false,
-                hasBlocker: false,
-                sentiment: null,
-                topics: []
-            };
+            const docId = info.lastInsertRowid;
+            if (docId) {
+                // Insert vector blob
+                this._stmtInsertVec.run(docId, blob);
+                logger.info(`Ingested [${docId}]: ${email.subject}`);
+                return { success: true, id: docId };
+            }
+            return { skipped: true, reason: 'insert-ignored' };
 
-            this.save();
-            logger.info('Ingested:', email.subject);
         } catch (e) {
-            logger.error(`Ingestion failed for ${email.subject}:`, e.message);
+            logger.error(`Ingestion failed for "${email.subject}":`, e.message);
+            return { error: e.message };
         }
     }
 
-    save() {
+    /**
+     * Ingest a batch of emails in a single SQLite transaction (much faster than one-by-one).
+     */
+    async ingestEmailBatch(emails) {
+        if (!this.loaded) await this.init();
+
+        const results = { ingested: 0, skipped: 0, errors: 0 };
+
+        // Collect rows to insert (embed in parallel with concurrency cap)
+        const CONCURRENCY = 3;
+        const toProcess = [];
+
+        for (const email of emails) {
+            const subjectLower = (email.subject || '').toLowerCase();
+            if (CALENDAR_NOISE.some(p => subjectLower.startsWith(p))) {
+                results.skipped++;
+                continue;
+            }
+            const existing = this._stmtGetByOutlookId.get(email.id || email.outlookId);
+            if (existing) {
+                results.skipped++;
+                continue;
+            }
+            toProcess.push(email);
+        }
+
+        logger.info(`Batch ingest: ${toProcess.length} new emails (${results.skipped} skipped)`);
+
+        // Process in chunks of CONCURRENCY
+        for (let i = 0; i < toProcess.length; i += CONCURRENCY) {
+            const chunk = toProcess.slice(i, i + CONCURRENCY);
+            await Promise.all(chunk.map(async (email) => {
+                const r = await this.ingestEmail(email);
+                if (r.success) results.ingested++;
+                else if (r.error) results.errors++;
+                else results.skipped++;
+            }));
+        }
+
+        logger.info(`Batch ingest complete: ${results.ingested} ingested, ${results.skipped} skipped, ${results.errors} errors`);
+        return results;
+    }
+
+    /**
+     * Ingest a Slack message.
+     */
+    async ingestSlackMessage(msg) {
+        if (!this.loaded) await this.init();
+
+        const msgId = `slack:${msg.channel}:${msg.id || msg.timestamp}`;
+        const existing = this._stmtGetByOutlookId.get(msgId);
+        if (existing) return { skipped: true, reason: 'duplicate' };
+
+        const cleanedText = cleanBody(msg.message || msg.text || '');
+        if (cleanedText.length < 10) return { skipped: true, reason: 'empty' };
+
+        const textToEmbed = `[Slack #${msg.channel}] ${msg.from?.name || msg.user || 'Unknown'}: ${cleanedText}`;
+
         try {
-            this.index.writeIndexSync(INDEX_PATH);
-            fs.writeFileSync(METADATA_PATH, JSON.stringify(this.metadata, null, 2));
+            const vector = await this.getEmbedding(textToEmbed);
+            const blob = this._toBlob(vector);
+
+            const info = this._stmtInsert.run({
+                type:      'slack',
+                outlookId: msgId,
+                subject:   `[Slack] ${msg.channel}`,
+                sender:    msg.from?.name || msg.user || '',
+                fromAddr:  '',
+                toAddr:    '',
+                folder:    msg.channel || '',
+                received:  msg.timestamp || new Date().toISOString(),
+                snippet:   cleanedText.substring(0, 500),
+                fullBody:  cleanedText,
+            });
+
+            const docId = info.lastInsertRowid;
+            if (docId) {
+                this._stmtInsertVec.run(docId, blob);
+                return { success: true, id: docId };
+            }
+            return { skipped: true, reason: 'insert-ignored' };
         } catch (e) {
-            logger.error('Failed to save vector store:', e.message);
+            logger.error('Slack ingest failed:', e.message);
+            return { error: e.message };
         }
     }
 
-    async search(query, k = 3, options = {}) {
-        if (!VECTOR_STORE_AVAILABLE) {
-            logger.warn('Search skipped — vector store unavailable.');
-            return [];
-        }
+    // ── Search ────────────────────────────────────────────────────────────────
+
+    /**
+     * Semantic search with optional SQL metadata filters.
+     *
+     * @param {string} query - Natural language search query
+     * @param {number} k     - Max results (default: 5)
+     * @param {Object} filter - Optional SQL filters, e.g.:
+     *   { hasActionItem: true, folder: 'Inbox', type: 'email',
+     *     receivedAfter: '2026-01-01', fromManager: true }
+     * @returns {Promise<Array>} Array of matching documents with similarity scores
+     */
+    async search(query, k = 5, filter = {}) {
         if (!this.loaded) await this.init();
 
         try {
             const vector = await this.getEmbedding(query);
-            return await this.searchByVector(vector, { ...options, limit: k });
+            return this.searchByVector(vector, k, filter);
         } catch (e) {
             logger.error('Search failed:', e.message);
             return [];
@@ -177,137 +429,173 @@ class VectorStore {
     }
 
     /**
-     * Search using a pre-computed vector with optional metadata filters
-     * @param {Array<number>} vector - The embedding vector
-     * @param {Object} options - Search options
-     * @param {Object} options.filter - Metadata filters (e.g., {source: 'email', hasBlocker: true})
-     * @param {number} options.limit - Number of results (default: 3)
-     * @param {number} options.maxDistance - Maximum distance threshold (default: Infinity)
-     * @returns {Array} Matching documents with metadata and distance scores
+     * Search by pre-computed vector. Used by ai-insights.js for meeting similarity.
      */
-    async searchByVector(vector, options = {}) {
-        if (!VECTOR_STORE_AVAILABLE) {
-            logger.warn('Vector search skipped — vector store unavailable.');
+    searchByVector(vector, k = 5, filter = {}) {
+        if (!this.loaded) {
+            logger.warn('searchByVector called before init — returning empty');
             return [];
         }
-        if (!this.loaded) await this.init();
-
-        // Default distance threshold for qwen3-embedding 4096d (L2 space)
-        // Typical relevant matches: 10-30, borderline: 30-50, irrelevant: >50
-        const DEFAULT_MAX_DISTANCE = 45;
-        const { filter = {}, limit = 3, maxDistance = DEFAULT_MAX_DISTANCE } = options;
 
         try {
-            // Search with larger k to account for filtering
-            const searchK = Math.min(limit * 10, 100);
-            const result = this.index.searchKnn(vector, searchK);
+            const blob = this._toBlob(vector);
 
-            // Apply filters, distance threshold, and compute similarity score
-            const hits = result.neighbors
-                .map((id, index) => ({
-                    id,
-                    metadata: this.metadata[id],
-                    distance: result.distances[index]
-                }))
-                .filter(hit => {
-                    if (!hit.metadata) return false;
+            // Build WHERE clause from filter object
+            const conditions = [];
+            const params = [blob, blob]; // first two are for vec_distance_l2
 
-                    // Apply distance threshold — reject garbage matches
-                    if (hit.distance > maxDistance) return false;
+            if (filter.type)           { conditions.push('d.type = ?');           params.push(filter.type); }
+            if (filter.folder)         { conditions.push('d.folder = ?');          params.push(filter.folder); }
+            if (filter.hasActionItem)  { conditions.push('d.hasActionItem = 1'); }
+            if (filter.hasDecision)    { conditions.push('d.hasDecision = 1'); }
+            if (filter.hasBlocker)     { conditions.push('d.hasBlocker = 1'); }
+            if (filter.requiresReply)  { conditions.push('d.requiresReply = 1'); }
+            if (filter.fromManager)    { conditions.push('d.fromManager = 1'); }
+            if (filter.receivedAfter)  { conditions.push('d.received >= ?');       params.push(filter.receivedAfter); }
+            if (filter.receivedBefore) { conditions.push('d.received <= ?');       params.push(filter.receivedBefore); }
+            if (filter.sender)         { conditions.push('d.sender LIKE ?');       params.push(`%${filter.sender}%`); }
 
-                    // Filter out calendar noise from results (Accepted/Declined/etc.)
-                    const subj = (hit.metadata.subject || '').toLowerCase();
-                    if (['accepted:', 'declined:', 'canceled:', 'cancelled:', 'tentative:'].some(p => subj.startsWith(p))) return false;
+            const whereClause = conditions.length > 0
+                ? 'WHERE ' + conditions.join(' AND ')
+                : '';
 
-                    // Apply metadata filters
-                    for (const [key, value] of Object.entries(filter)) {
-                        if (hit.metadata[key] !== value) return false;
-                    }
+            // Pre-filter candidates then rank by vector distance
+            // sqlite-vec v0.1.x uses vec_distance_L2(a, b) function
+            const sql = `
+                SELECT
+                    d.*,
+                    vec_distance_L2(v.embedding, ?) AS distance
+                FROM documents d
+                JOIN document_vectors v ON v.id = d.id
+                ${whereClause}
+                ORDER BY distance ASC
+                LIMIT ?
+            `;
 
-                    return true;
-                })
-                .slice(0, limit)
-                .map(hit => {
-                    // Convert L2 distance to 0-1 similarity score
-                    // Lower distance = higher similarity. Score = 1 / (1 + distance)
-                    // This gives discriminating scores: d=0.3→77%, d=1→50%, d=3→25%, d=10→9%
-                    const similarity = 1 / (1 + hit.distance);
-                    return {
-                        ...hit.metadata,
-                        distance: hit.distance,
-                        similarity: parseFloat(similarity.toFixed(3))
-                    };
-                });
+            params.push(k * 3); // fetch 3x, then slice — handles filtered sets
+            const rows = this.db.prepare(sql).all(...params);
 
-            if (hits.length > 0) {
-                logger.info(`Search returned ${hits.length} results (distances: ${hits.map(h => h.distance.toFixed(1)).join(', ')})`);
-            }
-
-            return hits;
+            return rows.slice(0, k).map(row => ({
+                ...row,
+                topics: this._parseTopics(row.topics),
+                similarity: parseFloat((1 / (1 + row.distance)).toFixed(3)),
+            }));
         } catch (e) {
-            logger.error('Vector search failed:', e.message);
+            logger.error('searchByVector failed:', e.message);
             return [];
         }
     }
 
-    /**
-     * Update metadata for an existing document
-     * @param {string} outlookId - The Outlook ID of the document
-     * @param {Object} updates - Metadata fields to update
-     */
-    updateMetadata(outlookId, updates) {
-        const internalId = Object.keys(this.metadata).find(
-            key => this.metadata[key].outlookId === outlookId
-        );
+    // ── Metadata updates ──────────────────────────────────────────────────────
 
-        if (internalId) {
-            this.metadata[internalId] = {
-                ...this.metadata[internalId],
-                ...updates,
-                lastUpdated: new Date().toISOString()
-            };
-            this.save();
-            logger.info(`Updated metadata for ${outlookId}`);
-            return true;
+    /**
+     * Update AI enrichment tags for a document.
+     * Called by email-tagger.js after ingestion.
+     */
+    updateEnrichment(outlookId, tags) {
+        if (!this.loaded) return false;
+
+        const row = this._stmtGetByOutlookId.get(outlookId);
+        if (!row) return false;
+
+        this._stmtUpdateMeta.run({
+            id:            row.id,
+            hasActionItem: tags.hasActionItem ? 1 : 0,
+            hasDecision:   tags.hasDecision   ? 1 : 0,
+            hasBlocker:    tags.hasBlocker    ? 1 : 0,
+            requiresReply: tags.requiresReply ? 1 : 0,
+            sentiment:     tags.sentiment     || null,
+            urgency:       tags.urgency       || 'normal',
+            topics:        JSON.stringify(tags.topics || []),
+            fromManager:   tags.fromManager   ? 1 : 0,
+        });
+        return true;
+    }
+
+    /**
+     * Update user engagement signals.
+     * Called when user opens/flags an email in the UI.
+     */
+    updateEngagement(outlookId, signals = {}) {
+        if (!this.loaded) return false;
+
+        const row = this._stmtGetByOutlookId.get(outlookId);
+        if (!row) return false;
+
+        const updates = [];
+        const params = [];
+
+        if (signals.userEngaged !== undefined) {
+            updates.push('userEngaged = ?');
+            params.push(signals.userEngaged ? 1 : 0);
+            if (signals.userEngaged) {
+                updates.push('engagedAt = datetime(\'now\')');
+            }
+        }
+        if (signals.userMarkedImportant !== undefined) {
+            updates.push('userMarkedImportant = ?');
+            params.push(signals.userMarkedImportant ? 1 : 0);
         }
 
-        logger.warn(`Document not found: ${outlookId}`);
-        return false;
+        if (updates.length === 0) return false;
+        updates.push('lastUpdated = datetime(\'now\')');
+        params.push(row.id);
+
+        this.db.prepare(`UPDATE documents SET ${updates.join(', ')} WHERE id = ?`).run(...params);
+        return true;
     }
 
-    /**
-     * Get document metadata by Outlook ID
-     */
+    // Legacy compat: updateMetadata called by background-agent.js
+    updateMetadata(outlookId, updates) {
+        return this.updateEngagement(outlookId, updates);
+    }
+
+    // Legacy compat: getMetadata called by outlook-indexeddb-reader.js
     getMetadata(outlookId) {
-        const internalId = Object.keys(this.metadata).find(
-            key => this.metadata[key].outlookId === outlookId
-        );
-        return internalId ? this.metadata[internalId] : null;
+        if (!this.loaded) return null;
+        return this._stmtGetByOutlookId.get(outlookId) || null;
     }
 
-    /**
-     * Ingest a Slack message into the vector store
-     * @param {Object} msg - Slack message { id, channel, from: {name}, message, timestamp, isDirectMessage }
-     */
+    // ── Stats ─────────────────────────────────────────────────────────────────
 
-    /**
-     * Get statistics about the vector store
-     */
     getStats() {
-        const docs = Object.values(this.metadata);
+        if (!this.db) return { totalDocuments: 0 };
+
+        const total = this.db.prepare('SELECT COUNT(*) as c FROM documents').get().c;
+        const byType = this.db.prepare('SELECT type, COUNT(*) as c FROM documents GROUP BY type').all();
+        const enriched = this.db.prepare(`
+            SELECT
+                SUM(hasActionItem) as withActionItems,
+                SUM(hasDecision)   as withDecisions,
+                SUM(hasBlocker)    as withBlockers,
+                SUM(requiresReply) as requiresReply,
+                SUM(CASE WHEN sentiment IS NOT NULL THEN 1 ELSE 0 END) as withSentiment
+            FROM documents
+        `).get();
+
         return {
-            totalDocuments: docs.length,
-            byType: {
-                email: docs.filter(d => d.type === 'email').length,
-                meeting: docs.filter(d => d.type === 'meeting').length,
-            },
-            withActionItems: docs.filter(d => d.hasActionItem).length,
-            withBlockers: docs.filter(d => d.hasBlocker).length,
-            withDecisions: docs.filter(d => d.hasDecision).length,
-            dimension: VECTOR_DIMENSION,
-            model: EMBEDDING_MODEL
+            totalDocuments: total,
+            byType: Object.fromEntries(byType.map(r => [r.type, r.c])),
+            withActionItems:  enriched.withActionItems || 0,
+            withDecisions:    enriched.withDecisions   || 0,
+            withBlockers:     enriched.withBlockers    || 0,
+            requiresReply:    enriched.requiresReply   || 0,
+            withSentiment:    enriched.withSentiment   || 0,
+            dimension:        VECTOR_DIMENSION,
+            model:            EMBEDDING_MODEL,
+            dbPath:           DB_PATH,
         };
+    }
+
+    // ── Helpers ───────────────────────────────────────────────────────────────
+
+    _parseTopics(topicsStr) {
+        try { return JSON.parse(topicsStr || '[]'); } catch { return []; }
     }
 }
 
-module.exports = new VectorStore();
+// Export singleton
+const vectorStore = new VectorStore();
+module.exports = vectorStore;
+module.exports.default = vectorStore; // ESM compat (used by email-search.js with dynamic import)
+module.exports.cleanBody = cleanBody;

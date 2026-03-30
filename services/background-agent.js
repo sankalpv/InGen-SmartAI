@@ -3,6 +3,7 @@ const fs = require('fs');
 const path = require('path');
 const { exec } = require('child_process');
 const vectorStore = require('./vector-store'); // Added import
+const emailTagger = require('./email-tagger'); // AI enrichment tags
 const proactiveAgent = require('./proactive-agent'); // Added import
 const localStore = require('./local-store'); // Local data cache
 const ollamaClient = require('./ollama-client'); // Ollama availability check
@@ -95,22 +96,45 @@ async function runSync() {
                         // This prevents hundreds of "fetch failed" errors on fresh installs
                         const ollamaAvailable = await ollamaClient.ping();
                         if (!ollamaAvailable) {
-                            logger.warn(`Ollama not reachable — skipping vector store ingestion for ${newEmails.length} emails (they are saved in local cache and will be embedded on next successful sync)`);
+                            logger.warn(`Ollama not reachable — skipping vector store ingestion for ${newEmails.length} emails (they will be embedded on next successful sync)`);
                         } else {
-                            logger.info(`Ingesting ${newEmails.length} emails into Vector Store...`);
+                            logger.info(`Batch ingesting ${newEmails.length} emails into Vector Store...`);
 
-                            // Process sequentially to be nice to Ollama
-                            for (const email of newEmails) {
-                                await vectorStore.ingestEmail(email);
+                            // Batch ingest (3 concurrent embeddings, single save per batch)
+                            const ingestResult = await vectorStore.ingestEmailBatch(newEmails);
+                            logger.info(`Ingest complete: ${ingestResult.ingested} new, ${ingestResult.skipped} skipped, ${ingestResult.errors} errors`);
+
+                            // AI tagging: tag newly ingested emails asynchronously (non-blocking)
+                            // Don't await — runs in background so sync doesn't block on LLM calls
+                            if (ingestResult.ingested > 0) {
+                                setImmediate(async () => {
+                                    try {
+                                        logger.info(`Tagging ${ingestResult.ingested} newly ingested emails...`);
+                                        const emailTaggerModule = require('./email-tagger');
+                                        await emailTaggerModule.backfillAll({ batchSize: 5, delayMs: 200 });
+                                    } catch (e) {
+                                        logger.warn('Background tagging failed:', e.message);
+                                    }
+                                });
                             }
                         }
                     } else {
-                        logger.info('No new emails.');
+                        logger.info('No new emails to ingest.');
                     }
 
-                    // Always update sync timestamp so the UI shows "Synced X min ago" correctly
-                    // Read-merge-write to preserve slackLastProcessedTs and other fields
-                    state.lastSyncTimestamp = new Date().toISOString();
+                    // Update high-water mark: track newest email received date
+                    // so next sync only fetches emails strictly newer than this
+                    const newestEmail = newEmails.length > 0
+                        ? newEmails.reduce((newest, e) =>
+                            new Date(e.received || e.date) > new Date(newest.received || newest.date) ? e : newest
+                          )
+                        : null;
+                    if (newestEmail) {
+                        state.lastSyncTimestamp = new Date(newestEmail.received || newestEmail.date).toISOString();
+                        logger.info(`High-water mark updated to: ${state.lastSyncTimestamp}`);
+                    } else {
+                        state.lastSyncTimestamp = new Date().toISOString();
+                    }
                     const existingState = fs.existsSync(STATE_FILE) ? JSON.parse(fs.readFileSync(STATE_FILE, 'utf8')) : {};
                     fs.writeFileSync(STATE_FILE, JSON.stringify({ ...existingState, ...state }, null, 2));
 
