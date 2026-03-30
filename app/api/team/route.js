@@ -703,18 +703,23 @@ Do not provide an overarching team summary — only the per-engineer breakdown.`
             const userPrompt = `Here are the senior engineers, their projects, and current tasks:\n\n${lines}\n\nProvide the per-engineer summary.`;
 
             try {
-                // Route through ai.js so Bedrock (AgentSpaces/Windows) is used when available,
-                // falling back to Ollama on Mac. Non-JSON mode, low temperature.
-                const { generateCompletion } = await import('../../../services/ai.js');
-                const summary = (await generateCompletion(systemPrompt, userPrompt, false, 0.3) || '').trim();
-
+                // Prefer Bedrock (Claude) directly — fast, no Ollama dependency
+                const bedrockClient = require('../../../services/bedrock-client');
+                let summary = '';
+                if (bedrockClient.isAvailable()) {
+                    const fullPrompt = `${systemPrompt}\n\n${userPrompt}`;
+                    summary = (await bedrockClient.generate(fullPrompt, { temperature: 0.3 }) || '').trim();
+                } else {
+                    // Bedrock not configured — fall back to Ollama if running
+                    const { generateCompletion } = await import('../../../services/ai.js');
+                    summary = (await generateCompletion(systemPrompt, userPrompt, false, 0.3) || '').trim();
+                }
                 logger.info(`Generated AI summary (${summary.length} chars)`);
                 return NextResponse.json({ summary });
             } catch (e) {
                 logger.error(`AI summary generation failed: ${e.message}`);
-                // Fallback: generate a deterministic summary
                 const totalTasks = sde3s.reduce((sum, s) => sum + s.tasks.length, 0);
-                const fallback = `${sde3s.length} senior engineers are managing ${totalTasks} active tasks across the organization. AI summary unavailable — ensure Ollama is running.`;
+                const fallback = `${sde3s.length} senior engineers are managing ${totalTasks} active tasks across the organization. AI summary temporarily unavailable.`;
                 return NextResponse.json({ summary: fallback, fallback: true });
             }
         }
