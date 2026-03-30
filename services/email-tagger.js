@@ -26,20 +26,74 @@
 
 const logger = require('./logger').child('EmailTagger');
 
-// Lazy-load AI to avoid circular deps
-let _aiClient = null;
+// Lazy-load AI clients — try Bedrock, fall back to Ollama on any error
+let _bedrockClient = null;
+let _ollamaClient = null;
+let _useOllama = false; // set true after first Bedrock failure
+
 async function getAI() {
-    if (_aiClient) return _aiClient;
-    try {
-        // Try Bedrock first (prod), fall back to Ollama (local dev)
-        const bedrockClient = require('./bedrock-client');
-        _aiClient = bedrockClient;
-        return _aiClient;
-    } catch {
-        const ollamaClient = require('./ollama-client');
-        _aiClient = ollamaClient;
-        return _aiClient;
+    if (_useOllama) {
+        if (!_ollamaClient) _ollamaClient = require('./ollama-client');
+        return { type: 'ollama', client: _ollamaClient };
     }
+    try {
+        if (!_bedrockClient) _bedrockClient = require('./bedrock-client');
+        return { type: 'bedrock', client: _bedrockClient };
+    } catch {
+        _useOllama = true;
+        if (!_ollamaClient) _ollamaClient = require('./ollama-client');
+        return { type: 'ollama', client: _ollamaClient };
+    }
+}
+
+/**
+ * Call AI with automatic Bedrock→Ollama fallback on auth/network errors.
+ */
+async function callAI(prompt, label = '') {
+    // Try Bedrock first (unless already failed)
+    if (!_useOllama) {
+        try {
+            const { client } = await getAI();
+            let responseText = '';
+            if (client.invokeModel) {
+                const response = await client.invokeModel({
+                    modelId: 'anthropic.claude-3-haiku-20240307-v1:0',
+                    prompt,
+                    maxTokens: 300,
+                    temperature: 0,
+                });
+                responseText = response?.content?.[0]?.text || response?.completion || '';
+            } else if (client.generate) {
+                responseText = await client.generate(prompt, { temperature: 0, maxTokens: 300 });
+            } else if (client.chat) {
+                const result = await client.chat([{ role: 'user', content: prompt }], { temperature: 0 });
+                responseText = result?.content || result || '';
+            }
+            return responseText;
+        } catch (e) {
+            // 403 / auth error → permanently switch to Ollama for this session
+            if (e.message.includes('403') || e.message.includes('401') || e.message.includes('API Key') || e.message.includes('credentials')) {
+                logger.warn(`Bedrock unavailable (${e.message.substring(0, 60)}), switching to Ollama for all tagging`);
+                _useOllama = true;
+            } else {
+                throw e;
+            }
+        }
+    }
+
+    // Ollama fallback
+    if (!_ollamaClient) _ollamaClient = require('./ollama-client');
+    try {
+        if (_ollamaClient.generate) {
+            return await _ollamaClient.generate(prompt, { temperature: 0, maxTokens: 300 });
+        } else if (_ollamaClient.chat) {
+            const result = await _ollamaClient.chat([{ role: 'user', content: prompt }], { temperature: 0 });
+            return result?.content || result || '';
+        }
+    } catch (e) {
+        throw new Error(`Ollama fallback failed for "${label}": ${e.message}`);
+    }
+    return '';
 }
 
 // ─── Core tagging ─────────────────────────────────────────────────────────────
@@ -101,30 +155,10 @@ Rules:
 Return ONLY the JSON object, no explanation.`;
 
     try {
-        const ai = await getAI();
-        let responseText = '';
-
-        // Try Bedrock invoke pattern
-        if (ai.invokeModel) {
-            const response = await ai.invokeModel({
-                modelId: 'anthropic.claude-3-haiku-20240307-v1:0',
-                prompt,
-                maxTokens: 300,
-                temperature: 0,
-            });
-            responseText = response?.content?.[0]?.text || response?.completion || '';
-        } else if (ai.generate) {
-            // Ollama fallback
-            responseText = await ai.generate(prompt, { temperature: 0, maxTokens: 300 });
-        } else if (ai.chat) {
-            const result = await ai.chat([{ role: 'user', content: prompt }], { temperature: 0 });
-            responseText = result?.content || result || '';
-        }
-
+        const responseText = await callAI(prompt, subject);
         const tags = parseTagResponse(responseText);
         tags.fromManager = fromManager;
         return tags;
-
     } catch (e) {
         logger.warn(`Tag failed for "${subject}": ${e.message}`);
         return { ...defaultTags(), fromManager };

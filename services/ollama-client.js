@@ -24,7 +24,7 @@ function getAiTemperature() {
 class OllamaClient {
   constructor() {
     this.baseUrl = process.env.OLLAMA_BASE_URL || 'http://127.0.0.1:11434';
-    this.llmModel = process.env.LLM_MODEL || 'llama3';
+    this.llmModel = process.env.LLM_MODEL || 'Qwen3:latest';
     this.embeddingModel = process.env.EMBEDDING_MODEL || 'qwen3-embedding';
     this.embeddingDimensions = parseInt(process.env.EMBEDDING_DIMENSIONS || '4096');
     
