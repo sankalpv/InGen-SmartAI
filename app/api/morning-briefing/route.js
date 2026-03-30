@@ -174,6 +174,58 @@ async function gatherAllData() {
         }
     } catch (e) { sources.tickets = null; }
 
+    // 6. Follow-ups & needs-reply (async, non-blocking — skip on failure)
+    try {
+        const { fetchSentEmails } = require('../../../services/outlook-mcp');
+        const emailCache = localStore.getEmails ? localStore.getEmails() : { data: null };
+        const allEmails = emailCache.data || [];
+        const inbox = allEmails.filter(e => !e.isSent && e.folder !== 'Sent Items');
+
+        // Follow-up detection: sent emails >3 days ago with no reply
+        const sentEmails = await fetchSentEmails(60, 7);
+        const inboxConvIds = new Set(inbox.map(e => e.conversationId || e.id).filter(Boolean));
+        const nowMs = Date.now();
+        const followups = sentEmails.filter(e => {
+            if (!e.subject || !e.date) return false;
+            const subj = (e.subject || '').toLowerCase();
+            if (/^(re:|fwd:|fw:)/.test(subj)) return false;
+            if (/calendar|invite|declined|accepted|tentative/.test(subj)) return false;
+            const ageDays = (nowMs - new Date(e.date).getTime()) / (1000 * 60 * 60 * 24);
+            if (ageDays < 3) return false;
+            const convId = e.conversationId || e.id;
+            return convId && !inboxConvIds.has(convId);
+        }).slice(0, 5).map(e => ({
+            subject: e.subject,
+            to: (e.recipients || []).map(r => r?.name || r?.email || r).slice(0, 2).join(', '),
+            daysSinceSent: Math.floor((nowMs - new Date(e.date).getTime()) / (1000 * 60 * 60 * 24)),
+        }));
+
+        // Needs-reply: actionable inbox emails not yet replied to
+        let sentConvIds = new Set();
+        try { sentConvIds = new Set(sentEmails.map(e => e.conversationId || e.id).filter(Boolean)); } catch {}
+        const needsReply = inbox.filter(e => {
+            const from = typeof e.from === 'string' ? e.from : (e.from?.email || '');
+            if (/no-?reply|noreply|donotreply/.test(from.toLowerCase())) return false;
+            if ((e.recipients || []).length > 10) return false;
+            const ageMs = nowMs - new Date(e.date || e.received || 0).getTime();
+            if (ageMs < 2 * 60 * 60 * 1000) return false;
+            const convId = e.conversationId || e.id;
+            if (convId && sentConvIds.has(convId)) return false;
+            return e.aiCategory === 'respond_now' || e.aiCategory === 'respond_today';
+        }).sort((a, b) => {
+            if (a.aiCategory === 'respond_now' && b.aiCategory !== 'respond_now') return -1;
+            if (b.aiCategory === 'respond_now' && a.aiCategory !== 'respond_now') return 1;
+            return new Date(b.date || 0) - new Date(a.date || 0);
+        }).slice(0, 5).map(e => ({
+            subject: e.subject,
+            from: typeof e.from === 'string' ? e.from.split('<')[0].trim() : (e.from?.name || e.from?.email || 'Unknown'),
+            ageHours: Math.round((nowMs - new Date(e.date || 0).getTime()) / (1000 * 60 * 60)),
+            priority: e.aiCategory || 'respond_today',
+        }));
+
+        sources.emailIntel = { followups, needsReply };
+    } catch (e) { sources.emailIntel = null; }
+
     return sources;
 }
 
@@ -231,6 +283,24 @@ function buildPrompt(sources) {
         dataBlock += `- Aging >14 days: ${sources.tickets.aging14d}\n`;
         dataBlock += `- Aging >30 days: ${sources.tickets.aging30d}\n`;
         dataBlock += `- Resolved (30d): ${sources.tickets.resolved30d}\n`;
+    }
+
+    // Email intelligence: follow-ups & needs-reply
+    if (sources.emailIntel) {
+        const { followups, needsReply } = sources.emailIntel;
+        if (followups?.length > 0) {
+            dataBlock += `\n⏰ AWAITING REPLY (sent by you, no response yet):\n`;
+            followups.forEach(f => {
+                dataBlock += `- "${f.subject}" → ${f.to || 'recipient'} (${f.daysSinceSent}d ago, no reply)\n`;
+            });
+        }
+        if (needsReply?.length > 0) {
+            dataBlock += `\n💬 NEEDS YOUR REPLY:\n`;
+            needsReply.forEach(n => {
+                const urgency = n.priority === 'respond_now' ? '🔴' : '🟡';
+                dataBlock += `- ${urgency} From ${n.from}: "${n.subject}" (${n.ageHours}h old)\n`;
+            });
+        }
     }
 
     return dataBlock;
