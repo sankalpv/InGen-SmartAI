@@ -107,7 +107,7 @@ function runFirstRunSync() {
     console.log('');
 
     try {
-        execSync(`node --no-warnings "${SYNC_SCRIPT}"`, {
+        execSync(`"${process.execPath}" --no-warnings "${SYNC_SCRIPT}"`, {
             cwd: __dirname,
             timeout: 300000, // 5 minute timeout
             maxBuffer: 10 * 1024 * 1024,
@@ -251,7 +251,7 @@ runStartupChecks().then((report) => {
 
     // 2. Start Background Agent
     console.log(`[Launcher] Starting Background Agent: ${BACKGROUND_AGENT_SCRIPT}`);
-    const agentProcess = spawn('node', [BACKGROUND_AGENT_SCRIPT], {
+    const agentProcess = spawn(process.execPath, [BACKGROUND_AGENT_SCRIPT], {
         cwd: __dirname,
         stdio: 'pipe' // Capture output
     });
