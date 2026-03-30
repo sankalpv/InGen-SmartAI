@@ -542,6 +542,99 @@ function clearCache() {
     logger.info('Phonetool cache cleared');
 }
 
+/**
+ * Fetch the leadership chain above the given alias.
+ * Walks UP the management tree via Phonetool (manager → manager's manager → ...)
+ * up to `maxLevels` hops (default 4).
+ *
+ * Returns an array of { alias, name, email, level } objects, level 1 = direct manager.
+ * Results are cached for 24 hours.
+ */
+const LEADERSHIP_CHAIN_CACHE_PATH = path.join(process.cwd(), 'brain', 'leadership-chain.json');
+const LEADERSHIP_CHAIN_TTL = 24 * 60 * 60 * 1000; // 24 hours
+let _leadershipChainCache = null;
+let _leadershipChainCacheAlias = null;
+let _leadershipChainCacheAt = 0;
+
+async function fetchLeadershipChain(alias, maxLevels = 4) {
+    if (!alias) return [];
+
+    // In-memory cache
+    if (_leadershipChainCache && _leadershipChainCacheAlias === alias && (Date.now() - _leadershipChainCacheAt < LEADERSHIP_CHAIN_TTL)) {
+        return _leadershipChainCache;
+    }
+
+    // File cache
+    try {
+        if (fs.existsSync(LEADERSHIP_CHAIN_CACHE_PATH)) {
+            const cached = JSON.parse(fs.readFileSync(LEADERSHIP_CHAIN_CACHE_PATH, 'utf8'));
+            if (cached.alias === alias && (Date.now() - cached.timestamp < LEADERSHIP_CHAIN_TTL)) {
+                _leadershipChainCache = cached.chain;
+                _leadershipChainCacheAlias = alias;
+                _leadershipChainCacheAt = cached.timestamp;
+                logger.info(`Leadership chain loaded from file cache (${cached.chain.length} people)`);
+                return cached.chain;
+            }
+        }
+    } catch (e) { /* ignore */ }
+
+    const chain = [];
+    let currentAlias = alias;
+
+    for (let level = 1; level <= maxLevels; level++) {
+        try {
+            const url = `https://phonetool.amazon.com/users/${currentAlias}`;
+            const result = await readInternalWebsite(url);
+            if (!result?.content) break;
+
+            const content = typeof result.content === 'string'
+                ? result.content
+                : result.content.map(c => c.text || '').join('\n');
+
+            // Extract JSON
+            const jsonMatch = content.match(/^\s*(\{[\s\S]*\})\s*(?:⚠|$)/);
+            const jsonStr = jsonMatch ? jsonMatch[1] : content;
+            const parsed = JSON.parse(jsonStr);
+            let userData = parsed.content || parsed;
+            if (userData.content && !userData.manager) userData = userData.content;
+
+            // manager field is typically { login, name } or just a string
+            const mgr = userData.manager;
+            if (!mgr) break;
+
+            const mgrAlias = (typeof mgr === 'string' ? mgr : mgr.login || mgr.alias || '').trim();
+            const mgrName  = (typeof mgr === 'string' ? mgr : mgr.name || mgr.display_name || mgrAlias).trim();
+            if (!mgrAlias || mgrAlias === currentAlias) break;
+
+            chain.push({
+                alias: mgrAlias,
+                name: mgrName,
+                email: `${mgrAlias}@amazon.com`,
+                level,
+            });
+
+            currentAlias = mgrAlias;
+        } catch (e) {
+            logger.warn(`Failed to fetch phonetool for ${currentAlias} while building leadership chain: ${e.message}`);
+            break;
+        }
+    }
+
+    logger.info(`Leadership chain for ${alias}: ${chain.map(p => p.alias).join(' → ')}`);
+
+    // Persist
+    _leadershipChainCache = chain;
+    _leadershipChainCacheAlias = alias;
+    _leadershipChainCacheAt = Date.now();
+    try {
+        const brainDir = path.join(process.cwd(), 'brain');
+        if (!fs.existsSync(brainDir)) fs.mkdirSync(brainDir, { recursive: true });
+        fs.writeFileSync(LEADERSHIP_CHAIN_CACHE_PATH, JSON.stringify({ alias, chain, timestamp: Date.now() }, null, 2));
+    } catch (e) { /* ignore */ }
+
+    return chain;
+}
+
 module.exports = {
     getAlias,
     fetchDirectReports,
@@ -550,5 +643,6 @@ module.exports = {
     getCachedName,
     fetchOrgTree,
     getOrgFlatList,
+    fetchLeadershipChain,
     clearCache
 };

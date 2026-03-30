@@ -6,12 +6,43 @@ import { createRequire } from 'module';
 
 const require = createRequire(import.meta.url);
 const localStore = require('../../../services/local-store');
+const phonetool = require('../../../services/phonetool');
+const settings = require('../../../config/settings.json');
 
 export const runtime = 'nodejs';
 
 // In-memory cache for AI-upgraded categories (persists within server process)
 const aiCategoryCache = new Map(); // emailId -> 'respond_now' | 'respond_today' | 'fyi'
 let categorizationInProgress = false;
+
+// Leadership chain cache — Set of lowercase email addresses (manager, manager's manager, etc.)
+let leadershipEmailSet = null; // null = not yet loaded
+let leadershipLoadedAt = 0;
+const LEADERSHIP_TTL = 24 * 60 * 60 * 1000; // 24 hours
+
+/**
+ * Lazily fetch (and cache) the leadership chain email set.
+ * Non-blocking: called fire-and-forget; returns current cache immediately.
+ */
+function ensureLeadershipChain() {
+    const now = Date.now();
+    if (leadershipEmailSet !== null && (now - leadershipLoadedAt) < LEADERSHIP_TTL) return;
+
+    const alias = settings.phonetoolAlias;
+    if (!alias) return;
+
+    // Fire-and-forget — populate cache in background
+    phonetool.fetchLeadershipChain(alias, 4).then(chain => {
+        leadershipEmailSet = new Set(chain.map(p => p.email.toLowerCase()));
+        leadershipLoadedAt = Date.now();
+        console.log(`[API/Outlook] Leadership chain loaded: ${[...leadershipEmailSet].join(', ')}`);
+    }).catch(e => {
+        console.warn('[API/Outlook] Leadership chain fetch failed:', e.message);
+    });
+}
+
+// Kick off leadership chain load at module startup (non-blocking)
+ensureLeadershipChain();
 
 /**
  * Fast rule-based email triage — no AI required, runs synchronously.
@@ -30,6 +61,15 @@ function ruleBasedCategory(email) {
     const to = (email.recipients || []).map(r => (typeof r === 'string' ? r : r?.email || r?.name || '')).join(' ').toLowerCase();
     const combined = `${subject} ${snippet} ${from}`;
     const recipientCount = (email.recipients || []).length;
+
+    // ── Leadership chain check — highest priority: always respond_now ────
+    const senderEmail = (typeof email.from === 'string' ? email.from : email.from?.email || '').toLowerCase();
+    const senderAlias = senderEmail.replace(/@.*$/, '');
+    if (leadershipEmailSet && leadershipEmailSet.size > 0) {
+        if (leadershipEmailSet.has(senderEmail) || leadershipEmailSet.has(`${senderAlias}@amazon.com`)) {
+            return 'respond_now';
+        }
+    }
 
     // ── FYI signals — check first so we don't mis-upgrade noise ──────────
     const fyiPatterns = [
