@@ -17,6 +17,7 @@ let categorizationInProgress = false;
 
 // Leadership chain cache — Set of lowercase email addresses (manager, manager's manager, etc.)
 let leadershipEmailSet = null; // null = not yet loaded
+let leadershipNameSet = null;  // Set of lowercase display names and first names
 let leadershipLoadedAt = 0;
 const LEADERSHIP_TTL = 24 * 60 * 60 * 1000; // 24 hours
 
@@ -34,6 +35,7 @@ function ensureLeadershipChain() {
     // Fire-and-forget — populate cache in background
     phonetool.fetchLeadershipChain(alias, 4).then(chain => {
         leadershipEmailSet = new Set(chain.map(p => p.email.toLowerCase()));
+        leadershipNameSet = buildNameSet(chain);
         leadershipLoadedAt = Date.now();
         console.log(`[API/Outlook] Leadership chain loaded: ${[...leadershipEmailSet].join(', ')}`);
     }).catch(e => {
@@ -51,6 +53,7 @@ try {
         const cached = JSON.parse(fs.readFileSync(chainPath, 'utf8'));
         if (cached.chain && Array.isArray(cached.chain) && (Date.now() - (cached.timestamp || 0) < LEADERSHIP_TTL)) {
             leadershipEmailSet = new Set(cached.chain.map(p => p.email.toLowerCase()));
+            leadershipNameSet = buildNameSet(cached.chain);
             leadershipLoadedAt = cached.timestamp || Date.now();
             console.log(`[API/Outlook] Leadership chain pre-loaded from disk: ${[...leadershipEmailSet].join(', ')}`);
         }
@@ -59,6 +62,27 @@ try {
 
 // Kick off leadership chain load at module startup (non-blocking)
 ensureLeadershipChain();
+
+/**
+ * Build a Set of name tokens for leadership name-matching.
+ * For "Onalan, Bahadir" stores: "onalan", "bahadir", "onalan, bahadir", "bahadir onalan"
+ */
+function buildNameSet(chain) {
+    const names = new Set();
+    for (const p of chain) {
+        const raw = (p.name || p.alias || '').toLowerCase().trim();
+        if (!raw) continue;
+        names.add(raw);
+        // Handle "Last, First" format
+        const parts = raw.split(/[\s,]+/).filter(Boolean);
+        parts.forEach(part => { if (part.length > 2) names.add(part); });
+        // "First Last" variant
+        if (parts.length >= 2) names.add(parts.slice().reverse().join(' '));
+        // Also add alias
+        if (p.alias) names.add(p.alias.toLowerCase());
+    }
+    return names;
+}
 
 /**
  * Extract a clean lowercase email address from various from-field formats:
@@ -84,15 +108,32 @@ function extractSenderEmail(from) {
 
 /**
  * Check if a sender email/alias is in the leadership chain.
+ * Matches on email address, alias, or display name.
  */
 function isLeadershipSender(from) {
-    if (!leadershipEmailSet || leadershipEmailSet.size === 0) return false;
+    if (!leadershipEmailSet) return false;
     const email = extractSenderEmail(from);
-    if (!email) return false;
-    if (leadershipEmailSet.has(email)) return true;
-    // Also match by alias (part before @)
-    const alias = email.replace(/@.*$/, '');
-    return leadershipEmailSet.has(`${alias}@amazon.com`);
+    if (email) {
+        if (leadershipEmailSet.has(email)) return true;
+        const alias = email.replace(/@.*$/, '');
+        if (leadershipEmailSet.has(`${alias}@amazon.com`)) return true;
+    }
+    // Name-based fallback for system emails where email field is empty
+    if (leadershipNameSet && leadershipNameSet.size > 0) {
+        const displayName = (typeof from === 'string'
+            ? from.replace(/<[^>]+>/, '').trim()
+            : from?.name || from?.displayName || ''
+        ).toLowerCase().trim();
+        if (displayName && displayName.length > 2) {
+            if (leadershipNameSet.has(displayName)) return true;
+            // Check if any token from display name matches a leadership name token
+            const tokens = displayName.split(/[\s,]+/).filter(t => t.length > 2);
+            for (const token of tokens) {
+                if (leadershipNameSet.has(token)) return true;
+            }
+        }
+    }
+    return false;
 }
 
 /**
