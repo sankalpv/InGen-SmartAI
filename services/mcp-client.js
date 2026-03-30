@@ -8,6 +8,65 @@ const logger = require('./logger').child('MCPClient');
 const clientCache = new Map();
 
 /**
+ * Find a Node.js binary that is >= v22.
+ * Needed when process.execPath is the system node (v20) but MCP servers require v22+.
+ */
+function resolveNode22Plus() {
+    // If current node is already v22+, use it
+    const major = parseInt(process.versions.node.split('.')[0], 10);
+    if (major >= 22) return process.execPath;
+
+    const { execSync } = require('child_process');
+    const homedir = require('os').homedir();
+
+    // Well-known candidate locations for a newer node
+    const candidates = [
+        '/opt/homebrew/bin/node',
+        '/usr/local/bin/node',
+        path.join(homedir, '.volta', 'bin', 'node'),
+        // nvm: find all installed versions, pick highest
+        ...(() => {
+            try {
+                const nvmDir = process.env.NVM_DIR || path.join(homedir, '.nvm');
+                const versionsDir = path.join(nvmDir, 'versions', 'node');
+                if (!fs.existsSync(versionsDir)) return [];
+                return fs.readdirSync(versionsDir)
+                    .filter(v => /^v\d/.test(v))
+                    .sort((a, b) => {
+                        const [ma] = a.slice(1).split('.').map(Number);
+                        const [mb] = b.slice(1).split('.').map(Number);
+                        return mb - ma; // newest first
+                    })
+                    .map(v => path.join(versionsDir, v, 'bin', 'node'));
+            } catch { return []; }
+        })(),
+    ];
+
+    for (const candidate of candidates) {
+        if (!candidate || !fs.existsSync(candidate)) continue;
+        try {
+            const ver = execSync(`"${candidate}" --version`, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
+            const maj = parseInt(ver.replace('v', '').split('.')[0], 10);
+            if (maj >= 22) {
+                logger.info(`Using node ${ver} at ${candidate} for MCP servers (process.execPath is v${major})`);
+                return candidate;
+            }
+        } catch { /* skip */ }
+    }
+
+    // Fall back to process.execPath — will fail at runtime with a clear message
+    logger.warn(`Could not find Node v22+ for MCP server; using process.execPath (v${major}) — expect version errors`);
+    return process.execPath;
+}
+
+// Memoize so we only probe once per process
+let _node22Path = null;
+function getNode22Plus() {
+    if (!_node22Path) _node22Path = resolveNode22Plus();
+    return _node22Path;
+}
+
+/**
  * Find the direct .cjs entry point for a toolbox-installed MCP server.
  * Prefers this over the wrapper binary which can hang on some systems.
  * e.g. ~/.toolbox/tools/aws-outlook-mcp/0.3.1/aws-outlook-mcp.cjs
@@ -148,8 +207,10 @@ async function getClient(serverName) {
             let mcpCommand = serverConfig.command;
             let mcpArgs = serverConfig.args || [];
             if (mcpCommand.endsWith('.cjs') || mcpCommand.endsWith('.js') || mcpCommand.endsWith('.mjs')) {
+                // Run the script with a Node v22+ binary — process.execPath may be v20
+                // (e.g. when Next.js is launched via system node)
                 mcpArgs = [mcpCommand, ...mcpArgs];
-                mcpCommand = process.execPath;
+                mcpCommand = getNode22Plus();
             }
             transport = new StdioClientTransport({
                 command: mcpCommand,
