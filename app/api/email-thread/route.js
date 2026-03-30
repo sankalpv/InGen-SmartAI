@@ -14,7 +14,23 @@ export async function GET(request) {
 
     try {
         const result = await mcpClient.callTool('aws-outlook-mcp', 'email_read', { conversationId });
-        const raw = JSON.parse(result.content[0].text);
+
+        // The MCP server double-wraps: outer envelope is { content: [{ type:'text', text: '<JSON>' }] }
+        // where the inner text is the actual { success, content: { emails: [...] } } payload.
+        const outerText = result.content[0].text;
+        const outer = JSON.parse(outerText);
+
+        // Unwrap one more level if needed
+        let raw;
+        if (outer.success !== undefined) {
+            // Already unwrapped (direct payload)
+            raw = outer;
+        } else if (outer.content && Array.isArray(outer.content) && outer.content[0]?.text) {
+            // Double-wrapped: parse the inner text
+            raw = JSON.parse(outer.content[0].text);
+        } else {
+            return NextResponse.json({ error: 'Unexpected MCP response shape', detail: outer }, { status: 500 });
+        }
 
         if (!raw.success) {
             return NextResponse.json({ error: 'MCP returned failure', detail: raw }, { status: 500 });
