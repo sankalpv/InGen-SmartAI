@@ -51,9 +51,10 @@ export default function MeetingCard({ meeting }) {
         setLoading(true);
         try {
             // Use the richer meeting-prep API first (Slack + emails + tickets)
-            // Always pass title so the service can fall back if eventId doesn't match local store
+            // Pass title + date so prepMeeting looks at the right day (meeting may be in the future)
             const params = new URLSearchParams({ preview: 'true' });
             if (meeting.title) params.set('title', meeting.title);
+            if (meeting.startTime) params.set('date', meeting.startTime.slice(0, 10));
             if (meeting.id) params.set('eventId', meeting.id);
             const res = await fetch(`/api/meeting-prep?${params}`);
             const data = await res.json();
