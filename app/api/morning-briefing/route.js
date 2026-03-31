@@ -6,7 +6,7 @@ import path from 'path';
 const require = createRequire(import.meta.url);
 const localStore = require('../../../services/local-store');
 const tracker = require('../../../services/usage-tracker');
-const mcpClient = require('../../../services/mcp-client');
+const toolRegistry = require('../../../services/tool-registry');
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -98,82 +98,40 @@ function quickCategory(e) {
 
 async function fetchSlackData() {
     try {
-        const sinceDate = new Date(Date.now() - 8 * 60 * 60 * 1000); // last 8 hours
+        const sinceDate = new Date(Date.now() - 8 * 60 * 60 * 1000);
         const sinceDateStr = sinceDate.toISOString().split('T')[0];
 
-        // Get recent messages from key channels + DMs
-        const queries = [
-            `after:${sinceDateStr}`, // broad recent sweep
-        ];
+        // Use the tool-registry slack_search which handles MCP lifecycle correctly
+        const result = await toolRegistry.execute('slack_search', { query: `after:${sinceDateStr}` });
+        const raw = result?.data || [];
 
-        const messages = [];
-        for (const q of queries) {
-            try {
-                const result = await mcpClient.callTool('slack-mcp', 'search', {
-                    query: q,
-                    scope: 'messages',
-                    sort: 'timestamp',
-                    sort_dir: 'desc',
-                    count: 30,
-                });
-                const matches = result?.messages?.matches || result?.data || [];
-                for (const m of matches) {
-                    messages.push({
-                        user: m.username || m.user || 'unknown',
-                        channel: m.channel?.name || m.channel || 'unknown',
-                        text: (m.text || '').slice(0, 200),
-                        ts: m.ts,
-                        time: m.ts ? new Date(parseFloat(m.ts) * 1000).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }) : '',
-                        isDM: (m.channel?.is_im || m.channel?.is_mpim) ? true : false,
-                    });
-                }
-            } catch (e) { /* continue */ }
-        }
-
-        // Also get DMs specifically
-        const dmMessages = [];
-        try {
-            const dmResult = await mcpClient.callTool('slack-mcp', 'get_messages', {
-                channel: 'directmessages',
-                limit: 20,
-                includeThreadReplies: false,
-            });
-            const dms = dmResult?.messages || [];
-            for (const m of dms) {
-                dmMessages.push({
-                    user: m.user?.display_name || m.user?.real_name || m.username || m.user || 'unknown',
-                    channel: 'DM',
-                    text: (m.text || '').slice(0, 200),
-                    ts: m.ts,
-                    time: m.ts ? new Date(parseFloat(m.ts) * 1000).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }) : '',
-                    isDM: true,
-                });
-            }
-        } catch (e) { /* DMs may not be accessible */ }
-
-        // Deduplicate by ts
-        const seen = new Set();
-        const allMessages = [...dmMessages, ...messages].filter(m => {
-            if (!m.ts || seen.has(m.ts)) return false;
-            seen.add(m.ts);
-            return true;
-        }).sort((a, b) => parseFloat(b.ts || 0) - parseFloat(a.ts || 0)).slice(0, 25);
+        const messages = raw.map(m => ({
+            user: m.user || m.username || 'unknown',
+            channel: m.channel || 'unknown',
+            text: (m.text || '').slice(0, 200),
+            ts: m.ts,
+            time: m.ts
+                ? new Date(parseFloat(m.ts) * 1000).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
+                : '',
+            isDM: !!(m.isDM || m.is_dm),
+        })).sort((a, b) => parseFloat(b.ts || 0) - parseFloat(a.ts || 0)).slice(0, 30);
 
         // Group by channel
         const byChannel = {};
-        for (const m of allMessages) {
+        for (const m of messages) {
             if (!byChannel[m.channel]) byChannel[m.channel] = [];
             byChannel[m.channel].push(m);
         }
 
         return {
-            total: allMessages.length,
-            dmCount: allMessages.filter(m => m.isDM).length,
-            channelCount: Object.keys(byChannel).filter(c => c !== 'DM').length,
-            messages: allMessages,
+            total: messages.length,
+            dmCount: messages.filter(m => m.isDM).length,
+            channelCount: Object.keys(byChannel).filter(c => c !== 'DM' && c !== 'directmessages').length,
+            messages,
             byChannel,
         };
     } catch (e) {
+        console.error('[Briefing] Slack fetch failed:', e.message);
         return { total: 0, dmCount: 0, channelCount: 0, messages: [], byChannel: {}, error: e.message };
     }
 }
