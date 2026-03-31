@@ -6,6 +6,7 @@ import path from 'path';
 const require = createRequire(import.meta.url);
 const localStore = require('../../../services/local-store');
 const tracker = require('../../../services/usage-tracker');
+const mcpClient = require('../../../services/mcp-client');
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -13,6 +14,16 @@ export const maxDuration = 120;
 
 const CACHE_FILE = path.join(process.cwd(), 'data', 'morning-briefing-cache.json');
 const CACHE_TTL = 30 * 60 * 1000; // 30 minutes
+
+// ─── Time-aware label ───
+
+function getBriefingLabel() {
+    const h = new Date().getHours();
+    if (h < 12) return { label: 'Morning Briefing', emoji: '🌅', period: 'morning' };
+    if (h < 16) return { label: 'Afternoon Briefing', emoji: '☀️', period: 'afternoon' };
+    if (h < 20) return { label: 'Evening Briefing', emoji: '🌆', period: 'evening' };
+    return { label: 'Late Night Briefing', emoji: '🌙', period: 'late night' };
+}
 
 // ─── Helpers ───
 
@@ -48,7 +59,7 @@ function writeCache(data) {
     try { ensureDataDir(); fs.writeFileSync(CACHE_FILE, JSON.stringify(data, null, 2)); } catch (e) { /* ignore */ }
 }
 
-// ─── Rule-based email triage (module-level so all sections share it) ───
+// ─── Rule-based email triage ───
 
 function quickCategory(e) {
     if (e.aiCategory && e.aiCategory !== 'fyi') return e.aiCategory;
@@ -59,7 +70,6 @@ function quickCategory(e) {
     const combined = `${subject} ${snippet} ${from}`;
     const recipientCount = (e.recipients || []).length;
 
-    // FYI — automated / system senders
     if (/\bno[-_]?reply\b|\bnewsletter\b|\bunsubscribe\b|\bauto[-_]?generated\b|\bdo not reply\b/.test(combined)) return 'fyi';
     if (from.includes('no-reply') || from.includes('noreply') || from.includes('donotreply')) return 'fyi';
     if (from.includes('notification') || from.includes('elmo-') || from.includes('alerts@') || from.includes('reports@') || from.includes('sdo-') || from.includes('security-') || from.includes('aws-') || from.includes('jira@') || from.includes('github@') || from.includes('pagerduty')) return 'fyi';
@@ -71,15 +81,12 @@ function quickCategory(e) {
     if (/^(re: action required|fyi:|for your information)/.test(subject) && recipientCount > 5) return 'fyi';
     if (/\b(build (succeeded|failed)|pipeline|deployment|test results|alarm (triggered|resolved))\b/.test(subject)) return 'fyi';
 
-    // respond_now
     if (/\baction required\b|\burgent\b|\basap\b|\bblocking\b|\bplease (review|approve|confirm|respond|reply)\b|\baction item\b|\bescalat/.test(combined)) return 'respond_now';
     if (/\bneed your (approval|sign-?off|input|feedback|decision)\b|\bwhat (do you think|are your thoughts)\b/.test(combined)) return 'respond_now';
 
-    // respond_today
     if (/\bfollowing up\b|\bfollow.?up\b|\bcircling back\b|\bany update\b|\blet me know\b|\blmk\b|\bquick (question|ask)\b/.test(combined)) return 'respond_today';
     if (/\bimportant\b|\bdeadline\b|\b1:1|one.on.one\b/.test(combined)) return 'respond_today';
 
-    // Small direct email, recent
     if (recipientCount <= 3) {
         const ageMs = Date.now() - new Date(e.date || e.received || 0).getTime();
         if (ageMs / (1000 * 60 * 60 * 24) <= 2) return 'respond_today';
@@ -87,12 +94,96 @@ function quickCategory(e) {
     return 'fyi';
 }
 
+// ─── Slack data fetch ───
+
+async function fetchSlackData() {
+    try {
+        const sinceDate = new Date(Date.now() - 8 * 60 * 60 * 1000); // last 8 hours
+        const sinceDateStr = sinceDate.toISOString().split('T')[0];
+
+        // Get recent messages from key channels + DMs
+        const queries = [
+            `after:${sinceDateStr}`, // broad recent sweep
+        ];
+
+        const messages = [];
+        for (const q of queries) {
+            try {
+                const result = await mcpClient.callTool('slack-mcp', 'search', {
+                    query: q,
+                    scope: 'messages',
+                    sort: 'timestamp',
+                    sort_dir: 'desc',
+                    count: 30,
+                });
+                const matches = result?.messages?.matches || result?.data || [];
+                for (const m of matches) {
+                    messages.push({
+                        user: m.username || m.user || 'unknown',
+                        channel: m.channel?.name || m.channel || 'unknown',
+                        text: (m.text || '').slice(0, 200),
+                        ts: m.ts,
+                        time: m.ts ? new Date(parseFloat(m.ts) * 1000).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }) : '',
+                        isDM: (m.channel?.is_im || m.channel?.is_mpim) ? true : false,
+                    });
+                }
+            } catch (e) { /* continue */ }
+        }
+
+        // Also get DMs specifically
+        const dmMessages = [];
+        try {
+            const dmResult = await mcpClient.callTool('slack-mcp', 'get_messages', {
+                channel: 'directmessages',
+                limit: 20,
+                includeThreadReplies: false,
+            });
+            const dms = dmResult?.messages || [];
+            for (const m of dms) {
+                dmMessages.push({
+                    user: m.user?.display_name || m.user?.real_name || m.username || m.user || 'unknown',
+                    channel: 'DM',
+                    text: (m.text || '').slice(0, 200),
+                    ts: m.ts,
+                    time: m.ts ? new Date(parseFloat(m.ts) * 1000).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }) : '',
+                    isDM: true,
+                });
+            }
+        } catch (e) { /* DMs may not be accessible */ }
+
+        // Deduplicate by ts
+        const seen = new Set();
+        const allMessages = [...dmMessages, ...messages].filter(m => {
+            if (!m.ts || seen.has(m.ts)) return false;
+            seen.add(m.ts);
+            return true;
+        }).sort((a, b) => parseFloat(b.ts || 0) - parseFloat(a.ts || 0)).slice(0, 25);
+
+        // Group by channel
+        const byChannel = {};
+        for (const m of allMessages) {
+            if (!byChannel[m.channel]) byChannel[m.channel] = [];
+            byChannel[m.channel].push(m);
+        }
+
+        return {
+            total: allMessages.length,
+            dmCount: allMessages.filter(m => m.isDM).length,
+            channelCount: Object.keys(byChannel).filter(c => c !== 'DM').length,
+            messages: allMessages,
+            byChannel,
+        };
+    } catch (e) {
+        return { total: 0, dmCount: 0, channelCount: 0, messages: [], byChannel: {}, error: e.message };
+    }
+}
+
 // ─── Gather all data sources ───
 
 async function gatherAllData() {
     const sources = {};
 
-    // 1. Emails — use quickCategory() for consistent triage (aiCategory may not be populated)
+    // 1. Emails
     try {
         const emailCache = localStore.getEmails ? localStore.getEmails() : { data: null };
         const allEmails = emailCache.data || [];
@@ -101,44 +192,55 @@ async function gatherAllData() {
             ? filterToToday(received, 'received')
             : filterToToday(received, 'date');
         const urgent = todayEmails.filter(e => quickCategory(e) === 'respond_now');
-        const topSenders = [...new Set(urgent.map(e => {
-            const f = e.from || e.sender || '';
-            return typeof f === 'string' ? f.split('<')[0].trim() : (f?.name || f?.email || 'Unknown');
-        }))].slice(0, 3);
+        const respondToday = todayEmails.filter(e => quickCategory(e) === 'respond_today');
+        const topUrgent = urgent.slice(0, 5).map(e => ({
+            from: typeof e.from === 'string' ? e.from.split('<')[0].trim() : (e.from?.name || e.from?.email || 'Unknown'),
+            subject: (e.subject || '').slice(0, 60),
+            ageHours: Math.round((Date.now() - new Date(e.date || e.received || 0).getTime()) / (1000 * 60 * 60)),
+        }));
         sources.emails = {
             total: todayEmails.length,
             urgent: urgent.length,
-            topUrgentSenders: topSenders,
-            respondToday: todayEmails.filter(e => quickCategory(e) === 'respond_today').length,
+            respondToday: respondToday.length,
+            fyi: todayEmails.length - urgent.length - respondToday.length,
+            topUrgent,
         };
-    } catch (e) { sources.emails = { total: 0, urgent: 0, topUrgentSenders: [], error: e.message }; }
+    } catch (e) { sources.emails = { total: 0, urgent: 0, respondToday: 0, fyi: 0, topUrgent: [], error: e.message }; }
 
     // 2. Calendar
     try {
         const calCache = localStore.getCalendar ? localStore.getCalendar() : { data: null };
         const allMeetings = calCache.data || [];
+        const now = new Date();
+        const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+        const endOfDay = new Date(startOfDay.getTime() + 86400000);
         const todayMeetings = allMeetings.filter(m => {
-            const now = new Date();
-            const s = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-            const e = new Date(s.getTime() + 86400000);
             const d = new Date(m.start?.dateTime || m.startTime || m.date);
-            return !isNaN(d) && d >= s && d < e;
+            return !isNaN(d) && d >= startOfDay && d < endOfDay;
         });
         const sorted = [...todayMeetings].sort((a, b) =>
             new Date(a.start?.dateTime || a.startTime || a.date) - new Date(b.start?.dateTime || b.startTime || b.date)
         );
-        const firstMeeting = sorted[0];
-        const firstTime = firstMeeting ? new Date(firstMeeting.start?.dateTime || firstMeeting.startTime || firstMeeting.date) : null;
+        const upcoming = sorted.filter(m => new Date(m.start?.dateTime || m.startTime || m.date) > now);
         sources.calendar = {
-            totalMeetings: todayMeetings.length,
-            firstMeeting: firstMeeting ? {
-                title: firstMeeting.subject || firstMeeting.title || 'Meeting',
-                time: firstTime ? firstTime.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }) : '?',
-            } : null,
+            totalToday: todayMeetings.length,
+            upcomingCount: upcoming.length,
+            meetings: sorted.map(m => {
+                const start = new Date(m.start?.dateTime || m.startTime || m.date);
+                const end = m.end?.dateTime || m.endTime ? new Date(m.end?.dateTime || m.endTime) : null;
+                const duration = end ? Math.round((end - start) / 60000) : null;
+                return {
+                    title: (m.subject || m.title || 'Meeting').slice(0, 60),
+                    time: start.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }),
+                    duration: duration ? `${duration}min` : null,
+                    attendees: m.attendees?.length || m.attendeeCount || null,
+                    isPast: start < now,
+                };
+            }),
         };
-    } catch (e) { sources.calendar = { totalMeetings: 0, error: e.message }; }
+    } catch (e) { sources.calendar = { totalToday: 0, upcomingCount: 0, meetings: [], error: e.message }; }
 
-    // 3. WBR Goals (Team Health)
+    // 3. WBR Goals
     try {
         const wbrReport = require('../../../services/wbr-report');
         const wbr = await wbrReport.generateWbrReport(false);
@@ -149,26 +251,26 @@ async function gatherAllData() {
             const missedEcds = allGoals.filter(g => {
                 if (!g.ecd || g.ecd === 'Missing') return false;
                 try { const [mm, dd, yyyy] = g.ecd.split('-').map(Number); return new Date(yyyy, mm - 1, dd) < today; }
-                catch (e) { return false; }
+                catch { return false; }
             });
             const blocked = allGoals.filter(g => g.status === 'Blocked');
             const redGoals = allGoals.filter(g => g.statusColor === 'Red');
+            const yellowGoals = allGoals.filter(g => g.statusColor === 'Yellow');
             sources.goals = {
                 total: allGoals.length,
                 green: byColor.Green || 0,
                 yellow: byColor.Yellow || 0,
                 red: byColor.Red || 0,
                 missing: byColor.Missing || 0,
-                missedEcds: missedEcds.length,
-                missedEcdGoals: missedEcds.slice(0, 3).map(g => g.id),
-                blockedCount: blocked.length,
-                blockedGoals: blocked.slice(0, 3).map(g => g.id),
-                redGoals: redGoals.slice(0, 3).map(g => ({ id: g.id, title: (g.title || '').substring(0, 40) })),
+                missedEcds: missedEcds.map(g => ({ id: g.id, title: (g.title || '').slice(0, 50), ecd: g.ecd, owner: g.owner || 'unassigned' })).slice(0, 5),
+                blocked: blocked.map(g => ({ id: g.id, title: (g.title || '').slice(0, 50), owner: g.owner || 'unassigned' })).slice(0, 5),
+                redGoals: redGoals.map(g => ({ id: g.id, title: (g.title || '').slice(0, 50), owner: g.owner || 'unassigned', ecd: g.ecd })).slice(0, 5),
+                yellowGoals: yellowGoals.map(g => ({ id: g.id, title: (g.title || '').slice(0, 50), owner: g.owner || 'unassigned' })).slice(0, 5),
             };
         } else {
-            sources.goals = null; // No WBR data configured
+            sources.goals = null;
         }
-    } catch (e) { sources.goals = null; }
+    } catch { sources.goals = null; }
 
     // 4. Engineering Metrics
     try {
@@ -183,16 +285,13 @@ async function gatherAllData() {
                 staleCrs: dash.alerts?.staleCrs || 0,
                 totalEngineers: dash.totalEngineers || 0,
                 crsTrend: dash.summary?.crsCreated?.trend || 0,
-                topPerformer: dash.engineers?.[0] ? {
-                    name: dash.engineers[0].name,
-                    crs: dash.engineers[0].crsCreated,
-                } : null,
-                decliningEngineers: (dash.engineers || []).filter(e => e.declining3w).length,
+                topPerformer: dash.engineers?.[0] ? { name: dash.engineers[0].name, crs: dash.engineers[0].crsCreated } : null,
+                decliningEngineers: (dash.engineers || []).filter(e => e.declining3w).map(e => e.name),
             };
         } else {
             sources.codeMetrics = null;
         }
-    } catch (e) { sources.codeMetrics = null; }
+    } catch { sources.codeMetrics = null; }
 
     // 5. Ticket Health
     try {
@@ -210,23 +309,29 @@ async function gatherAllData() {
                     open: g.open,
                     oldestAge: g.oldestAge,
                 })),
+                topAging: (tickets.aging || []).slice(0, 5).map(t => ({
+                    id: t.id,
+                    title: (t.title || '').slice(0, 50),
+                    ageDays: t.ageDays,
+                    assignee: t.assignee || 'unassigned',
+                })),
             };
         } else {
             sources.tickets = null;
         }
-    } catch (e) { sources.tickets = null; }
+    } catch { sources.tickets = null; }
 
-    // 6. Follow-ups & needs-reply (async, non-blocking — skip on failure)
+    // 6. Email intelligence (follow-ups + needs reply)
     try {
         const { fetchSentEmails } = require('../../../services/outlook-mcp');
         const emailCache = localStore.getEmails ? localStore.getEmails() : { data: null };
         const allEmails = emailCache.data || [];
         const inbox = allEmails.filter(e => !e.isSent && e.folder !== 'Sent Items');
+        const nowMs = Date.now();
 
-        // Follow-up detection: sent emails >3 days ago with no reply
         const sentEmails = await fetchSentEmails(60, 7);
         const inboxConvIds = new Set(inbox.map(e => e.conversationId || e.id).filter(Boolean));
-        const nowMs = Date.now();
+
         const followups = sentEmails.filter(e => {
             if (!e.subject || !e.date) return false;
             const subj = (e.subject || '').toLowerCase();
@@ -237,13 +342,11 @@ async function gatherAllData() {
             const convId = e.conversationId || e.id;
             return convId && !inboxConvIds.has(convId);
         }).slice(0, 5).map(e => ({
-            subject: e.subject,
+            subject: (e.subject || '').slice(0, 60),
             to: (e.recipients || []).map(r => r?.name || r?.email || r).slice(0, 2).join(', '),
             daysSinceSent: Math.floor((nowMs - new Date(e.date).getTime()) / (1000 * 60 * 60 * 24)),
         }));
 
-        // Needs-reply: actionable inbox emails not yet replied to
-        // Uses quickCategory() so we don't need aiCategory to be pre-populated
         let sentConvIds = new Set();
         try { sentConvIds = new Set(sentEmails.map(e => e.conversationId || e.id).filter(Boolean)); } catch {}
         const needsReply = inbox.filter(e => {
@@ -263,112 +366,194 @@ async function gatherAllData() {
             if (catB === 'respond_now' && catA !== 'respond_now') return 1;
             return new Date(b.date || 0) - new Date(a.date || 0);
         }).slice(0, 5).map(e => ({
-            subject: e.subject,
+            subject: (e.subject || '').slice(0, 60),
             from: typeof e.from === 'string' ? e.from.split('<')[0].trim() : (e.from?.name || e.from?.email || 'Unknown'),
             ageHours: Math.round((nowMs - new Date(e.date || 0).getTime()) / (1000 * 60 * 60)),
             priority: quickCategory(e),
         }));
 
         sources.emailIntel = { followups, needsReply };
-    } catch (e) { sources.emailIntel = null; }
+    } catch { sources.emailIntel = null; }
+
+    // 7. Slack
+    sources.slack = await fetchSlackData();
 
     return sources;
 }
 
-// ─── Build the prompt ───
+// ─── Build the data block for the AI prompt ───
 
-function buildPrompt(sources) {
-    const hour = new Date().getHours();
-    const timeOfDay = hour < 12 ? 'morning' : hour < 17 ? 'afternoon' : hour < 21 ? 'evening' : 'late night';
+function buildPrompt(sources, briefingMeta) {
     const dayName = new Date().toLocaleDateString('en-US', { weekday: 'long' });
     const dateStr = new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
+    const timeStr = new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
 
-    let dataBlock = `TODAY: ${dayName}, ${dateStr} (${timeOfDay})\n\n`;
+    let block = `=== DATA FOR ${briefingMeta.label.toUpperCase()} ===\n`;
+    block += `Date: ${dayName}, ${dateStr} at ${timeStr}\n\n`;
 
     // Emails
-    dataBlock += `📧 EMAILS:\n`;
-    dataBlock += `- Total today: ${sources.emails.total}\n`;
-    dataBlock += `- Urgent (respond now): ${sources.emails.urgent}\n`;
-    dataBlock += `- Respond today: ${sources.emails.respondToday || 0}\n`;
-    if (sources.emails.topUrgentSenders?.length > 0) {
-        dataBlock += `- Top urgent senders: ${sources.emails.topUrgentSenders.join(', ')}\n`;
+    block += `--- EMAIL DATA ---\n`;
+    block += `Total received today: ${sources.emails.total}\n`;
+    block += `Urgent (respond now): ${sources.emails.urgent}\n`;
+    block += `Respond today: ${sources.emails.respondToday}\n`;
+    block += `FYI/automated: ${sources.emails.fyi}\n`;
+    if (sources.emails.topUrgent?.length > 0) {
+        block += `Top urgent emails:\n`;
+        sources.emails.topUrgent.forEach(e => {
+            block += `  - From: ${e.from} | Subject: "${e.subject}" | Age: ${e.ageHours}h\n`;
+        });
     }
+    if (sources.emailIntel?.needsReply?.length > 0) {
+        block += `Needs your reply:\n`;
+        sources.emailIntel.needsReply.forEach(n => {
+            block += `  - [${n.priority === 'respond_now' ? 'URGENT' : 'TODAY'}] From: ${n.from} | "${n.subject}" | ${n.ageHours}h old\n`;
+        });
+    }
+    if (sources.emailIntel?.followups?.length > 0) {
+        block += `Awaiting reply from others (you sent, no response):\n`;
+        sources.emailIntel.followups.forEach(f => {
+            block += `  - To: ${f.to} | "${f.subject}" | ${f.daysSinceSent} days ago\n`;
+        });
+    }
+    block += `\n`;
+
+    // Slack
+    block += `--- SLACK DATA ---\n`;
+    if (sources.slack?.error && sources.slack.total === 0) {
+        block += `Slack: unavailable (${sources.slack.error})\n`;
+    } else {
+        block += `Total recent messages (last 8h): ${sources.slack.total}\n`;
+        block += `DMs: ${sources.slack.dmCount} | Channel messages: ${sources.slack.channelCount} channels\n`;
+        if (sources.slack.messages?.length > 0) {
+            block += `Messages by channel:\n`;
+            const byChannel = sources.slack.byChannel || {};
+            for (const [channel, msgs] of Object.entries(byChannel).slice(0, 8)) {
+                block += `  #${channel} (${msgs.length} msg${msgs.length !== 1 ? 's' : ''}):\n`;
+                msgs.slice(0, 3).forEach(m => {
+                    block += `    @${m.user} at ${m.time}: "${m.text.replace(/\n/g, ' ').slice(0, 120)}"\n`;
+                });
+            }
+        }
+    }
+    block += `\n`;
 
     // Calendar
-    dataBlock += `\n📅 CALENDAR:\n`;
-    dataBlock += `- Meetings today: ${sources.calendar.totalMeetings}\n`;
-    if (sources.calendar.firstMeeting) {
-        dataBlock += `- First meeting: "${sources.calendar.firstMeeting.title}" at ${sources.calendar.firstMeeting.time}\n`;
+    block += `--- CALENDAR DATA ---\n`;
+    block += `Meetings today: ${sources.calendar.totalToday} (${sources.calendar.upcomingCount} still upcoming)\n`;
+    if (sources.calendar.meetings?.length > 0) {
+        sources.calendar.meetings.forEach(m => {
+            const parts = [`${m.time}`, m.duration ? `(${m.duration})` : '', `"${m.title}"`];
+            if (m.attendees) parts.push(`${m.attendees} attendees`);
+            if (m.isPast) parts.push('[done]');
+            block += `  - ${parts.filter(Boolean).join(' | ')}\n`;
+        });
+    } else {
+        block += `  No meetings today.\n`;
     }
-
-    // Goals
-    if (sources.goals) {
-        dataBlock += `\n🎯 TEAM GOALS (WBR):\n`;
-        dataBlock += `- Total: ${sources.goals.total} | Green: ${sources.goals.green} | Yellow: ${sources.goals.yellow} | Red: ${sources.goals.red}\n`;
-        if (sources.goals.missedEcds > 0) dataBlock += `- Missed ECDs: ${sources.goals.missedEcds} (${sources.goals.missedEcdGoals.join(', ')})\n`;
-        if (sources.goals.blockedCount > 0) dataBlock += `- Blocked: ${sources.goals.blockedCount} (${sources.goals.blockedGoals.join(', ')})\n`;
-        if (sources.goals.redGoals?.length > 0) dataBlock += `- Red goals: ${sources.goals.redGoals.map(g => `${g.id}: "${g.title}"`).join('; ')}\n`;
-    }
-
-    // Code metrics
-    if (sources.codeMetrics) {
-        dataBlock += `\n📊 CODE METRICS (this week):\n`;
-        dataBlock += `- CRs created: ${sources.codeMetrics.crsCreated} (trend: ${sources.codeMetrics.crsTrend > 0 ? '+' : ''}${sources.codeMetrics.crsTrend}%)\n`;
-        dataBlock += `- CRs reviewed: ${sources.codeMetrics.crsReviewed}\n`;
-        dataBlock += `- Stale CRs (>5 days): ${sources.codeMetrics.staleCrs}\n`;
-        dataBlock += `- Engineers: ${sources.codeMetrics.totalEngineers}\n`;
-        if (sources.codeMetrics.topPerformer) dataBlock += `- Top performer: ${sources.codeMetrics.topPerformer.name} (${sources.codeMetrics.topPerformer.crs} CRs)\n`;
-        if (sources.codeMetrics.decliningEngineers > 0) dataBlock += `- Engineers with 3-week decline: ${sources.codeMetrics.decliningEngineers}\n`;
-    }
+    block += `\n`;
 
     // Tickets
-    if (sources.tickets) {
-        dataBlock += `\n🎫 TICKETS:\n`;
-        dataBlock += `- Open: ${sources.tickets.totalOpen}\n`;
-        dataBlock += `- Assigned to you: ${sources.tickets.assignedToMe}\n`;
-        dataBlock += `- Aging >14 days: ${sources.tickets.aging14d}\n`;
-        dataBlock += `- Aging >30 days: ${sources.tickets.aging30d}\n`;
-        dataBlock += `- Resolved (30d): ${sources.tickets.resolved30d}\n`;
-    }
-
-    // Email intelligence: follow-ups & needs-reply
-    if (sources.emailIntel) {
-        const { followups, needsReply } = sources.emailIntel;
-        if (followups?.length > 0) {
-            dataBlock += `\n⏰ AWAITING REPLY (sent by you, no response yet):\n`;
-            followups.forEach(f => {
-                dataBlock += `- "${f.subject}" → ${f.to || 'recipient'} (${f.daysSinceSent}d ago, no reply)\n`;
-            });
-        }
-        if (needsReply?.length > 0) {
-            dataBlock += `\n💬 NEEDS YOUR REPLY:\n`;
-            needsReply.forEach(n => {
-                const urgency = n.priority === 'respond_now' ? '🔴' : '🟡';
-                dataBlock += `- ${urgency} From ${n.from}: "${n.subject}" (${n.ageHours}h old)\n`;
+    block += `--- TICKET DATA ---\n`;
+    if (!sources.tickets) {
+        block += `No ticket data available.\n`;
+    } else {
+        block += `Open tickets: ${sources.tickets.totalOpen}\n`;
+        block += `Assigned to you: ${sources.tickets.assignedToMe}\n`;
+        block += `Aging >14 days: ${sources.tickets.aging14d}\n`;
+        block += `Aging >30 days: ${sources.tickets.aging30d}\n`;
+        block += `Resolved last 30d: ${sources.tickets.resolved30d}\n`;
+        if (sources.tickets.topAging?.length > 0) {
+            block += `Oldest open tickets:\n`;
+            sources.tickets.topAging.forEach(t => {
+                block += `  - ${t.id}: "${t.title}" | ${t.ageDays} days old | ${t.assignee}\n`;
             });
         }
     }
+    block += `\n`;
 
-    return dataBlock;
+    // Goals
+    block += `--- GOALS DATA (WBR) ---\n`;
+    if (!sources.goals) {
+        block += `No WBR goals data available.\n`;
+    } else {
+        block += `Total goals: ${sources.goals.total} | 🟢 Green: ${sources.goals.green} | 🟡 Yellow: ${sources.goals.yellow} | 🔴 Red: ${sources.goals.red} | ⬜ Missing: ${sources.goals.missing}\n`;
+        if (sources.goals.redGoals?.length > 0) {
+            block += `Red goals:\n`;
+            sources.goals.redGoals.forEach(g => {
+                block += `  - ${g.id}: "${g.title}" | Owner: ${g.owner} | ECD: ${g.ecd || 'none'}\n`;
+            });
+        }
+        if (sources.goals.yellowGoals?.length > 0) {
+            block += `Yellow goals:\n`;
+            sources.goals.yellowGoals.forEach(g => {
+                block += `  - ${g.id}: "${g.title}" | Owner: ${g.owner}\n`;
+            });
+        }
+        if (sources.goals.blocked?.length > 0) {
+            block += `Blocked goals:\n`;
+            sources.goals.blocked.forEach(g => {
+                block += `  - ${g.id}: "${g.title}" | Owner: ${g.owner}\n`;
+            });
+        }
+        if (sources.goals.missedEcds?.length > 0) {
+            block += `Missed ECDs:\n`;
+            sources.goals.missedEcds.forEach(g => {
+                block += `  - ${g.id}: "${g.title}" | ECD: ${g.ecd} | Owner: ${g.owner}\n`;
+            });
+        }
+    }
+    block += `\n`;
+
+    // Code Metrics
+    block += `--- CODE METRICS (this week) ---\n`;
+    if (!sources.codeMetrics) {
+        block += `No engineering metrics data available.\n`;
+    } else {
+        block += `CRs created: ${sources.codeMetrics.crsCreated} (trend: ${sources.codeMetrics.crsTrend > 0 ? '+' : ''}${sources.codeMetrics.crsTrend}%)\n`;
+        block += `CRs reviewed: ${sources.codeMetrics.crsReviewed}\n`;
+        block += `Stale CRs (>5 days unreviewed): ${sources.codeMetrics.staleCrs}\n`;
+        block += `Total engineers: ${sources.codeMetrics.totalEngineers}\n`;
+        if (sources.codeMetrics.topPerformer) block += `Top performer: ${sources.codeMetrics.topPerformer.name} (${sources.codeMetrics.topPerformer.crs} CRs)\n`;
+        if (sources.codeMetrics.decliningEngineers?.length > 0) block += `3-week decline: ${sources.codeMetrics.decliningEngineers.join(', ')}\n`;
+    }
+
+    return block;
 }
 
-const SYSTEM_PROMPT = `You are InGen — a sharp, confident AI executive assistant. Think Jarvis from Iron Man: competent, occasionally witty, always one step ahead. You respect your user's time.
+// ─── System prompt ───
 
-PERSONALITY RULES:
-1. WARM BUT PROFESSIONAL — Friendly greeting, not over-the-top. "Good morning. Here's what's on your plate." Confident, not gushing.
-2. DRY WIT — Occasional clever observation, never forced. "That ticket is 16 days old — it's developing opinions." Keep humor subtle and sparse — maybe one quip per briefing.
-3. DATA-SPECIFIC — Always cite actual numbers, goal IDs, names. Never vague. Lead with the most important thing.
-4. CONCISE — This will be SPOKEN ALOUD. Maximum 6-8 sentences. Every word earns its place. No markdown, no bullet points, no headers. Just clean, flowing speech.
-5. HONEST — When things are good, say so briefly. When things need attention, be direct and constructive. No sugarcoating.
-6. NATURAL SIGN-OFF — Brief and motivating. "That's your day. Go make it count." or "You're set. I'll be here if you need me."
+const SYSTEM_PROMPT = `You are InGen, a data-driven AI executive assistant. Your job is to transform raw data into a structured, scannable briefing.
 
-TIME-OF-DAY TONE:
-- Morning: Crisp and energized
-- Afternoon: Brief and efficient
-- Evening: Slightly lighter, acknowledge the late hour
-- Late night: Respect the hustle, keep it short
+OUTPUT FORMAT — produce exactly these 6 sections in order, using this exact markdown:
 
-CRITICAL: Output ONLY spoken words. No formatting, no asterisks, no headers. Just natural spoken English that will be read aloud by a TTS voice.`;
+## 🔔 Needs Your Attention
+[Numbered list of ACTION items only — things requiring the user to do something today. Format each as:]
+1. [URGENT/TODAY] **Action verb** — detail with names, IDs, ages. Example: "Reply to Alice Chen re: 'JIRA-4421 API blocker' (sent 2d ago, no response)"
+
+## 📧 Email Summary
+[Table or bullet list. Include: total count, urgent count, respond-today count, FYI count. List each urgent/respond-today email as: "• **From:** Name | **Subject:** '...' | **Age:** Xh | **Priority:** URGENT/TODAY"]
+
+## 💬 Slack Summary
+[Channel-by-channel breakdown. Format: "**#channel-name** (N messages): bullet key messages with @user: 'exact quote'". Highlight any DMs requiring response.]
+
+## 📅 Meeting Summary
+[Table: Time | Meeting | Duration | Attendees. Mark past meetings [done]. Note any meetings without prep.]
+
+## 🎫 Ticket Summary
+[Stats line: X open, Y assigned to me, Z aging >14d. Then table of oldest tickets: ID | Title | Age | Assignee]
+
+## 🎯 Goals Summary
+[Stats line: X green, Y yellow, Z red. Table of non-green goals: Goal ID | Title | Status | Owner | ECD]
+
+STRICT RULES:
+1. EVERY bullet must contain at least one of: a number, a person's name, a quoted string, a date, or an ID
+2. No prose sentences — only structured lists, tables, and stats lines
+3. Use markdown tables (| col | col |) when comparing 3+ items
+4. Names are always first-last or alias — never "a team member" or "someone"
+5. Exact quotes from Slack/email enclosed in single quotes: 'message text'
+6. If a section has no data, write: "No data available."
+7. DO NOT add commentary, analysis, or opinion — only organize what the data says
+8. Needs Your Attention must only contain items requiring action — not informational items`;
 
 // ─── Main Handler ───
 
@@ -380,19 +565,17 @@ export async function GET(req) {
         tracker.trackAPICall('/api/morning-briefing');
         tracker.trackAIGeneration('MorningBriefing');
 
-        // Check cache
         if (!forceRefresh) {
             const cached = getCached();
             if (cached) {
-                console.log('[MorningBriefing] Serving cached briefing');
+                console.log('[Briefing] Serving cached briefing');
                 return streamCachedBriefing(cached);
             }
         }
 
-        // Stream live briefing
         return streamLiveBriefing();
     } catch (error) {
-        console.error('[MorningBriefing] Error:', error);
+        console.error('[Briefing] Error:', error);
         return NextResponse.json({ error: error.message }, { status: 500 });
     }
 }
@@ -401,9 +584,8 @@ function streamCachedBriefing(cached) {
     const encoder = new TextEncoder();
     const stream = new ReadableStream({
         start(controller) {
-            // Send source data immediately
+            controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'meta', data: cached.meta })}\n\n`));
             controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'sources', data: cached.sources })}\n\n`));
-            // Send briefing text as a single chunk
             controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'chunk', text: cached.briefing })}\n\n`));
             controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'done', cached: true })}\n\n`));
             controller.close();
@@ -416,42 +598,42 @@ function streamCachedBriefing(cached) {
 
 async function streamLiveBriefing() {
     const encoder = new TextEncoder();
+    const briefingMeta = getBriefingLabel();
 
     const stream = new ReadableStream({
         async start(controller) {
             const send = (evt) => {
-                try { controller.enqueue(encoder.encode(`data: ${JSON.stringify(evt)}\n\n`)); } catch (e) { /* closed */ }
+                try { controller.enqueue(encoder.encode(`data: ${JSON.stringify(evt)}\n\n`)); } catch { /* closed */ }
             };
 
             try {
-                send({ type: 'status', message: 'Gathering your data...' });
+                send({ type: 'meta', data: briefingMeta });
+                send({ type: 'status', message: 'Gathering emails, calendar, tickets, goals...' });
 
-                // Gather all sources
                 const sources = await gatherAllData();
                 send({ type: 'sources', data: sources });
 
-                send({ type: 'status', message: 'Crafting your briefing...' });
+                send({ type: 'status', message: 'Fetching Slack messages...' });
+                // Slack is already gathered in gatherAllData(), status update only
 
-                // Build prompt
-                const dataBlock = buildPrompt(sources);
-                const userPrompt = `Here is today's data for the morning briefing. Deliver it as a spoken briefing:\n\n${dataBlock}`;
+                send({ type: 'status', message: 'Generating briefing...' });
 
-                // Stream via Bedrock Sonnet (preferred) or Ollama fallback
+                const dataBlock = buildPrompt(sources, briefingMeta);
+                const userPrompt = `Generate the ${briefingMeta.label} for today using the data below. Follow all formatting rules exactly.\n\n${dataBlock}`;
+
                 let fullText = '';
                 const bedrockClient = require('../../../services/bedrock-client');
 
                 if (bedrockClient.isAvailable()) {
-                    console.log('[MorningBriefing] Using Bedrock Sonnet');
                     await bedrockClient.streamGenerate(userPrompt, (chunk) => {
                         fullText += chunk;
                         send({ type: 'chunk', text: chunk });
                     }, {
                         system: SYSTEM_PROMPT,
-                        maxTokens: 1024,
-                        temperature: 0.7,
+                        maxTokens: 3000,
+                        temperature: 0.1, // Low temperature — data formatting, not creative writing
                     });
                 } else {
-                    console.log('[MorningBriefing] Bedrock unavailable, using Ollama');
                     const ollamaClient = require('../../../services/ollama-client');
                     const response = await fetch('http://127.0.0.1:11434/api/generate', {
                         method: 'POST',
@@ -462,7 +644,7 @@ async function streamLiveBriefing() {
                             prompt: userPrompt,
                             stream: true,
                             think: false,
-                            options: { temperature: 0.7 },
+                            options: { temperature: 0.1 },
                         }),
                     });
                     const reader = response.body.getReader();
@@ -478,18 +660,12 @@ async function streamLiveBriefing() {
                                     fullText += json.response;
                                     send({ type: 'chunk', text: json.response });
                                 }
-                            } catch (e) { /* skip */ }
+                            } catch { /* skip */ }
                         }
                     }
                 }
 
-                // Cache the result
-                writeCache({
-                    cachedAt: new Date().toISOString(),
-                    sources,
-                    briefing: fullText,
-                });
-
+                writeCache({ cachedAt: new Date().toISOString(), meta: briefingMeta, sources, briefing: fullText });
                 send({ type: 'done', cached: false });
             } catch (error) {
                 send({ type: 'error', message: error.message });
