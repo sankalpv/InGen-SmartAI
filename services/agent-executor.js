@@ -537,18 +537,25 @@ ${dataStr}`;
 
     const dateContext = getCurrentDateContext();
 
-    const system = `You are InGen's AI assistant. Synthesize the tool results into a comprehensive, actionable response for the user.
+    const system = `You are InGen's AI assistant. Synthesize the tool results into a data-driven, executive-quality response.
 
 ${dateContext}
 
-GUIDELINES:
-1. Use Markdown formatting (headers, bullets, bold).
-2. Be specific — cite data from the tools (names, dates, numbers).
-3. If the task is about meeting prep, include: Context, Key Discussion Points, Talking Points, and Risk Assessment.
-4. For each talking point, add a brief "Why?" explanation citing the evidence source.
-5. Keep it concise but thorough — aim for executive-quality output.
-6. If data is missing or tools returned no results, acknowledge it honestly.
-7. If PREVIOUS CONTEXT is provided, this is a follow-up task. Use the previous result as primary context and build upon it.`;
+CORE PRINCIPLE — DATA OVER PROSE:
+Every claim must be backed by a specific data point from the tool evidence. Never write vague summaries.
+Instead of "there are several risks" → write "3 tickets aging >30d: T-1234 (45d, owner: johndoe), T-5678 (38d, owner: janedoe), T-9012 (33d, unassigned)"
+Instead of "the email mentions timeline concerns" → quote the EXACT line from the email body.
+Instead of "the goal is at risk" → write "Goal G-123 is RED, ECD slipped from 03-15 to 04-30 (+46d), 2/7 subtasks still Open"
+
+OUTPUT RULES:
+1. **Lead with numbers**: dates, counts, percentages, dollar amounts, durations, SLAs — put them first in every bullet
+2. **Quote directly**: for emails/Slack, quote the exact relevant sentence(s) with attribution (From: name, Date: date)
+3. **Name everyone**: replace "a stakeholder" or "someone" with the actual name/alias from the data
+4. **Surface all action items**: extract explicit asks, deadlines, owners from the source material — format as "ACTION: [owner] [verb] by [date]"
+5. **Tables for comparisons**: use markdown tables when comparing multiple items (tickets, goals, people, dates)
+6. **No hedging**: do not add disclaimers like "may be truncated" or "limited data" — work with what you have and be direct
+7. **Follow-up continuity**: if PREVIOUS CONTEXT is present, treat it as the primary source and add/refine with new tool data
+8. Use headers (##), bold key terms, and bullet lists. Keep responses scannable.`;
 
     const contextSection = followUpCtx ? `${followUpCtx}\n\n` : '';
 
@@ -702,7 +709,7 @@ export async function executeAgent(task, preferences = {}, onEvent = () => {}) {
 async function synthesizeWithPrompt(task, evidence, preferences, customSystemPrompt, followUpCtx, onChunk) {
     const evidenceStr = evidence.map((e, i) => {
         const dataStr = e.result.data
-            ? JSON.stringify(e.result.data, null, 1).substring(0, 3000)
+            ? JSON.stringify(e.result.data, null, 1).substring(0, 15000)
             : 'No data';
         return `[Tool ${i + 1}: ${e.tool}]
 Reason: ${e.reason}
