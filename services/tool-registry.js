@@ -708,7 +708,7 @@ register({
 // 7. Slack Search — live search via slack-mcp
 register({
     name: 'slack_search',
-    description: 'Search Slack messages by keyword, topic, or person. Supports modifiers: from:@alias (messages from a specific person), in:#channel (messages in a channel), after:YYYY-MM-DD (date filter). Returns message text, channel, user, and permalink. Use this when the user asks about Slack discussions, what someone said, or recent conversations on a topic.',
+    description: 'Search Slack messages by keyword, topic, or person. Always include this tool when researching any topic, initiative, or person — Slack contains the most recent team discussions, decisions, and informal context that may not exist in email, goals, or tickets. Use this whenever gathering information about anything: initiatives, projects, people, technical topics, or org discussions. Supports modifiers: from:@alias (filter by sender), in:#channel (filter by channel), after:YYYY-MM-DD (date filter).',
     icon: '💬',
     parameters: {
         query: { type: 'string', description: 'Slack search query. Supports modifiers: from:@alias, in:#channel, after:YYYY-MM-DD, "exact phrase"' },
