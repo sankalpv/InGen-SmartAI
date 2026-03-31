@@ -9,6 +9,10 @@ import {
     Clock,
     Sparkles,
     HelpCircle,
+    Send,
+    Mail,
+    MessageSquare,
+    FileText,
 } from 'lucide-react';
 
 function formatTime(dateStr) {
@@ -37,27 +41,58 @@ export default function MeetingCard({ meeting }) {
         ? { context: meeting.aiContext, questions: meeting.aiQuestions || [] }
         : null;
     const [brief, setBrief] = useState(initialBrief);
-
+    const [prepContext, setPrepContext] = useState(null); // richer context from meeting-prep
+    const [slackSent, setSlackSent] = useState(false);
+    const [slackSending, setSlackSending] = useState(false);
     const [loading, setLoading] = useState(false);
 
     const handleGenerateBrief = async (e) => {
         e.stopPropagation();
         setLoading(true);
         try {
-            const attendeesStr = meeting.attendees.map(a => a.email).join(',');
-            const params = new URLSearchParams({
-                title: meeting.title,
-                description: meeting.description || '',
-                attendees: attendeesStr,
-                startTime: meeting.startTime || '',
-            });
-            const res = await fetch(`/api/meeting-brief?${params}`);
+            // Use the richer meeting-prep API first (Slack + emails + tickets)
+            const params = new URLSearchParams({ preview: 'true' });
+            if (meeting.id) params.set('eventId', meeting.id);
+            else params.set('title', meeting.title);
+            const res = await fetch(`/api/meeting-prep?${params}`);
             const data = await res.json();
-            if (data.brief) setBrief(data.brief);
+            if (data.brief) {
+                // Store as rich object so we can show source chips
+                setBrief({ context: data.brief, questions: [] });
+                setPrepContext(data.context || null);
+            } else if (data.error) {
+                // Fallback to old meeting-brief endpoint if meeting not in local calendar
+                const attendeesStr = (meeting.attendees || []).map(a => a.email).join(',');
+                const fallbackParams = new URLSearchParams({
+                    title: meeting.title,
+                    description: meeting.description || '',
+                    attendees: attendeesStr,
+                    startTime: meeting.startTime || '',
+                });
+                const res2 = await fetch(`/api/meeting-brief?${fallbackParams}`);
+                const data2 = await res2.json();
+                if (data2.brief) setBrief(data2.brief);
+            }
         } catch (err) {
             console.error(err);
         } finally {
             setLoading(false);
+        }
+    };
+
+    const handleSendToSlack = async (e) => {
+        e.stopPropagation();
+        setSlackSending(true);
+        try {
+            const params = new URLSearchParams({ send: 'true' });
+            if (meeting.id) params.set('eventId', meeting.id);
+            else params.set('title', meeting.title);
+            await fetch(`/api/meeting-prep?${params}`);
+            setSlackSent(true);
+        } catch (err) {
+            console.error(err);
+        } finally {
+            setSlackSending(false);
         }
     };
 
@@ -123,21 +158,81 @@ export default function MeetingCard({ meeting }) {
 
                         {brief ? (
                             <div>
-                                {/* Context section */}
+                                {/* AI brief prose */}
                                 {(typeof brief === 'object' ? brief.context : brief) && (
-                                    <div style={{ marginBottom: '12px' }}>
-                                        <div style={{ fontSize: '11px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-muted)', marginBottom: '6px' }}>
-                                            Context
-                                        </div>
-                                        <div className="meeting-context-text" style={{ whiteSpace: 'pre-line' }}>
-                                            {typeof brief === 'object' ? brief.context : brief}
-                                        </div>
+                                    <div className="meeting-context-text" style={{ whiteSpace: 'pre-line', marginBottom: '12px' }}>
+                                        {typeof brief === 'object' ? brief.context : brief}
                                     </div>
                                 )}
 
-                                {/* Questions / Action Items */}
+                                {/* Source chips (email / Slack / Quip / ticket counts) */}
+                                {prepContext && (
+                                    <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap', fontSize: '12px', opacity: 0.65, marginBottom: '12px' }}>
+                                        {prepContext.emailCount > 0 && (
+                                            <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                                <Mail size={11} /> {prepContext.emailCount} email{prepContext.emailCount !== 1 ? 's' : ''}
+                                            </span>
+                                        )}
+                                        {prepContext.slackCount > 0 && (
+                                            <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                                <MessageSquare size={11} /> {prepContext.slackCount} Slack
+                                            </span>
+                                        )}
+                                        {prepContext.quipCount > 0 && (
+                                            <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                                <FileText size={11} /> {prepContext.quipCount} Quip
+                                            </span>
+                                        )}
+                                        {prepContext.ticketCount > 0 && (
+                                            <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                                <HelpCircle size={11} /> {prepContext.ticketCount} ticket{prepContext.ticketCount !== 1 ? 's' : ''}
+                                            </span>
+                                        )}
+                                    </div>
+                                )}
+
+                                {/* Send to Slack + Refresh buttons */}
+                                <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                                    <button
+                                        onClick={handleSendToSlack}
+                                        disabled={slackSending || slackSent}
+                                        style={{
+                                            background: slackSent ? 'rgba(34,197,94,0.1)' : 'var(--accent-purple-glow)',
+                                            border: `1px solid ${slackSent ? 'rgba(34,197,94,0.5)' : 'var(--accent-purple)'}`,
+                                            color: slackSent ? 'rgb(34,197,94)' : 'var(--accent-purple)',
+                                            padding: '6px 14px',
+                                            borderRadius: 'var(--radius-md)',
+                                            cursor: slackSending || slackSent ? 'default' : 'pointer',
+                                            fontSize: '0.8rem',
+                                            fontWeight: '600',
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            gap: '6px',
+                                        }}
+                                    >
+                                        <Send size={12} />
+                                        {slackSent ? 'Sent to Slack ✓' : slackSending ? 'Sending…' : 'Send to Slack'}
+                                    </button>
+                                    <button
+                                        onClick={handleGenerateBrief}
+                                        disabled={loading}
+                                        style={{
+                                            background: 'transparent',
+                                            border: '1px solid var(--border)',
+                                            color: 'var(--text-muted)',
+                                            padding: '6px 12px',
+                                            borderRadius: 'var(--radius-md)',
+                                            cursor: loading ? 'wait' : 'pointer',
+                                            fontSize: '0.8rem',
+                                        }}
+                                    >
+                                        {loading ? 'Refreshing…' : 'Refresh Brief'}
+                                    </button>
+                                </div>
+
+                                {/* Questions / Action Items (legacy fallback) */}
                                 {typeof brief === 'object' && brief.questions?.length > 0 && (
-                                    <div>
+                                    <div style={{ marginTop: '12px' }}>
                                         <div style={{ fontSize: '11px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-muted)', marginBottom: '6px', display: 'flex', alignItems: 'center', gap: '4px' }}>
                                             <HelpCircle size={12} /> Questions &amp; Action Items
                                         </div>
