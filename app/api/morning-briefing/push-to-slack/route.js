@@ -46,15 +46,17 @@ function briefingToSlack(text, meta) {
         }
     }
 
-    const label = meta ? `${meta.emoji} *${meta.label}*` : '🌅 *Briefing*';
+    const INGEN_PREFIX = '🤖 <https://code.amazon.com/packages/InGen-SmartAI/trees/mainline|InGen>:';
+    const briefingLabel = meta ? `${meta.emoji} *${meta.label}*` : '🌅 *Briefing*';
     const dateStr = new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' });
+    const timeStr = new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
 
     return [
-        `${label} — ${dateStr}`,
+        `${INGEN_PREFIX} ${briefingLabel} — ${dateStr}`,
         '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━',
         ...slackLines,
         '',
-        `_Sent by InGen · ${new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}_`,
+        `_Sent at ${timeStr}_`,
     ].join('\n');
 }
 
