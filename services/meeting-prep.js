@@ -585,11 +585,11 @@ async function prepMeeting(options = {}) {
         const localStore = require('./local-store');
         const cal = localStore.getCalendar ? localStore.getCalendar() : { data: null };
         const all = cal?.data || [];
-        const targetDate = new Date(date);
         meetings = all
             .filter(e => {
-                const d = new Date(e.startTime || e.start?.dateTime || '');
-                return d.toDateString() === targetDate.toDateString();
+                // Use string prefix to avoid UTC timezone parsing issues
+                // e.g. new Date('2026-04-01') parses as UTC → Mar 31 in Pacific time
+                return (e.startTime || e.start?.dateTime || '').startsWith(date);
             })
             .filter(e => !shouldSkip(e));
     }
