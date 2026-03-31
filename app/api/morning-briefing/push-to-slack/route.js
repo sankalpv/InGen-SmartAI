@@ -77,20 +77,54 @@ export async function POST(req) {
         let dmChannelId;
         try {
             const meResult = await mcpClient.callTool('slack-mcp', 'lookup_user', { query: 'sankalpv' });
-            // Parse user ID from result
-            let userId;
-            if (meResult?.id) userId = meResult.id;
-            else if (meResult?.content?.[0]?.text) {
-                try { userId = JSON.parse(meResult.content[0].text)?.id; } catch { /* ignore */ }
+            console.log('[Briefing/Push] lookup_user raw:', JSON.stringify(meResult)?.slice(0, 300));
+
+            // Extract user ID — try multiple field shapes
+            function extractUserId(r) {
+                if (!r) return null;
+                // Direct fields
+                if (r.id) return r.id;
+                if (r.userId) return r.userId;
+                if (r.user_id) return r.user_id;
+                if (r.user?.id) return r.user.id;
+                // Envelope: content[0].text → JSON
+                const text = r.content?.[0]?.text || r.text || '';
+                if (text) {
+                    try {
+                        const p = JSON.parse(text);
+                        return p.id || p.userId || p.user_id || p.user?.id || null;
+                    } catch { /* ignore */ }
+                }
+                return null;
             }
-            if (!userId) throw new Error('Could not resolve user ID for sankalpv');
+
+            const userId = extractUserId(meResult);
+            if (!userId) throw new Error(`Could not resolve user ID for sankalpv. Raw: ${JSON.stringify(meResult)?.slice(0, 200)}`);
 
             const dmResult = await mcpClient.callTool('slack-mcp', 'open_dm_channel', { userIds: userId });
-            if (dmResult?.channel_id) dmChannelId = dmResult.channel_id;
-            else if (dmResult?.content?.[0]?.text) {
-                try { dmChannelId = JSON.parse(dmResult.content[0].text)?.channel_id; } catch { /* ignore */ }
+            console.log('[Briefing/Push] open_dm_channel raw:', JSON.stringify(dmResult)?.slice(0, 300));
+
+            // Extract channel ID — try multiple field shapes
+            function extractChannelId(r) {
+                if (!r) return null;
+                if (r.channel_id) return r.channel_id;
+                if (r.channelId) return r.channelId;
+                if (r.channel?.id) return r.channel.id;
+                if (r.channel && typeof r.channel === 'string') return r.channel;
+                if (r.id && r.id.startsWith('D')) return r.id; // DM channel IDs start with D
+                // Envelope
+                const text = r.content?.[0]?.text || r.text || '';
+                if (text) {
+                    try {
+                        const p = JSON.parse(text);
+                        return p.channel_id || p.channelId || p.channel?.id || (typeof p.channel === 'string' ? p.channel : null) || null;
+                    } catch { /* ignore */ }
+                }
+                return null;
             }
-            if (!dmChannelId) throw new Error('Could not open DM channel');
+
+            dmChannelId = extractChannelId(dmResult);
+            if (!dmChannelId) throw new Error(`Could not extract DM channel ID. Raw: ${JSON.stringify(dmResult)?.slice(0, 200)}`);
         } catch (e) {
             console.error('[Briefing/Push] DM open failed:', e.message);
             return NextResponse.json({ error: `Could not open Slack DM: ${e.message}` }, { status: 500 });
