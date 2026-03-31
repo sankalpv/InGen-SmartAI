@@ -92,10 +92,15 @@ export default function Sidebar() {
     // Default open — consistent between SSR and first client render (no hydration mismatch).
     // localStorage is applied after mount in useEffect.
     const defaultExpanded = Object.fromEntries(NAV_GROUPS.map(g => [g.id, true]));
+
+    // Use a sentinel so we know if we've restored from localStorage yet.
+    // This prevents the save-effect from overwriting localStorage with the
+    // default value before the restore-effect has applied the saved value.
+    const [hydrated, setHydrated] = useState(false);
     const [isOpen, setIsOpen] = useState(true);
     const [expandedSections, setExpandedSections] = useState(defaultExpanded);
 
-    // After hydration: restore persisted state
+    // After hydration: restore persisted state (runs once on mount)
     useEffect(() => {
         // Clean up legacy keys
         localStorage.removeItem('ingen-sidebar-collapsed');
@@ -111,19 +116,24 @@ export default function Sidebar() {
             if (raw) {
                 const parsed = JSON.parse(raw);
                 // Merge: new groups default to expanded
-                setExpandedSections({ ...defaultExpanded, ...parsed });
+                setExpandedSections(prev => ({ ...prev, ...parsed }));
             }
         } catch {}
+
+        setHydrated(true);
     }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-    // Persist open/closed state + update CSS variable
+    // Persist open/closed state + update CSS variable.
+    // Guard with `hydrated` so we don't overwrite the stored value with the
+    // default `true` before the restore effect has read it.
     useEffect(() => {
-        localStorage.setItem('ingen-sidebar-open', String(isOpen));
         document.documentElement.style.setProperty(
             '--sidebar-width',
             isOpen ? '280px' : '72px'
         );
-    }, [isOpen]);
+        if (!hydrated) return; // don't write until we've read
+        localStorage.setItem('ingen-sidebar-open', String(isOpen));
+    }, [isOpen, hydrated]);
 
     // Settings
     useEffect(() => {
