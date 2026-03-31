@@ -229,53 +229,10 @@ register({
     },
 });
 
-// 2a. Read Inbox Emails — fetch recent emails with FULL body via Outlook MCP
-// This is the primary tool for "summarize this email" requests
-register({
-    name: 'read_inbox_emails',
-    description: 'Fetch recent emails from Outlook inbox with FULL body content. Use this as the PRIMARY tool when the user asks to summarize, explain, or analyze a specific email. Returns complete email body — not just a snippet. Always prefer this over email_search for summarization requests.',
-    icon: '📨',
-    parameters: {
-        count: { type: 'number', description: 'Number of recent emails to fetch (default: 10)' },
-        query: { type: 'string', description: 'Optional keyword to filter by subject (leave empty for most recent)' },
-    },
-    async execute({ count = 10, query = '' }) {
-        const outlookMcp = require('./outlook-mcp');
-        try {
-            const emails = await outlookMcp.fetchOutlookEmails(Math.min(count, 20));
-            let filtered = emails;
-            if (query) {
-                const q = query.toLowerCase();
-                filtered = emails.filter(e =>
-                    (e.subject || '').toLowerCase().includes(q) ||
-                    (e.body || '').toLowerCase().includes(q) ||
-                    (e.snippet || '').toLowerCase().includes(q)
-                );
-            }
-            const result = filtered.slice(0, count).map(e => ({
-                id: e.id,
-                subject: e.subject,
-                from: e.from?.name || e.from?.email || 'Unknown',
-                date: e.date,
-                body: e.body || e.snippet || '',
-                snippet: (e.snippet || e.body || '').substring(0, 200),
-                isUnread: e.isUnread,
-                folder: e.folder,
-            }));
-            const summary = result.length > 0
-                ? `Fetched ${result.length} email(s) from inbox with full body content. Most recent: "${result[0]?.subject}" from ${result[0]?.from}.`
-                : 'No emails found in inbox.';
-            return { data: result, summary, count: result.length };
-        } catch (e) {
-            return { data: [], summary: `Inbox fetch failed: ${e.message}`, count: 0, _error: true };
-        }
-    },
-});
-
-// 2b. Email Search (hybrid: RAG + keyword, centralized via email-search.js)
+// 2. Email Search — hybrid search (RAG + keyword) then hydrates full body via Outlook MCP email_read
 register({
     name: 'email_search',
-    description: 'Search recent emails by keyword, sender name, or subject. Uses semantic RAG search + keyword matching for best results. Returns matching email threads with sender, subject, date, and snippet.',
+    description: 'Search recent emails by keyword, sender name, or subject. Uses semantic RAG search + keyword matching, then fetches FULL email body via Outlook MCP email_read. Returns complete email content for summarization and analysis.',
     icon: '📧',
     parameters: {
         query: { type: 'string', description: 'Search keyword (subject, sender, content)' },
@@ -283,30 +240,36 @@ register({
     },
     async execute({ query, limit = 10 }) {
         const emailSearch = require('./email-search');
+        const outlookMcp = require('./outlook-mcp');
         try {
             const results = await emailSearch.hybridSearch(query, limit);
-            // Enrich results: for keyword-only hits that have no body from RAG,
-            // pull full body from the raw emails cache
-            const fs = require('fs');
-            const path = require('path');
-            const EMAILS_PATH = path.join(process.cwd(), 'data', 'emails.json');
-            let emailsById = null;
-            for (const r of results) {
-                if (!r.body && r.id) {
-                    if (!emailsById) {
-                        try {
-                            const raw = JSON.parse(fs.readFileSync(EMAILS_PATH, 'utf8'));
-                            emailsById = new Map((raw.data || []).map(e => [e.id, e]));
-                        } catch (e) { emailsById = new Map(); }
+
+            // Hydrate full body for each match via Outlook MCP email_read
+            // This is the same as what Quick Suite does — read the complete email
+            const hydrated = await Promise.all(results.map(async (r) => {
+                // If body already exists and is substantial (>500 chars), skip the MCP call
+                if (r.body && r.body.length > 500) return r;
+
+                if (r.id) {
+                    try {
+                        const thread = await outlookMcp.fetchEmailThread(r.id);
+                        if (thread && thread.length > 0) {
+                            const fullMsg = thread[0];
+                            r.body = fullMsg.body || fullMsg.snippet || r.body || '';
+                            r.from = fullMsg.from?.name || fullMsg.from?.email || r.from;
+                            r.date = fullMsg.date || r.date;
+                        }
+                    } catch (e) {
+                        logger.warn(`email_read hydration failed for ${r.id}: ${e.message}`);
                     }
-                    const full = emailsById.get(r.id);
-                    if (full) r.body = full.body || full.snippet || '';
                 }
-            }
-            const summary = results.length === 0
+                return r;
+            }));
+
+            const summary = hydrated.length === 0
                 ? `No emails found matching "${query}".`
-                : `Found ${results.length} email(s) matching "${query}" (RAG + keyword hybrid).`;
-            return { data: results, summary, count: results.length };
+                : `Found ${hydrated.length} email(s) matching "${query}" with full body content.`;
+            return { data: hydrated, summary, count: hydrated.length };
         } catch (e) {
             return { data: [], summary: `Email search failed: ${e.message}`, count: 0 };
         }
