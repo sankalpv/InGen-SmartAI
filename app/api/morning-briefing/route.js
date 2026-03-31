@@ -150,7 +150,7 @@ async function fetchSlackData() {
                 ? new Date(tsKey).getTime()
                 : parseFloat(tsKey) * 1000;
             allMessages.push({
-                user: m.user?.display_name || m.user?.real_name || m.username || m.user || 'unknown',
+                user: m.user?.display_name || m.user?.real_name || m.user?.profile?.display_name || m.user?.profile?.real_name || m.user?.name || m.username || (typeof m.user === 'string' ? m.user : null) || 'unknown',
                 channel: channelName,
                 text: (m.text || '').trim(), // no clipping — full message text
                 ts: tsKey,
@@ -214,7 +214,12 @@ async function fetchSlackData() {
                 const data = parseMcpResult(r);
                 const msgs = extractMessages(data);
                 console.log(`[Briefing/Slack] DM ${dm.id}: ${msgs.length} msgs`);
-                const dmName = dm.topic || dm.name || dm.id;
+                // For is_im DMs, dm.name is just the channel ID — use the other participant's display name instead
+                const dmUser = dm.user;
+                const dmName = (typeof dmUser === 'object'
+                    ? (dmUser?.display_name || dmUser?.real_name || dmUser?.profile?.display_name || dmUser?.profile?.real_name || dmUser?.name)
+                    : (typeof dmUser === 'string' ? dmUser : null))
+                    || dm.topic || dm.name || dm.id;
                 addMessages(msgs, dmName, true);
             } catch (e) { console.error(`[Briefing/Slack] DM error:`, e.message); }
         }
