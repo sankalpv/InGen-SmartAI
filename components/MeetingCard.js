@@ -87,8 +87,9 @@ export default function MeetingCard({ meeting }) {
         setSlackSending(true);
         try {
             const params = new URLSearchParams({ send: 'true' });
+            if (meeting.title) params.set('title', meeting.title);
+            if (meeting.startTime) params.set('date', meeting.startTime.slice(0, 10));
             if (meeting.id) params.set('eventId', meeting.id);
-            else params.set('title', meeting.title);
             await fetch(`/api/meeting-prep?${params}`);
             setSlackSent(true);
         } catch (err) {

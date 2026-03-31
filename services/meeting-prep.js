@@ -25,7 +25,7 @@ const PREP_WINDOW_EARLY_MS = 13 * 60 * 1000; // 13 min before
 const PREP_WINDOW_LATE_MS  = 17 * 60 * 1000; // 17 min before
 
 // Meeting titles to skip (personal/blocked time)
-const SKIP_TITLE_PATTERNS = /\b(focus time|lunch|ooo|out of office|hold|block|commute|personal|1:1 prep|no meeting)\b/i;
+const SKIP_TITLE_PATTERNS = /\b(focus time|lunch|ooo|out of office|hold|block|commute|transit|in transit|personal|1:1 prep|no meeting|no meeting week|travel|drive time|break)\b/i;
 
 // Email senders that are high-value meeting context (not FYI noise)
 const MEETING_SUMMARY_SENDERS = [
