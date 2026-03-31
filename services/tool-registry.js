@@ -229,7 +229,50 @@ register({
     },
 });
 
-// 2. Email Search (hybrid: RAG + keyword, centralized via email-search.js)
+// 2a. Read Inbox Emails — fetch recent emails with FULL body via Outlook MCP
+// This is the primary tool for "summarize this email" requests
+register({
+    name: 'read_inbox_emails',
+    description: 'Fetch recent emails from Outlook inbox with FULL body content. Use this as the PRIMARY tool when the user asks to summarize, explain, or analyze a specific email. Returns complete email body — not just a snippet. Always prefer this over email_search for summarization requests.',
+    icon: '📨',
+    parameters: {
+        count: { type: 'number', description: 'Number of recent emails to fetch (default: 10)' },
+        query: { type: 'string', description: 'Optional keyword to filter by subject (leave empty for most recent)' },
+    },
+    async execute({ count = 10, query = '' }) {
+        const outlookMcp = require('./outlook-mcp');
+        try {
+            const emails = await outlookMcp.fetchOutlookEmails(Math.min(count, 20));
+            let filtered = emails;
+            if (query) {
+                const q = query.toLowerCase();
+                filtered = emails.filter(e =>
+                    (e.subject || '').toLowerCase().includes(q) ||
+                    (e.body || '').toLowerCase().includes(q) ||
+                    (e.snippet || '').toLowerCase().includes(q)
+                );
+            }
+            const result = filtered.slice(0, count).map(e => ({
+                id: e.id,
+                subject: e.subject,
+                from: e.from?.name || e.from?.email || 'Unknown',
+                date: e.date,
+                body: e.body || e.snippet || '',
+                snippet: (e.snippet || e.body || '').substring(0, 200),
+                isUnread: e.isUnread,
+                folder: e.folder,
+            }));
+            const summary = result.length > 0
+                ? `Fetched ${result.length} email(s) from inbox with full body content. Most recent: "${result[0]?.subject}" from ${result[0]?.from}.`
+                : 'No emails found in inbox.';
+            return { data: result, summary, count: result.length };
+        } catch (e) {
+            return { data: [], summary: `Inbox fetch failed: ${e.message}`, count: 0, _error: true };
+        }
+    },
+});
+
+// 2b. Email Search (hybrid: RAG + keyword, centralized via email-search.js)
 register({
     name: 'email_search',
     description: 'Search recent emails by keyword, sender name, or subject. Uses semantic RAG search + keyword matching for best results. Returns matching email threads with sender, subject, date, and snippet.',

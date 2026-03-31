@@ -202,10 +202,11 @@ RULES:
 5. Rate your confidence (0.0-1.0) in understanding what the user wants.
 
 TOOL SELECTION GUIDANCE (use these combinations for common tasks):
+- Summarize/explain/analyze an email → read_inbox_emails (PRIMARY, use this first — fetches full body) + synthesize
 - Meeting/Interview prep → calendar_search + email_search + people_lookup + synthesize (ALWAYS search emails for context!)
 - Weekly summary → email_search + calendar_search + goal_status + synthesize
-- Investigate topic → email_search + knowledge_search + people_lookup + synthesize
-- Draft reply → email_search + people_lookup + synthesize
+- Investigate topic → read_inbox_emails + email_search + knowledge_search + people_lookup + synthesize
+- Draft reply → read_inbox_emails + people_lookup + synthesize
 - Goal deep-dive → goal_status + email_search + synthesize
 - Team check-in → people_lookup + email_search + ticket_search + synthesize
 
