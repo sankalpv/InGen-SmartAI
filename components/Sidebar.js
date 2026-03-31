@@ -6,7 +6,6 @@ import Link from 'next/link';
 import {
     LayoutDashboard,
     Settings,
-    Zap,
     Sparkles,
     TrendingUp,
     BarChart2,
@@ -19,184 +18,274 @@ import {
     FileBarChart,
     Sun,
     Moon,
-    PanelLeftClose,
-    PanelLeftOpen,
     BrainCircuit,
     Activity,
     Layers,
+    ChevronDown,
+    ChevronRight,
+    PanelLeftClose,
+    PanelLeftOpen,
 } from 'lucide-react';
 import { useTheme } from '@/components/ThemeProvider';
+
+// ─── Nav structure ────────────────────────────────────────────────────────────
+
+const PINNED_ITEMS = [
+    { href: '/', label: 'Dashboard', icon: LayoutDashboard, requiresOutlook: true },
+    { href: '/agent', label: 'Agent Workspace', icon: BrainCircuit },
+];
+
+const NAV_GROUPS = [
+    {
+        id: 'my-day',
+        label: 'My Day',
+        emoji: '☀️',
+        items: [
+            { href: '/week-ahead', label: 'Week Ahead', icon: CalendarDays, requiresOutlook: true },
+            { href: '/leadership', label: 'Leadership', icon: TrendingUp, requiresOutlook: true },
+        ],
+    },
+    {
+        id: 'team-org',
+        label: 'Team & Org',
+        emoji: '👥',
+        items: [
+            { href: '/org-pulse', label: 'Org Pulse', icon: Activity },
+            { href: '/my-team', label: 'Team Health', icon: Network },
+            { href: '/sde3-focus', label: 'SDE3 Focus', icon: Users },
+        ],
+    },
+    {
+        id: 'engineering',
+        label: 'Engineering',
+        emoji: '⚙️',
+        items: [
+            { href: '/sprints', label: 'Sprint Boards', icon: Layers },
+            { href: '/eng-metrics', label: 'Code Metrics', icon: Code2 },
+            { href: '/ticket-health', label: 'Ticket Health', icon: ClipboardList },
+        ],
+    },
+    {
+        id: 'reporting',
+        label: 'Reporting',
+        emoji: '📊',
+        items: [
+            { href: '/wbr-prep', label: 'WBR Prep', icon: FileText },
+            { href: '/cpp-wbr', label: 'CPP WBR', icon: FileBarChart },
+            { href: '/insights/analytics', label: 'Insights', icon: BarChart2, requiresOutlook: true },
+        ],
+    },
+];
+
+const BOTTOM_ITEMS = [
+    { href: '/settings', label: 'Settings', icon: Settings },
+];
+
+// ─── Component ────────────────────────────────────────────────────────────────
+// Styles live in app/globals.css under ".ingen-sidebar" etc.
 
 export default function Sidebar() {
     const pathname = usePathname();
     const { theme, toggleTheme } = useTheme();
-    const [collapsed, setCollapsed] = useState(false);
     const [outlookEnabled, setOutlookEnabled] = useState(true);
 
-    // Load settings (outlookIntegration flag)
+    // Default open — consistent between SSR and first client render (no hydration mismatch).
+    // localStorage is applied after mount in useEffect.
+    const defaultExpanded = Object.fromEntries(NAV_GROUPS.map(g => [g.id, true]));
+    const [isOpen, setIsOpen] = useState(true);
+    const [expandedSections, setExpandedSections] = useState(defaultExpanded);
+
+    // After hydration: restore persisted state
+    useEffect(() => {
+        // Clean up legacy keys
+        localStorage.removeItem('ingen-sidebar-collapsed');
+        localStorage.removeItem('ingen-sidebar-pin');
+
+        const stored = localStorage.getItem('ingen-sidebar-open');
+        if (stored !== null) {
+            setIsOpen(stored !== 'false');
+        }
+
+        try {
+            const raw = localStorage.getItem('ingen-sidebar-sections');
+            if (raw) {
+                const parsed = JSON.parse(raw);
+                // Merge: new groups default to expanded
+                setExpandedSections({ ...defaultExpanded, ...parsed });
+            }
+        } catch {}
+    }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+    // Persist open/closed state + update CSS variable
+    useEffect(() => {
+        localStorage.setItem('ingen-sidebar-open', String(isOpen));
+        document.documentElement.style.setProperty(
+            '--sidebar-width',
+            isOpen ? '280px' : '72px'
+        );
+    }, [isOpen]);
+
+    // Settings
     useEffect(() => {
         fetch('/api/settings/config').then(r => r.ok ? r.json() : {}).then(data => {
-            const settings = data.settings || data;
-            // In hosted mode (AgentSpaces), aws-outlook-mcp provides email/calendar —
-            // show all pages regardless of outlookIntegration flag.
-            const isHosted = settings.deploymentMode === 'hosted';
-            if (!isHosted && settings.outlookIntegration === false) setOutlookEnabled(false);
+            const s = data.settings || data;
+            if (s.deploymentMode !== 'hosted' && s.outlookIntegration === false) setOutlookEnabled(false);
         }).catch(() => {});
     }, []);
 
-    // Persist collapsed state in localStorage
-    useEffect(() => {
-        const stored = localStorage.getItem('ingen-sidebar-collapsed');
-        if (stored === 'true') setCollapsed(true);
-    }, []);
+    const toggleOpen = (e) => {
+        e.stopPropagation();
+        setIsOpen(prev => !prev);
+    };
 
-    useEffect(() => {
-        localStorage.setItem('ingen-sidebar-collapsed', String(collapsed));
-        // Update CSS variable for main content margin
-        document.documentElement.style.setProperty('--sidebar-width', collapsed ? '72px' : '280px');
-    }, [collapsed]);
+    const toggleSection = (id) => {
+        setExpandedSections(prev => {
+            const next = { ...prev, [id]: !prev[id] };
+            localStorage.setItem('ingen-sidebar-sections', JSON.stringify(next));
+            return next;
+        });
+    };
 
-    // Pages that require Outlook integration (email + calendar sync)
-    const allNavItems = [
-        { href: '/', label: 'Dashboard', icon: LayoutDashboard, requiresOutlook: true },
-        { href: '/agent', label: 'Agent Workspace', icon: BrainCircuit },
-        { href: '/week-ahead', label: 'Week Ahead', icon: CalendarDays, requiresOutlook: true },
-        { href: '/leadership', label: 'Leadership', icon: TrendingUp, requiresOutlook: true },
-        { href: '/org-pulse', label: 'Org Pulse', icon: Activity },
-        { href: '/sprints', label: 'Sprint Boards', icon: Layers },
-        { href: '/sde3-focus', label: 'SDE3 Focus', icon: Users },
-        { href: '/my-team', label: 'Team Health', icon: Network },
-        { href: '/eng-metrics', label: 'Code Metrics', icon: Code2 },
-        { href: '/ticket-health', label: 'Ticket Health', icon: ClipboardList },
-        { href: '/wbr-prep', label: 'WBR Prep', icon: FileText },
-        { href: '/cpp-wbr', label: 'CPP WBR', icon: FileBarChart },
-        { href: '/insights/analytics', label: 'Insights', icon: BarChart2, requiresOutlook: true },
-        { href: '/settings', label: 'Settings', icon: Settings },
-    ];
+    const filterItems = (items) =>
+        outlookEnabled ? items : items.filter(i => !i.requiresOutlook);
 
-    // Filter out Outlook-dependent pages when outlookIntegration is disabled
-    const navItems = outlookEnabled
-        ? allNavItems
-        : allNavItems.filter(item => !item.requiresOutlook);
+    // data-pin kept for CSS compatibility; map isOpen to the values CSS expects
+    const dataPinValue = isOpen ? 'pinned-open' : 'pinned-closed';
 
-    const connections = [
-        { name: 'Outlook', status: 'connected', emoji: '📬' },
-        { name: 'Calendar', status: 'connected', emoji: '📅' },
-        { name: 'AI Engine (Ollama)', status: 'connected', emoji: '🧠' },
-        { name: 'Slack', status: 'mock', emoji: '💬' },
-    ];
-
-    const sidebarWidth = collapsed ? '72px' : '280px';
+    const NavItem = ({ href, label, icon: Icon, isActive, indented }) => (
+        <Link
+            href={href}
+            className={`ingen-nav-item${isActive ? ' active' : ''}`}
+            title={label}
+            style={{ paddingLeft: indented ? '14px' : '11px', fontSize: indented ? '0.95rem' : '1rem' }}
+        >
+            <Icon size={indented ? 17 : 19} style={{ flexShrink: 0, minWidth: indented ? 17 : 19 }} />
+            <span className="ingen-sidebar-label">{label}</span>
+        </Link>
+    );
 
     return (
-        <aside className="sidebar" style={{ width: sidebarWidth, padding: collapsed ? '24px 12px' : '32px 24px', transition: 'width 0.25s ease, padding 0.25s ease' }}>
-            {/* Logo */}
-            <div className="sidebar-logo" style={{ gap: collapsed ? '0' : '16px', marginBottom: collapsed ? '24px' : '48px', justifyContent: collapsed ? 'center' : 'flex-start', paddingLeft: collapsed ? '0' : '12px' }}>
-                <div className="sidebar-logo-icon" style={{ flexShrink: 0 }}>
-                    <Sparkles size={collapsed ? 20 : 24} color="white" />
-                </div>
-                {!collapsed && (
-                    <div>
-                        <h1>InGen</h1>
-                        <span>Intelligent Agent</span>
+        <aside className="ingen-sidebar" data-pin={dataPinValue}>
+            {/* ── Logo row ── */}
+            <Link href="/" style={{ display: 'flex', alignItems: 'center', padding: '20px 16px 16px', minHeight: '60px', flexShrink: 0, textDecoration: 'none' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '12px', minWidth: 0, flex: 1 }}>
+                    <div style={{
+                        width: '34px', height: '34px', borderRadius: '10px', flexShrink: 0,
+                        background: 'linear-gradient(135deg, #3b82f6, #8b5cf6)',
+                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    }}>
+                        <Sparkles size={16} color="white" />
                     </div>
-                )}
+                    <div style={{
+                        overflow: 'hidden',
+                        whiteSpace: 'nowrap',
+                        opacity: isOpen ? 1 : 0,
+                        maxWidth: isOpen ? '200px' : '0px',
+                        transition: 'opacity 0.18s ease, max-width 0.22s ease',
+                        pointerEvents: isOpen ? 'auto' : 'none',
+                    }}>
+                        <div style={{ fontWeight: 700, fontSize: '1.1rem', color: 'var(--text-primary)', lineHeight: 1.2 }}>InGen</div>
+                        <div style={{ fontSize: '1rem', color: 'var(--text-tertiary)' }}>Intelligent Agent</div>
+                    </div>
+                </div>
+            </Link>
+
+            {/* ── Scrollable nav area ── */}
+            <div style={{ flex: 1, overflowY: 'auto', overflowX: 'hidden', padding: '0 10px', scrollbarWidth: 'none' }}>
+
+                {/* Pinned items */}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '2px', marginBottom: '6px' }}>
+                    {filterItems(PINNED_ITEMS).map(item => (
+                        <NavItem key={item.href} href={item.href} label={item.label} icon={item.icon} isActive={pathname === item.href} />
+                    ))}
+                </div>
+
+                {/* Divider */}
+                <div style={{ height: '1px', background: 'rgba(255,255,255,0.06)', margin: '4px 2px 8px' }} />
+
+                {/* Grouped sections */}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                    {NAV_GROUPS.map(group => {
+                        const items = filterItems(group.items);
+                        if (!items.length) return null;
+                        const isExpanded = !!expandedSections[group.id];
+                        const hasActive = items.some(i => i.href === pathname);
+                        return (
+                            <div key={group.id}>
+                                <button
+                                    className={`ingen-section-header${hasActive ? ' has-active' : ''}`}
+                                    onClick={() => toggleSection(group.id)}
+                                    title={group.label}
+                                >
+                                    <span style={{ flexShrink: 0, fontSize: '15px' }}>{group.emoji}</span>
+                                    <span className="ingen-sidebar-label" style={{ flex: 1, textAlign: 'left', fontSize: '0.95rem' }}>{group.label}</span>
+                                    <span className="ingen-sidebar-label" style={{ flexShrink: 0, opacity: 0.5, display: 'flex', alignItems: 'center' }}>
+                                        {isExpanded ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
+                                    </span>
+                                    {!isExpanded && (
+                                        <span className="ingen-sidebar-label" style={{
+                                            fontSize: '11px', background: hasActive ? 'rgba(139,92,246,0.15)' : 'rgba(255,255,255,0.06)',
+                                            color: hasActive ? '#a78bfa' : 'rgba(255,255,255,0.35)',
+                                            padding: '1px 5px', borderRadius: '4px', fontWeight: 600,
+                                            letterSpacing: 0, textTransform: 'none', flexShrink: 0,
+                                        }}>
+                                            {items.length}
+                                        </span>
+                                    )}
+                                </button>
+                                <div className={`ingen-section-body${isExpanded ? ' expanded' : ''}`} style={{ paddingLeft: '4px' }}>
+                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '1px', paddingBottom: '4px' }}>
+                                        {items.map(item => (
+                                            <NavItem key={item.href} href={item.href} label={item.label} icon={item.icon} isActive={pathname === item.href} indented />
+                                        ))}
+                                    </div>
+                                </div>
+                            </div>
+                        );
+                    })}
+                </div>
             </div>
 
-            {/* Nav */}
-            <nav className="sidebar-nav" style={{ flex: 1 }}>
-                {navItems.map((item) => {
-                    const Icon = item.icon;
-                    return (
-                        <Link
-                            key={item.href}
-                            href={item.href}
-                            className={`nav-item ${pathname === item.href ? 'active' : ''}`}
-                            style={{
-                                gap: collapsed ? '0' : '16px',
-                                justifyContent: collapsed ? 'center' : 'flex-start',
-                                padding: collapsed ? '12px' : '14px 20px',
-                            }}
-                            title={collapsed ? item.label : undefined}
-                        >
-                            <Icon size={18} className="nav-icon" />
-                            {!collapsed && item.label}
-                        </Link>
-                    );
-                })}
-            </nav>
+            {/* ── Bottom ── */}
+            <div style={{ padding: '8px 10px 16px', flexShrink: 0 }}>
+                <div style={{ height: '1px', background: 'rgba(255,255,255,0.06)', marginBottom: '8px' }} />
 
-            <div>
-                {/* Theme Toggle */}
+                {/* Collapse/Expand toggle — always visible, no ingen-sidebar-label class */}
+                <button
+                    onClick={toggleOpen}
+                    title={isOpen ? 'Collapse sidebar' : 'Expand sidebar'}
+                    style={{
+                        width: '100%', padding: '7px 11px', marginBottom: '2px',
+                        background: 'transparent', border: 'none', borderRadius: '8px',
+                        cursor: 'pointer', color: 'rgba(255,255,255,0.4)',
+                        display: 'flex', alignItems: 'center', gap: '10px',
+                        justifyContent: isOpen ? 'flex-start' : 'center',
+                        transition: 'color 0.15s',
+                    }}
+                    onMouseEnter={e => e.currentTarget.style.color = '#a78bfa'}
+                    onMouseLeave={e => e.currentTarget.style.color = 'rgba(255,255,255,0.4)'}
+                >
+                    {isOpen ? <PanelLeftClose size={16} style={{ flexShrink: 0 }} /> : <PanelLeftOpen size={16} style={{ flexShrink: 0 }} />}
+                    <span className="ingen-sidebar-label" style={{ fontSize: '0.875rem' }}>
+                        {isOpen ? 'Collapse' : ''}
+                    </span>
+                </button>
+
+                {BOTTOM_ITEMS.map(item => (
+                    <NavItem key={item.href} href={item.href} label={item.label} icon={item.icon} isActive={pathname === item.href} />
+                ))}
                 <button
                     onClick={toggleTheme}
-                    style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: collapsed ? '0' : '12px',
-                        justifyContent: collapsed ? 'center' : 'flex-start',
-                        width: '100%',
-                        padding: collapsed ? '10px' : '12px 20px',
-                        marginBottom: '12px',
-                        borderRadius: 'var(--radius-md)',
-                        background: 'rgba(139, 92, 246, 0.08)',
-                        border: '1px solid rgba(139, 92, 246, 0.15)',
-                        color: 'var(--text-secondary)',
-                        cursor: 'pointer',
-                        fontSize: '0.875rem',
-                        fontWeight: 500,
-                        fontFamily: 'inherit',
-                        transition: 'all 0.2s ease',
-                    }}
-                    title={collapsed ? (theme === 'dark' ? 'Light Mode' : 'Dark Mode') : undefined}
-                    onMouseEnter={(e) => {
-                        e.currentTarget.style.background = 'rgba(139, 92, 246, 0.15)';
-                        e.currentTarget.style.color = 'var(--text-primary)';
-                    }}
-                    onMouseLeave={(e) => {
-                        e.currentTarget.style.background = 'rgba(139, 92, 246, 0.08)';
-                        e.currentTarget.style.color = 'var(--text-secondary)';
-                    }}
+                    className="ingen-nav-item"
+                    title={theme === 'dark' ? 'Light Mode' : 'Dark Mode'}
+                    style={{ marginTop: '2px', background: 'rgba(139,92,246,0.07)', borderColor: 'rgba(139,92,246,0.12)' }}
                 >
-                    {theme === 'dark' ? <Sun size={16} /> : <Moon size={16} />}
-                    {!collapsed && (theme === 'dark' ? 'Light Mode' : 'Dark Mode')}
+                    {theme === 'dark'
+                        ? <Sun size={16} style={{ flexShrink: 0, minWidth: 16 }} />
+                        : <Moon size={16} style={{ flexShrink: 0, minWidth: 16 }} />
+                    }
+                    <span className="ingen-sidebar-label">{theme === 'dark' ? 'Light Mode' : 'Dark Mode'}</span>
                 </button>
-
-                {/* Collapse Toggle */}
-                <button
-                    onClick={() => setCollapsed(!collapsed)}
-                    style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: collapsed ? '0' : '12px',
-                        justifyContent: collapsed ? 'center' : 'flex-start',
-                        width: '100%',
-                        padding: collapsed ? '10px' : '12px 20px',
-                        marginBottom: '16px',
-                        borderRadius: 'var(--radius-md)',
-                        background: 'rgba(255, 255, 255, 0.03)',
-                        border: '1px solid rgba(255, 255, 255, 0.06)',
-                        color: 'var(--text-tertiary)',
-                        cursor: 'pointer',
-                        fontSize: '0.8rem',
-                        fontWeight: 500,
-                        fontFamily: 'inherit',
-                        transition: 'all 0.2s ease',
-                    }}
-                    title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-                    onMouseEnter={(e) => {
-                        e.currentTarget.style.background = 'rgba(255, 255, 255, 0.06)';
-                        e.currentTarget.style.color = 'var(--text-secondary)';
-                    }}
-                    onMouseLeave={(e) => {
-                        e.currentTarget.style.background = 'rgba(255, 255, 255, 0.03)';
-                        e.currentTarget.style.color = 'var(--text-tertiary)';
-                    }}
-                >
-                    {collapsed ? <PanelLeftOpen size={16} /> : <PanelLeftClose size={16} />}
-                    {!collapsed && 'Collapse'}
-                </button>
-
             </div>
         </aside>
     );
