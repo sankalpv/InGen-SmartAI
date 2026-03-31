@@ -130,12 +130,25 @@ async function fetchSlackData() {
 
     try {
         // 1. Get channels the user is a member of
+        // list_my_channels returns a section-based structure: { sections: [{channels:[...]}, ...] }
+        // Flatten all channels from all sections into a single array.
         const channelsResult = await mcpClient.callTool('slack-mcp', 'list_my_channels', {});
         const channelsData = parseMcpResult(channelsResult);
-        const channels = channelsData?.channels || channelsData || [];
+
+        let channels = [];
+        if (Array.isArray(channelsData)) {
+            channels = channelsData;
+        } else if (Array.isArray(channelsData?.channels)) {
+            channels = channelsData.channels;
+        } else if (Array.isArray(channelsData?.sections)) {
+            // Flatten section-based structure
+            for (const section of channelsData.sections) {
+                if (Array.isArray(section.channels)) channels.push(...section.channels);
+            }
+        }
 
         // Separate regular channels from DMs
-        const regularChannels = channels.filter(c => !c.is_im && !c.is_mpim && !c.is_archived).slice(0, 10);
+        const regularChannels = channels.filter(c => !c.is_im && !c.is_mpim && !c.is_archived).slice(0, 12);
         const dmChannels = channels.filter(c => c.is_im || c.is_mpim).slice(0, 10);
 
         // 2. Fetch recent messages from each regular channel
