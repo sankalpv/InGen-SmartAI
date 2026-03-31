@@ -125,8 +125,7 @@ function getMeetingsDueSoon() {
 // ─── Context gathering ───
 
 /**
- * Extract keywords from a meeting title for searching.
- * Strips common noise words, returns top 2-3 meaningful terms.
+ * Extract keywords from a meeting title for searching (fallback only).
  */
 function extractKeywords(title) {
     const stopWords = new Set([
@@ -141,15 +140,79 @@ function extractKeywords(title) {
 }
 
 /**
+ * Ask Claude to generate targeted Slack search queries and email keywords
+ * for the given meeting — much smarter than naive keyword extraction.
+ *
+ * Returns { slackQueries: string[], emailKeywords: string[] }
+ */
+async function generateSearchQueries(event) {
+    const title = event.title || event.subject || '';
+    const organizer = event.organizer?.name || event.organizer?.email || '';
+    const attendees = (event.attendees || [])
+        .map(a => a?.name || a?.email || a).filter(Boolean).slice(0, 8).join(', ');
+    const description = (event.description || '').slice(0, 300);
+
+    const prompt = `You are helping prepare for a meeting. Generate search queries to find relevant pre-meeting context in Slack and email.
+
+MEETING:
+Title: "${title}"
+Organizer: ${organizer || 'unknown'}
+Attendees: ${attendees || 'unknown'}
+Description: ${description || 'none'}
+
+Return ONLY valid JSON with this shape (no explanation, no markdown):
+{
+  "slackQueries": ["query1", "query2", "query3"],
+  "emailKeywords": ["keyword1", "keyword2", "keyword3"]
+}
+
+Rules:
+- slackQueries: 2-3 Slack search strings. Use Slack search modifiers where helpful (from:@alias, "exact phrase"). Prefer specific phrases over single nouns. Include attendee alias queries like "from:@firstname" if you can infer aliases from their names.
+- emailKeywords: 2-3 subject-line keywords/phrases to match relevant email threads.
+- Be specific to THIS meeting, not generic. Avoid overly broad terms like "meeting" or "update".`;
+
+    try {
+        const bedrockClient = require('./bedrock-client');
+        let raw = '';
+        if (bedrockClient.isAvailable()) {
+            await bedrockClient.streamGenerate(prompt, chunk => { raw += chunk; }, {
+                maxTokens: 300,
+                temperature: 0.2,
+            });
+        }
+        // Parse JSON from response
+        const jsonMatch = raw.match(/\{[\s\S]*\}/);
+        if (jsonMatch) {
+            const parsed = JSON.parse(jsonMatch[0]);
+            return {
+                slackQueries: Array.isArray(parsed.slackQueries) ? parsed.slackQueries.slice(0, 3) : [],
+                emailKeywords: Array.isArray(parsed.emailKeywords) ? parsed.emailKeywords.slice(0, 3) : [],
+            };
+        }
+    } catch (e) {
+        logger.warn('generateSearchQueries LLM call failed:', e.message);
+    }
+
+    // Fallback: use dumb keyword extraction
+    const kw = extractKeywords(title);
+    return {
+        slackQueries: [kw.join(' ')],
+        emailKeywords: kw,
+    };
+}
+
+/**
  * Gather relevant emails for a meeting.
- * Matches on: meeting title keywords, organizer name.
+ * Matches on: LLM-generated keywords (or fallback), organizer name.
  * Whitelists meeting summary emails.
  */
-function gatherEmails(event) {
+function gatherEmails(event, llmEmailKeywords) {
     try {
         const localStore = require('./local-store');
         const allEmails = (localStore.getEmails ? localStore.getEmails() : { data: [] }).data || [];
-        const keywords = extractKeywords(event.title || event.subject || '');
+        const keywords = (llmEmailKeywords && llmEmailKeywords.length > 0)
+            ? llmEmailKeywords
+            : extractKeywords(event.title || event.subject || '');
         const organizerName = (event.organizer?.name || '').toLowerCase();
         const organizerEmail = (event.organizer?.email || '').toLowerCase();
         const attendeeEmails = (event.attendees || []).map(a =>
@@ -222,16 +285,18 @@ function gatherEmails(event) {
 
 /**
  * Search Slack for recent messages related to the meeting topic.
- * Returns top 5 relevant messages.
+ * Runs each LLM-generated query and merges results, deduped by ts.
  */
-async function gatherSlackMessages(event) {
+async function gatherSlackMessages(event, llmSlackQueries) {
     try {
         const mcpClient = require('./mcp-client');
-        const keywords = extractKeywords(event.title || event.subject || '');
-        if (keywords.length === 0) return [];
 
-        // Build search query from top keywords
-        const query = keywords.slice(0, 3).map(k => `"${k}"`).join(' OR ');
+        // Use LLM queries if available, otherwise fall back to keyword extraction
+        let queries = llmSlackQueries && llmSlackQueries.length > 0
+            ? llmSlackQueries
+            : [extractKeywords(event.title || event.subject || '').join(' ')];
+        queries = queries.filter(q => q && q.trim().length > 0);
+        if (queries.length === 0) return [];
 
         function parseResult(result) {
             try {
@@ -240,26 +305,39 @@ async function gatherSlackMessages(event) {
             } catch { return {}; }
         }
 
-        const result = await mcpClient.callTool('slack-mcp', 'search', {
-            query,
-            scope: 'messages',
-            count: 10,
-            sort: 'timestamp',
-            sort_dir: 'desc',
-        });
-
-        const data = parseResult(result);
-        const matches = data?.messages?.matches || [];
-
-        // Filter out InGen's own bot messages and very old messages
         const cutoff = Date.now() - 7 * 24 * 60 * 60 * 1000;
-        return matches
-            .filter(m => {
-                if (m.username === 'sankalpv' && (m.text || '').includes('code.amazon.com/packages/InGen-SmartAI')) return false;
-                const ts = parseFloat(m.ts || 0) * 1000;
-                return ts > cutoff;
-            })
-            .slice(0, 5)
+        const seenTs = new Set();
+        const allMatches = [];
+
+        // Run each query in sequence (Slack rate limits concurrent searches)
+        for (const query of queries) {
+            try {
+                const result = await mcpClient.callTool('slack-mcp', 'search', {
+                    query,
+                    scope: 'messages',
+                    count: 8,
+                    sort: 'timestamp',
+                    sort_dir: 'desc',
+                });
+                const data = parseResult(result);
+                const matches = data?.messages?.matches || [];
+                for (const m of matches) {
+                    if (seenTs.has(m.ts)) continue;
+                    if (m.username === 'sankalpv' && (m.text || '').includes('code.amazon.com/packages/InGen-SmartAI')) continue;
+                    const ts = parseFloat(m.ts || 0) * 1000;
+                    if (ts < cutoff) continue;
+                    seenTs.add(m.ts);
+                    allMatches.push(m);
+                }
+            } catch (e) {
+                logger.warn(`Slack query failed: "${query}": ${e.message}`);
+            }
+        }
+
+        // Sort by recency and take top 6
+        return allMatches
+            .sort((a, b) => parseFloat(b.ts || 0) - parseFloat(a.ts || 0))
+            .slice(0, 6)
             .map(m => ({
                 channel: m.channel?.name || m.channel?.id || 'DM',
                 user: m.username || m.user,
@@ -540,19 +618,33 @@ async function checkAndSend() {
 
 /**
  * Gather all context for a meeting (emails, Slack, Quip, tickets).
+ * First asks Claude to generate targeted search queries, then uses them.
  */
 async function gatherContext(event) {
-    const emails = gatherEmails(event);
+    // Step 1: Ask Claude for smart search queries (with 4s timeout)
+    let searchQueries = { slackQueries: [], emailKeywords: [] };
+    try {
+        searchQueries = await Promise.race([
+            generateSearchQueries(event),
+            new Promise((resolve) => setTimeout(() => resolve({ slackQueries: [], emailKeywords: [] }), 4000)),
+        ]);
+        logger.info(`Search queries for "${event.title}": slack=${JSON.stringify(searchQueries.slackQueries)}, email=${JSON.stringify(searchQueries.emailKeywords)}`);
+    } catch (e) {
+        logger.warn('generateSearchQueries failed, using fallback:', e.message);
+    }
+
+    // Step 2: Gather emails and tickets (sync)
+    const emails = gatherEmails(event, searchQueries.emailKeywords);
     const tickets = gatherTickets(event);
 
-    // Run Slack search and Quip fetch with timeouts
+    // Step 3: Slack search with LLM queries (with timeout)
     let slackMessages = [];
     let quipDocs = [];
 
     try {
         slackMessages = await Promise.race([
-            gatherSlackMessages(event),
-            new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 5000)),
+            gatherSlackMessages(event, searchQueries.slackQueries),
+            new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 8000)),
         ]);
     } catch (e) {
         logger.warn('Slack search timed out or failed');
