@@ -136,14 +136,20 @@ async function fetchSlackData() {
 
     function addMessages(msgs, channelName, isDM) {
         for (const m of (msgs || [])) {
-            if (!m.ts || seenTs.has(m.ts)) continue;
-            seenTs.add(m.ts);
+            // slack-mcp returns ISO 8601 'timestamp'; Slack API returns numeric 'ts'
+            const tsKey = m.timestamp || m.ts || m.message_ts || '';
+            if (!tsKey || seenTs.has(tsKey)) continue;
+            seenTs.add(tsKey);
+            // Convert to epoch ms for time display: ISO string or Slack numeric (seconds)
+            const epochMs = tsKey.includes('T')
+                ? new Date(tsKey).getTime()
+                : parseFloat(tsKey) * 1000;
             allMessages.push({
                 user: m.user?.display_name || m.user?.real_name || m.username || m.user || 'unknown',
                 channel: channelName,
                 text: (m.text || '').slice(0, 200).replace(/\n/g, ' ').trim(),
-                ts: m.ts,
-                time: new Date(parseFloat(m.ts) * 1000).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }),
+                ts: tsKey,
+                time: new Date(epochMs).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }),
                 isDM: !!isDM,
             });
         }
