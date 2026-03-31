@@ -601,9 +601,17 @@ async function prepMeeting(options = {}) {
         );
     }
 
-    // Filter by eventId if provided
+    // Filter by eventId if provided; fall back to title if no exact ID match
+    // (Outlook event IDs are long encoded GUIDs that may not match local store)
     if (eventId) {
-        meetings = meetings.filter(e => e.id === eventId);
+        const byId = meetings.filter(e => e.id === eventId);
+        if (byId.length > 0) {
+            meetings = byId;
+        } else if (title) {
+            const kw = title.toLowerCase();
+            meetings = meetings.filter(e => (e.title || e.subject || '').toLowerCase().includes(kw));
+        }
+        // If still no match, fall through to next error check (title filter already applied above)
     }
 
     if (meetings.length === 0) {
