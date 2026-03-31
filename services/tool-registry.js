@@ -1188,5 +1188,86 @@ register({
 });
 
 
+// 15. Daily Briefing — full morning/afternoon/evening briefing identical to the Morning Briefing page
+register({
+    name: 'daily_briefing',
+    description: 'Generate or retrieve the full daily briefing — identical to the Morning Briefing page. Covers emails (urgent + needs-reply + follow-ups), Slack messages across all channels and DMs, calendar meetings for today, open tickets, WBR goals status, and engineering code metrics. Use this for ANY request like "send me the briefing", "what\'s my morning briefing", "briefing for today", "daily update", "what do I need to know today", or "summarize my day".',
+    icon: '📋',
+    parameters: {
+        refresh: { type: 'boolean', description: 'Force a fresh briefing ignoring the 30-minute cache (default: false)' },
+    },
+    async execute({ refresh = false } = {}) {
+        // Call the /api/morning-briefing SSE endpoint and collect all chunks into a single string.
+        // This guarantees the agent uses exactly the same data pipeline (emails, Slack, calendar,
+        // tickets, goals, code metrics) as the Morning Briefing page — no divergence.
+        const url = `http://localhost:3000/api/morning-briefing${refresh ? '?refresh=true' : ''}`;
+        let briefing = '';
+        let sources = null;
+        let meta = null;
+        let errorMsg = null;
+
+        try {
+            const res = await fetch(url, {
+                headers: { Accept: 'text/event-stream' },
+                // Node 18+ fetch supports streaming via the body ReadableStream
+            });
+
+            if (!res.ok) {
+                throw new Error(`HTTP ${res.status}: ${await res.text()}`);
+            }
+
+            // Read SSE stream line-by-line
+            const reader = res.body.getReader();
+            const decoder = new TextDecoder();
+            let buffer = '';
+
+            while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+                buffer += decoder.decode(value, { stream: true });
+                const lines = buffer.split('\n');
+                buffer = lines.pop(); // keep incomplete last line
+                for (const line of lines) {
+                    if (!line.startsWith('data: ')) continue;
+                    try {
+                        const evt = JSON.parse(line.slice(6));
+                        if (evt.type === 'chunk') briefing += evt.text || '';
+                        else if (evt.type === 'sources') sources = evt.data;
+                        else if (evt.type === 'meta') meta = evt.data;
+                        else if (evt.type === 'error') errorMsg = evt.message;
+                    } catch { /* skip malformed SSE line */ }
+                }
+            }
+        } catch (e) {
+            logger.error('[daily_briefing] Failed to fetch briefing:', e.message);
+            return {
+                data: { briefing: null, sources: null, meta: null },
+                summary: `Failed to fetch daily briefing: ${e.message}`,
+                _error: true,
+            };
+        }
+
+        if (errorMsg) {
+            return {
+                data: { briefing, sources, meta },
+                summary: `Briefing generated with error: ${errorMsg}`,
+                _error: true,
+            };
+        }
+
+        // Build a short summary for the agent's plan step result
+        const label = meta?.label || 'Daily Briefing';
+        const emailCount = sources?.emails?.total ?? '?';
+        const urgentCount = sources?.emails?.urgent ?? '?';
+        const slackCount = sources?.slack?.total ?? '?';
+        const meetingCount = sources?.calendar?.totalToday ?? '?';
+
+        return {
+            data: { briefing, sources, meta },
+            summary: `${label} generated. Emails: ${emailCount} (${urgentCount} urgent), Slack: ${slackCount} messages, Meetings today: ${meetingCount}.\n\n${briefing}`,
+        };
+    },
+});
+
 module.exports = { register, get, execute, listAll };
 module.exports.default = { register, get, execute, listAll };
