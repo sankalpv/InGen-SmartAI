@@ -49,7 +49,12 @@ function getCached() {
     try {
         if (fs.existsSync(CACHE_FILE)) {
             const c = JSON.parse(fs.readFileSync(CACHE_FILE, 'utf8'));
-            if (Date.now() - new Date(c.cachedAt).getTime() < CACHE_TTL) return c;
+            if (Date.now() - new Date(c.cachedAt).getTime() >= CACHE_TTL) return null;
+            // Invalidate if the time-of-day period has changed (e.g. morning → afternoon)
+            // so the new briefing is regenerated with the correct label in the AI prompt.
+            const currentPeriod = getBriefingLabel().period;
+            if (c.meta?.period && c.meta.period !== currentPeriod) return null;
+            return c;
         }
     } catch (e) { /* ignore */ }
     return null;
