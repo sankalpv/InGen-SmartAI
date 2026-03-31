@@ -127,14 +127,12 @@ async function fetchSlackData() {
         }
     }
 
-    function hasUnreads(ch) {
-        return !!(ch.has_unreads || (ch.unread_count && ch.unread_count > 0) || (ch.unread_count_display && ch.unread_count_display > 0));
-    }
-
     try {
         // 1. Get channels the user is a member of
         // list_my_channels returns a section-based structure: { sections: [{channels:[...]}, ...] }
         // Flatten all channels from all sections into a single array.
+        // Note: Slack API does not reliably return unread_count/has_unreads in channel list objects,
+        // so we unconditionally fetch DMs and the top active regular channels.
         const channelsResult = await mcpClient.callTool('slack-mcp', 'list_my_channels', { compactOutput: false });
         const channelsData = parseMcpResult(channelsResult);
 
@@ -144,41 +142,43 @@ async function fetchSlackData() {
         } else if (Array.isArray(channelsData?.channels)) {
             channels = channelsData.channels;
         } else if (Array.isArray(channelsData?.sections)) {
-            // Flatten section-based structure
+            // Flatten section-based structure — sections are ordered by recency in Slack sidebar
             for (const section of channelsData.sections) {
                 if (Array.isArray(section.channels)) channels.push(...section.channels);
             }
         }
 
-        // Only fetch channels/DMs with unread messages
-        const unreadRegular = channels.filter(c => !c.is_im && !c.is_mpim && !c.is_archived && hasUnreads(c)).slice(0, 12);
-        const unreadDMs = channels.filter(c => (c.is_im || c.is_mpim) && hasUnreads(c)).slice(0, 15);
+        // DMs (is_im = direct messages, is_mpim = group DMs) — fetch all, limit 15
+        const dmChannels = channels.filter(c => c.is_im || c.is_mpim).slice(0, 15);
+        // Regular channels — first 8 from the list (ordered by recent activity in sidebar)
+        const regularChannels = channels.filter(c => !c.is_im && !c.is_mpim && !c.is_archived).slice(0, 8);
 
-        // 2. Fetch unread messages from channels with activity
-        for (const ch of unreadRegular) {
+        // 2. Fetch recent messages from regular channels
+        for (const ch of regularChannels) {
             try {
                 const r = await mcpClient.callTool('slack-mcp', 'get_messages', {
                     channel: ch.id || ch.name,
-                    limit: ch.unread_count ? Math.min(ch.unread_count + 2, 20) : 10,
+                    limit: 10,
                     includeThreadReplies: false,
                 });
                 const data = parseMcpResult(r);
-                addMessages(data?.messages || data || [], ch.name || ch.id, false);
+                const msgs = data?.messages || (Array.isArray(data) ? data : []);
+                addMessages(msgs, ch.name || ch.id, false);
             } catch { /* skip channel on error */ }
         }
 
-        // 3. Fetch unread DMs
-        for (const dm of unreadDMs) {
+        // 3. Fetch DMs
+        for (const dm of dmChannels) {
             try {
                 const r = await mcpClient.callTool('slack-mcp', 'get_messages', {
                     channel: dm.id,
-                    limit: dm.unread_count ? Math.min(dm.unread_count + 2, 10) : 5,
+                    limit: 5,
                     includeThreadReplies: false,
                 });
                 const data = parseMcpResult(r);
-                // Use the DM partner name if available
-                const dmName = dm.topic || dm.name || 'DM';
-                addMessages(data?.messages || data || [], dmName, true);
+                const msgs = data?.messages || (Array.isArray(data) ? data : []);
+                const dmName = dm.topic || dm.name || dm.id;
+                addMessages(msgs, dmName, true);
             } catch { /* skip */ }
         }
     } catch (e) {
