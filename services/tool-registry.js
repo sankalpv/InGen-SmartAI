@@ -229,47 +229,24 @@ register({
     },
 });
 
-// 2. Email Search — hybrid search (RAG + keyword) then hydrates full body via Outlook MCP email_read
+// 2. Email Search — calls Outlook MCP email_search directly, then email_read per result for full body
+// Does NOT use local cache (data/emails.json) which only has bodyPreview (255-char MS Graph limit)
 register({
     name: 'email_search',
-    description: 'Search recent emails by keyword, sender name, or subject. Uses semantic RAG search + keyword matching, then fetches FULL email body via Outlook MCP email_read. Returns complete email content for summarization and analysis.',
+    description: 'Search emails by keyword, sender name, or subject via Outlook MCP. Fetches FULL email body via email_read for each match. Returns complete email content for summarization and analysis. Always use this for "summarize this email" or "what did X say about Y" requests.',
     icon: '📧',
     parameters: {
         query: { type: 'string', description: 'Search keyword (subject, sender, content)' },
         limit: { type: 'number', description: 'Max results (default: 10)' },
     },
     async execute({ query, limit = 10 }) {
-        const emailSearch = require('./email-search');
         const outlookMcp = require('./outlook-mcp');
         try {
-            const results = await emailSearch.hybridSearch(query, limit);
-
-            // Hydrate full body for each match via Outlook MCP email_read
-            // This is the same as what Quick Suite does — read the complete email
-            const hydrated = await Promise.all(results.map(async (r) => {
-                // If body already exists and is substantial (>500 chars), skip the MCP call
-                if (r.body && r.body.length > 500) return r;
-
-                if (r.id) {
-                    try {
-                        const thread = await outlookMcp.fetchEmailThread(r.id);
-                        if (thread && thread.length > 0) {
-                            const fullMsg = thread[0];
-                            r.body = fullMsg.body || fullMsg.snippet || r.body || '';
-                            r.from = fullMsg.from?.name || fullMsg.from?.email || r.from;
-                            r.date = fullMsg.date || r.date;
-                        }
-                    } catch (e) {
-                        logger.warn(`email_read hydration failed for ${r.id}: ${e.message}`);
-                    }
-                }
-                return r;
-            }));
-
-            const summary = hydrated.length === 0
+            const results = await outlookMcp.searchOutlookEmails(query, limit);
+            const summary = results.length === 0
                 ? `No emails found matching "${query}".`
-                : `Found ${hydrated.length} email(s) matching "${query}" with full body content.`;
-            return { data: hydrated, summary, count: hydrated.length };
+                : `Found ${results.length} email(s) matching "${query}" with full body content.`;
+            return { data: results, summary, count: results.length };
         } catch (e) {
             return { data: [], summary: `Email search failed: ${e.message}`, count: 0 };
         }

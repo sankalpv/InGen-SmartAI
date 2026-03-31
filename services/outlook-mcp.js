@@ -476,11 +476,68 @@ function clearInboxCache() {
     _inboxCachedAt = 0;
 }
 
+/**
+ * Search emails via aws-outlook-mcp email_search, then hydrate each result
+ * with full body via email_read. This is the correct way to get complete
+ * email content — email_inbox only returns bodyPreview (255 char MS Graph limit).
+ *
+ * @param {string} query   - Search keyword (subject, sender, content)
+ * @param {number} limit   - Max results to return (default: 10)
+ * @returns {Array}        - Normalized email objects with full body
+ */
+async function searchOutlookEmails(query, limit = 10) {
+    logger.info(`[MCP] Searching emails for "${query}" (limit ${limit})`);
+    try {
+        // Step 1: Search for matching messages
+        const searchResult = await mcpClient.callTool(SERVER, 'email_search', {
+            query,
+            maxResults: limit,
+        });
+        const data = extractContent(searchResult);
+        const emails = data?.emails || data?.value || data?.messages || (Array.isArray(data) ? data : []);
+
+        if (emails.length === 0) {
+            logger.info(`[MCP] email_search returned 0 results for "${query}"`);
+            return [];
+        }
+
+        // Step 2: For each result, call email_read to get full body
+        const hydrated = await Promise.all(emails.slice(0, limit).map(async (e) => {
+            const msgId = e.id || e.messageId;
+            if (!msgId) return normalizeEmail(e); // fallback: use search result as-is
+
+            try {
+                const readResult = await mcpClient.callTool(SERVER, 'email_read', {
+                    message_id: msgId,
+                });
+                const readData = extractContent(readResult);
+                // email_read may return array or single message
+                const msgs = readData?.messages || readData?.value ||
+                    (Array.isArray(readData) ? readData : (readData ? [readData] : []));
+                const fullMsg = msgs[0] || readData;
+                if (fullMsg && (fullMsg.body || fullMsg.subject)) {
+                    return normalizeEmail(fullMsg);
+                }
+            } catch (err) {
+                logger.warn(`[MCP] email_read failed for ${msgId}: ${err.message}`);
+            }
+            // Fallback: use the search result (has bodyPreview only)
+            return normalizeEmail(e);
+        }));
+
+        return hydrated.filter(Boolean);
+    } catch (error) {
+        logger.error(`Failed to search emails via MCP for "${query}":`, error.message);
+        return [];
+    }
+}
+
 module.exports = {
     fetchOutlookEmails,
     fetchOutlookEmailsCached,
     fetchEmailThread,
     fetchSentEmails,
+    searchOutlookEmails,
     fetchOutlookCalendar,
     clearCalendarCache,
     clearInboxCache,
