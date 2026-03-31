@@ -522,7 +522,7 @@ async function executeToolsSequential(plan, onEvent) {
 async function synthesize(task, evidence, preferences, followUpCtx, onChunk) {
     const evidenceStr = evidence.map((e, i) => {
         const dataStr = e.result.data
-            ? JSON.stringify(e.result.data, null, 1).substring(0, 2000)
+            ? JSON.stringify(e.result.data, null, 1).substring(0, 15000)
             : 'No data';
         return `[Tool ${i + 1}: ${e.tool}]
 Reason: ${e.reason}
