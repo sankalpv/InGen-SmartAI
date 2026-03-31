@@ -626,6 +626,9 @@ export async function GET(req) {
             const cached = getCached();
             if (cached) {
                 console.log('[Briefing] Serving cached briefing');
+                // Always recompute the label so it reflects the current time of day,
+                // not the time the briefing was originally generated.
+                cached.meta = getBriefingLabel();
                 return streamCachedBriefing(cached);
             }
         }
