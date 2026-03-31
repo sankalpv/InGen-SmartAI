@@ -58,6 +58,7 @@ async function hybridSearch(query, limit = 10) {
             from: r.sender || r.from?.name || r.from?.email || 'Unknown',
             date: r.received || r.date || '',
             snippet: (r.snippet || r.body || '').substring(0, 300),
+            body: r.body || r.snippet || '',  // full body for agent summarization
             similarity: r.similarity || 0.5,
             source: 'rag',
         }));
@@ -88,6 +89,7 @@ async function hybridSearch(query, limit = 10) {
                     from: e.from?.name || e.from?.email || 'Unknown',
                     date: e.date || e.received || '',
                     snippet: (e.snippet || e.body || '').substring(0, 300),
+                    body: e.body || e.snippet || '',  // full body for agent summarization
                     similarity: parseFloat((0.3 + matchRatio * 0.5).toFixed(2)),
                     source: 'keyword',
                 };

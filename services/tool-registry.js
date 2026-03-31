@@ -242,6 +242,24 @@ register({
         const emailSearch = require('./email-search');
         try {
             const results = await emailSearch.hybridSearch(query, limit);
+            // Enrich results: for keyword-only hits that have no body from RAG,
+            // pull full body from the raw emails cache
+            const fs = require('fs');
+            const path = require('path');
+            const EMAILS_PATH = path.join(process.cwd(), 'data', 'emails.json');
+            let emailsById = null;
+            for (const r of results) {
+                if (!r.body && r.id) {
+                    if (!emailsById) {
+                        try {
+                            const raw = JSON.parse(fs.readFileSync(EMAILS_PATH, 'utf8'));
+                            emailsById = new Map((raw.data || []).map(e => [e.id, e]));
+                        } catch (e) { emailsById = new Map(); }
+                    }
+                    const full = emailsById.get(r.id);
+                    if (full) r.body = full.body || full.snippet || '';
+                }
+            }
             const summary = results.length === 0
                 ? `No emails found matching "${query}".`
                 : `Found ${results.length} email(s) matching "${query}" (RAG + keyword hybrid).`;
