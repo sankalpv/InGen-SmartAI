@@ -525,7 +525,7 @@ export default function Dashboard() {
                             fontSize: '1rem', fontWeight: '700', color: 'var(--text-primary)',
                             letterSpacing: '-0.3px',
                         }}>
-                            Morning Briefing
+                            {(() => { const h = new Date().getHours(); return h < 12 ? 'Morning Briefing' : h < 16 ? 'Afternoon Briefing' : h < 20 ? 'Evening Briefing' : 'Late Night Briefing'; })()}
                         </div>
                         <div className="stat-label" style={{ color: '#a78bfa' }}>
                             ☕ Tap to hear InGen
