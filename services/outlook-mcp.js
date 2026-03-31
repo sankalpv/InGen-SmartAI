@@ -268,19 +268,43 @@ function decodeMimeBody(raw) {
     return raw;
 }
 
+/**
+ * Strip HTML tags from a string to get plain text.
+ * Used for email_read responses which return raw HTML body strings.
+ */
+function stripHtml(html) {
+    if (!html) return '';
+    return html
+        .replace(/<br\s*\/?>/gi, '\n')
+        .replace(/<\/p>/gi, '\n')
+        .replace(/<\/div>/gi, '\n')
+        .replace(/<[^>]+>/g, '')
+        .replace(/&nbsp;/gi, ' ')
+        .replace(/&amp;/gi, '&')
+        .replace(/&lt;/gi, '<')
+        .replace(/&gt;/gi, '>')
+        .replace(/&quot;/gi, '"')
+        .replace(/&#39;/gi, "'")
+        .replace(/\r\n/g, '\n')
+        .replace(/\n{3,}/g, '\n\n')
+        .trim();
+}
+
 function normalizeEmail(raw) {
     if (!raw) return null;
     try {
         // email_inbox returns conversations; email_read returns full messages
+        // email_read uses different field names: itemId, recievedAt, recipients, sender
         const isConversation = raw.topic !== undefined || raw.senders !== undefined;
+        const isEmailRead = raw.itemId !== undefined; // email_read specific field
 
         const subject = raw.subject || raw.topic || '(No Subject)';
-        const dateStr = raw.receivedDateTime || raw.lastDeliveryTime || raw.date || new Date().toISOString();
+        const dateStr = raw.receivedDateTime || raw.recievedAt || raw.lastDeliveryTime || raw.date || new Date().toISOString();
         const isUnread = isConversation
             ? (raw.unreadCount > 0)
             : (raw.isRead === false || raw.isUnread === true);
 
-        // Senders can be a string array (conversation) or email address object (message)
+        // Senders: conversation (senders[]), email_read (sender/from obj), or standard (from obj)
         let from = { name: 'Unknown', email: '' };
         if (isConversation && Array.isArray(raw.senders) && raw.senders.length > 0) {
             from = { name: raw.senders[0], email: '' };
@@ -290,7 +314,8 @@ function normalizeEmail(raw) {
             from = parseAddress(raw.sender);
         }
 
-        const toRecipients = (raw.toRecipients || raw.to || []).map(r =>
+        // Recipients: email_read uses 'recipients', others use 'toRecipients'/'to'
+        const toRecipients = (raw.toRecipients || raw.recipients || raw.to || []).map(r =>
             parseAddress(r.emailAddress || r)
         );
         const ccRecipients = (raw.ccRecipients || raw.cc || []).map(r =>
@@ -305,12 +330,24 @@ function normalizeEmail(raw) {
         const importance = raw.importance || 'normal';
         const labels = importance === 'high' ? ['important'] : [];
 
+        // Body extraction:
+        // - email_read: body is a raw HTML string directly on raw.body
+        // - email_inbox: body.content (nested object) or bodyPreview
+        let bodyRaw = '';
+        if (typeof raw.body === 'string') {
+            // email_read returns body as raw HTML string — strip tags
+            bodyRaw = raw.body.trim().startsWith('<') ? stripHtml(raw.body) : raw.body;
+        } else {
+            bodyRaw = raw.body?.content || raw.bodyContent || raw.bodyPreview || raw.preview || '';
+            bodyRaw = decodeMimeBody(bodyRaw);
+        }
+
         return {
-            id:             raw.id || raw.messageId || raw.conversationId || String(Math.random()),
+            id:             raw.id || raw.itemId || raw.messageId || raw.conversationId || String(Math.random()),
             source:         'outlook',
             subject,
-            snippet:        raw.bodyPreview || raw.preview || raw.snippet || '',
-            body:           decodeMimeBody(raw.body?.content || raw.bodyContent || raw.bodyPreview || raw.preview || ''),
+            snippet:        raw.bodyPreview || raw.preview || raw.snippet || (bodyRaw ? bodyRaw.substring(0, 200) : ''),
+            body:           bodyRaw,
             date:           dateStr,
             isUnread,
             labels,
@@ -320,8 +357,8 @@ function normalizeEmail(raw) {
             from,
             to:             toRecipients,
             cc:             ccRecipients,
-            conversationId: raw.conversationId || raw.id || '',
-            hasAttachments: raw.hasAttachments || false,
+            conversationId: raw.conversationId || raw.id || raw.itemId || '',
+            hasAttachments: raw.hasAttachments || (Array.isArray(raw.attachments) && raw.attachments.length > 0) || false,
         };
     } catch (e) {
         logger.warn('Failed to normalize email:', e.message);
@@ -437,7 +474,8 @@ async function fetchSentEmails(count = 50, daysBack = 14) {
         since.setDate(since.getDate() - daysBack);
 
         const result = await mcpClient.callTool(SERVER, 'email_search', {
-            folder: 'Sent Items',
+            query: '*',           // required field — fetch all recent sent emails
+            folder: 'sentitems', // enum value (not "Sent Items")
             maxResults: count,
             after: since.toISOString(),
         });
@@ -474,6 +512,63 @@ async function fetchOutlookEmailsCached(count = 20) {
 function clearInboxCache() {
     _inboxCache = null;
     _inboxCachedAt = 0;
+}
+
+/**
+ * Fetch emails via aws-outlook-mcp, then hydrate each result with full body
+ * via email_read. This is necessary because email_inbox only returns
+ * bodyPreview (255 char MS Graph limit) — email_read gives the full body.
+ *
+ * Used by the background sync to ensure full email bodies are stored locally.
+ *
+ * @param {number} count   - Max emails to fetch (default 20)
+ * @returns {Array}        - Normalized email objects with full body
+ */
+async function fetchOutlookEmailsHydrated(count = 20) {
+    logger.info(`[MCP] Fetching ${count} emails with full body hydration via ${SERVER}`);
+    try {
+        // Step 1: Get inbox listing (bodyPreview only)
+        const emails = await fetchOutlookEmails(count);
+        if (!emails || emails.length === 0) return emails;
+
+        // Step 2: Hydrate each email with full body via email_read (batches of 5)
+        // email_read requires conversationId (not message_id) for aws-outlook-mcp
+        const BATCH = 5;
+        const hydrated = [];
+        for (let i = 0; i < emails.length; i += BATCH) {
+            const batch = emails.slice(i, i + BATCH);
+            const results = await Promise.all(batch.map(async (e) => {
+                // Use conversationId if available, fall back to id
+                const convId = e.conversationId || e.id;
+                if (!convId || convId === 'mcp-error') return e;
+                try {
+                    const readResult = await mcpClient.callTool(SERVER, 'email_read', {
+                        conversationId: convId,
+                    });
+                    const readData = extractContent(readResult);
+                    // email_read returns { message: "...", emails: [{...}] }
+                    const msgs = readData?.emails || readData?.messages || readData?.value ||
+                        (Array.isArray(readData) ? readData : (readData ? [readData] : []));
+                    const fullMsg = msgs[0] || readData;
+                    if (fullMsg && (fullMsg.body || fullMsg.subject || fullMsg.itemId)) {
+                        const normalized = normalizeEmail(fullMsg);
+                        if (normalized) return normalized;
+                    }
+                } catch (err) {
+                    logger.warn(`[MCP] email_read hydration failed for ${convId}: ${err.message}`);
+                }
+                return e; // fallback to bodyPreview version
+            }));
+            hydrated.push(...results);
+        }
+
+        const hydrationCount = hydrated.filter(e => e.body && e.body.length > 255).length;
+        logger.info(`[MCP] Hydrated ${hydrationCount}/${hydrated.length} emails with full body`);
+        return hydrated.filter(Boolean);
+    } catch (error) {
+        logger.error('Failed to fetch hydrated emails via MCP:', error.message);
+        return fetchOutlookEmails(count); // fallback to non-hydrated
+    }
 }
 
 /**
@@ -535,6 +630,7 @@ async function searchOutlookEmails(query, limit = 10) {
 module.exports = {
     fetchOutlookEmails,
     fetchOutlookEmailsCached,
+    fetchOutlookEmailsHydrated,
     fetchEmailThread,
     fetchSentEmails,
     searchOutlookEmails,
