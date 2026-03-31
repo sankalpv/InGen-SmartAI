@@ -726,18 +726,73 @@ register({
             } catch { return {}; }
         }
 
+        // Step 1: Ask Claude to expand the raw query into targeted Slack search strings.
+        // This handles alias inference (Surbhi → jainsurb), exact phrase quoting,
+        // and from:/in: modifiers that Slack actually understands.
+        let slackQueries = [query]; // fallback: use raw query
         try {
-            const result = await mcpClient.callTool('slack-mcp', 'search', {
-                query,
-                scope: 'messages',
-                count: Math.min(count, 20),
-                sort,
-                sort_dir: 'desc',
-            });
-            const data = parseResult(result);
-            const matches = data?.messages?.matches || [];
+            const bedrockClient = require('./bedrock-client');
+            if (bedrockClient.isAvailable()) {
+                const prompt = `You are a Slack search expert. Convert this natural-language question into 2-3 Slack search query strings that will find the relevant messages.
 
-            const formatted = matches.map(m => ({
+User question: "${query}"
+
+Return ONLY valid JSON, no explanation:
+{ "queries": ["query1", "query2", "query3"] }
+
+Rules:
+- Use Slack modifiers: from:@alias (to filter by sender), in:#channel (to filter by channel), "exact phrase" (quoted phrase search)
+- Infer Amazon LDAP aliases from first names: e.g. "Surbhi" likely → from:@jainsurb OR from:@surbhi; "Safe" → from:@safehashm OR from:@safe; "Ana" → from:@anac OR from:@ana
+- Include a broad phrase-only query as one option in case alias guesses are wrong
+- Avoid generic single words like "message" or "update"
+- Be specific to the topic in the question`;
+
+                let raw = '';
+                await bedrockClient.streamGenerate(prompt, chunk => { raw += chunk; }, { maxTokens: 200, temperature: 0.1 });
+                const jsonMatch = raw.match(/\{[\s\S]*\}/);
+                if (jsonMatch) {
+                    const parsed = JSON.parse(jsonMatch[0]);
+                    if (Array.isArray(parsed.queries) && parsed.queries.length > 0) {
+                        slackQueries = parsed.queries.slice(0, 3).filter(q => q && q.trim());
+                        logger.info(`slack_search expanded "${query}" → ${JSON.stringify(slackQueries)}`);
+                    }
+                }
+            }
+        } catch (e) {
+            logger.warn('slack_search query expansion failed, using raw query:', e.message);
+        }
+
+        // Step 2: Run each expanded query, merge + dedup by ts
+        try {
+            const seenTs = new Set();
+            const allMatches = [];
+
+            for (const q of slackQueries) {
+                try {
+                    const result = await mcpClient.callTool('slack-mcp', 'search', {
+                        query: q,
+                        scope: 'messages',
+                        count: Math.min(count, 15),
+                        sort,
+                        sort_dir: 'desc',
+                    });
+                    const data = parseResult(result);
+                    const matches = data?.messages?.matches || [];
+                    for (const m of matches) {
+                        if (!seenTs.has(m.ts)) {
+                            seenTs.add(m.ts);
+                            allMatches.push(m);
+                        }
+                    }
+                } catch (e) {
+                    logger.warn(`slack_search query failed: "${q}": ${e.message}`);
+                }
+            }
+
+            // Sort by recency
+            allMatches.sort((a, b) => parseFloat(b.ts || 0) - parseFloat(a.ts || 0));
+
+            const formatted = allMatches.slice(0, count).map(m => ({
                 channel: m.channel?.name || m.channel?.id || 'DM',
                 user: m.username || m.user || 'unknown',
                 text: (m.text || '').slice(0, 500).replace(/\s+/g, ' ').trim(),
@@ -748,8 +803,8 @@ register({
             }));
 
             const summary = formatted.length > 0
-                ? `Found ${formatted.length} Slack message(s) for "${query}". Top result: @${formatted[0].user} in #${formatted[0].channel}: "${formatted[0].text.slice(0, 100)}..."`
-                : `No Slack messages found for "${query}".`;
+                ? `Found ${formatted.length} Slack message(s) for "${query}" (searched: ${slackQueries.join(' | ')}). Top result: @${formatted[0].user} in #${formatted[0].channel}: "${formatted[0].text.slice(0, 100)}"`
+                : `No Slack messages found for "${query}" (tried: ${slackQueries.join(', ')}).`;
 
             return { data: formatted, summary, count: formatted.length };
         } catch (e) {
