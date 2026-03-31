@@ -152,7 +152,7 @@ async function fetchSlackData() {
             allMessages.push({
                 user: m.user?.display_name || m.user?.real_name || m.username || m.user || 'unknown',
                 channel: channelName,
-                text: (m.text || '').slice(0, 200).replace(/\n/g, ' ').trim(),
+                text: (m.text || '').trim(), // no clipping — full message text
                 ts: tsKey,
                 time: new Date(epochMs).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }),
                 isDM: !!isDM,
@@ -231,13 +231,74 @@ async function fetchSlackData() {
         byChannel[m.channel].push(m);
     }
 
+    // LLM pass: detect action items in Slack messages
+    const actionItems = await detectSlackActionItems(allMessages);
+
     return {
         total: allMessages.length,
         dmCount: allMessages.filter(m => m.isDM).length,
         channelCount: Object.keys(byChannel).filter(c => c !== 'DM').length,
         messages: allMessages,
         byChannel,
+        actionItems,
     };
+}
+
+// ─── LLM Slack action-item detection ───
+
+async function detectSlackActionItems(messages) {
+    if (!messages || messages.length === 0) return [];
+    try {
+        // Build a compact list of messages for the LLM to scan
+        const msgBlock = messages.slice(0, 60).map((m, i) =>
+            `[${i}] #${m.channel} @${m.user} (${m.time}): "${m.text.replace(/\n/g, ' ')}"`
+        ).join('\n');
+
+        const prompt = `You are reviewing Slack messages on behalf of the user (alias: sankalpv). For each message that REQUIRES the user to take an action (reply, review, approve, decide, attend, etc.), output a JSON object. Ignore automated bots, CI/CD notifications, and FYI messages.
+
+Messages:
+${msgBlock}
+
+Return ONLY a JSON array (no prose). Each item: {"index": number, "channel": string, "user": string, "action": string, "text": string}
+"action" should be a short verb phrase like "Reply to @alice", "Review PR", "Approve request".
+"text" is the original message excerpt (max 100 chars).
+If no action items found, return [].`;
+
+        let raw = '';
+        const bedrockClient = require('../../../services/bedrock-client');
+        if (bedrockClient.isAvailable()) {
+            await bedrockClient.streamGenerate(prompt, (chunk) => { raw += chunk; }, {
+                system: 'You are a precise assistant that extracts action items from Slack messages and returns only valid JSON arrays.',
+                maxTokens: 800,
+                temperature: 0.0,
+            });
+        } else {
+            const ollamaClient = require('../../../services/ollama-client');
+            const res = await fetch('http://127.0.0.1:11434/api/generate', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    model: ollamaClient.getConfig().llmModel,
+                    system: 'You are a precise assistant that extracts action items from Slack messages and returns only valid JSON arrays.',
+                    prompt,
+                    stream: false,
+                    think: false,
+                    options: { temperature: 0.0 },
+                }),
+            });
+            const j = await res.json();
+            raw = j.response || '';
+        }
+
+        // Extract JSON array from response
+        const match = raw.match(/\[[\s\S]*\]/);
+        if (!match) return [];
+        const parsed = JSON.parse(match[0]);
+        return Array.isArray(parsed) ? parsed.slice(0, 10) : [];
+    } catch (e) {
+        console.error('[Briefing/Slack] Action item detection failed:', e.message);
+        return [];
+    }
 }
 
 // ─── Gather all data sources ───
@@ -484,15 +545,21 @@ function buildPrompt(sources, briefingMeta) {
     if (sources.slack?.error && sources.slack.total === 0) {
         block += `Slack: unavailable (${sources.slack.error})\n`;
     } else {
-        block += `Total recent messages (last 8h): ${sources.slack.total}\n`;
+        block += `Total recent messages: ${sources.slack.total}\n`;
         block += `DMs: ${sources.slack.dmCount} | Channel messages: ${sources.slack.channelCount} channels\n`;
+        if (sources.slack.actionItems?.length > 0) {
+            block += `ACTION ITEMS detected by AI (messages requiring your response):\n`;
+            sources.slack.actionItems.forEach(a => {
+                block += `  - [SLACK ACTION] ${a.action} in #${a.channel} from @${a.user}: "${(a.text || '').slice(0, 150)}"\n`;
+            });
+        }
         if (sources.slack.messages?.length > 0) {
             block += `Messages by channel:\n`;
             const byChannel = sources.slack.byChannel || {};
             for (const [channel, msgs] of Object.entries(byChannel).slice(0, 8)) {
                 block += `  #${channel} (${msgs.length} msg${msgs.length !== 1 ? 's' : ''}):\n`;
                 msgs.slice(0, 3).forEach(m => {
-                    block += `    @${m.user} at ${m.time}: "${m.text.replace(/\n/g, ' ').slice(0, 120)}"\n`;
+                    block += `    @${m.user} at ${m.time}: "${m.text.replace(/\n/g, ' ')}"\n`;
                 });
             }
         }

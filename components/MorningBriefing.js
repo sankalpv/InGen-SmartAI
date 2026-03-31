@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
-import { X, RefreshCw, Sparkles } from 'lucide-react';
+import { X, RefreshCw, Sparkles, Send, CheckCircle } from 'lucide-react';
 
 // ─── Section config ───────────────────────────────────────────────────────────
 
@@ -219,6 +219,8 @@ export default function MorningBriefing({ isOpen, onClose }) {
     const [meta, setMeta] = useState(null); // { label, emoji, period }
     const [status, setStatus] = useState('');
     const [errorMsg, setErrorMsg] = useState('');
+    const [pushState, setPushState] = useState('idle'); // idle | sending | sent | error
+    const [pushError, setPushError] = useState('');
     const contentRef = useRef(null);
     const abortRef = useRef(null);
 
@@ -301,7 +303,27 @@ export default function MorningBriefing({ isOpen, onClose }) {
         setMeta(null);
         setStatus('');
         setErrorMsg('');
+        setPushState('idle');
+        setPushError('');
         fetchBriefing(true);
+    }
+
+    async function handlePushToSlack() {
+        if (pushState === 'sending') return;
+        setPushState('sending');
+        setPushError('');
+        try {
+            const res = await fetch('/api/morning-briefing/push-to-slack', { method: 'POST' });
+            const data = await res.json();
+            if (!res.ok || data.error) throw new Error(data.error || `HTTP ${res.status}`);
+            setPushState('sent');
+            // Reset after 5 seconds
+            setTimeout(() => setPushState('idle'), 5000);
+        } catch (err) {
+            setPushError(err.message);
+            setPushState('error');
+            setTimeout(() => setPushState('idle'), 6000);
+        }
     }
 
     if (!isOpen) return null;
@@ -356,6 +378,36 @@ export default function MorningBriefing({ isOpen, onClose }) {
                 </div>
 
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    {/* Send to Slack button — visible once briefing is done */}
+                    {(phase === 'done' || phase === 'error') && (
+                        <button
+                            onClick={handlePushToSlack}
+                            disabled={pushState === 'sending'}
+                            title={pushState === 'sent' ? 'Sent to your Slack DM!' : pushState === 'error' ? pushError : 'Send briefing to your Slack DM'}
+                            style={{
+                                background: pushState === 'sent'
+                                    ? 'rgba(34,197,94,0.12)'
+                                    : pushState === 'error'
+                                        ? 'rgba(239,68,68,0.1)'
+                                        : 'rgba(74,144,226,0.1)',
+                                border: `1px solid ${pushState === 'sent' ? 'rgba(34,197,94,0.25)' : pushState === 'error' ? 'rgba(239,68,68,0.2)' : 'rgba(74,144,226,0.25)'}`,
+                                borderRadius: '7px', padding: '5px 10px', cursor: pushState === 'sending' ? 'default' : 'pointer',
+                                color: pushState === 'sent' ? '#4ade80' : pushState === 'error' ? '#f87171' : '#60a5fa',
+                                display: 'flex', alignItems: 'center', gap: '5px',
+                                fontSize: '0.8rem', fontWeight: 500, opacity: pushState === 'sending' ? 0.7 : 1,
+                                transition: 'all 0.2s',
+                            }}
+                        >
+                            {pushState === 'sent'
+                                ? <><CheckCircle size={13} /> Sent!</>
+                                : pushState === 'sending'
+                                    ? <><span style={{ display: 'inline-block', width: 10, height: 10, border: '2px solid #60a5fa', borderTopColor: 'transparent', borderRadius: '50%', animation: 'spin 0.7s linear infinite' }} /> Sending...</>
+                                    : pushState === 'error'
+                                        ? <><Send size={13} /> Failed</>
+                                        : <><Send size={13} /> Send to Slack</>
+                            }
+                        </button>
+                    )}
                     {(phase === 'done' || phase === 'error') && (
                         <button
                             onClick={handleRefresh}
