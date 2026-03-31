@@ -5,6 +5,7 @@ const { exec } = require('child_process');
 const vectorStore = require('./vector-store'); // Added import
 const emailTagger = require('./email-tagger'); // AI enrichment tags
 const proactiveAgent = require('./proactive-agent'); // Added import
+const meetingPrep = require('./meeting-prep'); // Meeting prep briefs
 const localStore = require('./local-store'); // Local data cache
 const ollamaClient = require('./ollama-client'); // Ollama availability check
 const issuesParser = require('./issues-parser'); // Issues folder parser
@@ -230,6 +231,11 @@ if (outlookIntegrationEnabled) {
 } else {
     logger.info('Outlook integration DISABLED — skipping email/calendar sync, vector store, and insight generation');
 }
+
+// Meeting prep — fires every minute, sends Slack brief for meetings starting in 13-17 min
+cron.schedule(SLACK_POLL_CRON, () => {
+    meetingPrep.checkAndSend().catch(e => logger.warn('MeetingPrep tick failed:', e.message));
+});
 
 // Slack DM agent — polls self-DM every 60s for new messages
 if (slackAgent.isEnabled()) {
