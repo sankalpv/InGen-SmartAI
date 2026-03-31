@@ -99,13 +99,35 @@ function quickCategory(e) {
 // Unwrap the MCP tool response envelope (content[0].text → JSON)
 function parseMcpResult(result) {
     try {
-        const text = result?.content?.[0]?.text || '';
-        if (typeof text === 'string' && text.startsWith('{')) return JSON.parse(text);
-        if (typeof text === 'string' && text.startsWith('[')) return JSON.parse(text);
-        return text || result || {};
+        // Already a plain object (no envelope)
+        if (result && typeof result === 'object' && !Array.isArray(result) && !result.content) {
+            return result;
+        }
+        const text = (result?.content?.[0]?.text || '').trim();
+        if (text.startsWith('{') || text.startsWith('[')) {
+            try { return JSON.parse(text); } catch { /* fall through */ }
+        }
+        // text might be nested: e.g. content[0] might be an object itself
+        const item = result?.content?.[0];
+        if (item && typeof item === 'object' && !item.text) return item;
+        return result || {};
     } catch {
         return result || {};
     }
+}
+
+// Extract a messages array from whatever shape parseMcpResult returns
+function extractMessages(data) {
+    if (!data) return [];
+    if (Array.isArray(data)) return data;
+    if (Array.isArray(data.messages)) return data.messages;
+    // slack-mcp get_messages sometimes returns { channel: {...}, messages: [...] }
+    // or at root level: { ts, text, user, ... } objects inside an array-like structure
+    const keys = Object.keys(data);
+    for (const k of keys) {
+        if (Array.isArray(data[k]) && data[k].length > 0 && data[k][0]?.ts) return data[k];
+    }
+    return [];
 }
 
 async function fetchSlackData() {
@@ -153,6 +175,8 @@ async function fetchSlackData() {
         // Regular channels — first 8 from the list (ordered by recent activity in sidebar)
         const regularChannels = channels.filter(c => !c.is_im && !c.is_mpim && !c.is_archived).slice(0, 8);
 
+        console.log(`[Briefing/Slack] channels=${channels.length} regular=${regularChannels.length} dms=${dmChannels.length}`);
+
         // 2. Fetch recent messages from regular channels
         for (const ch of regularChannels) {
             try {
@@ -162,9 +186,10 @@ async function fetchSlackData() {
                     includeThreadReplies: false,
                 });
                 const data = parseMcpResult(r);
-                const msgs = data?.messages || (Array.isArray(data) ? data : []);
+                const msgs = extractMessages(data);
+                console.log(`[Briefing/Slack] #${ch.name || ch.id}: ${msgs.length} msgs (raw type=${Array.isArray(r) ? 'array' : typeof r}, keys=${Object.keys(data||{}).join(',')})`);
                 addMessages(msgs, ch.name || ch.id, false);
-            } catch { /* skip channel on error */ }
+            } catch (e) { console.error(`[Briefing/Slack] channel error:`, e.message); }
         }
 
         // 3. Fetch DMs
@@ -176,10 +201,11 @@ async function fetchSlackData() {
                     includeThreadReplies: false,
                 });
                 const data = parseMcpResult(r);
-                const msgs = data?.messages || (Array.isArray(data) ? data : []);
+                const msgs = extractMessages(data);
+                console.log(`[Briefing/Slack] DM ${dm.id}: ${msgs.length} msgs`);
                 const dmName = dm.topic || dm.name || dm.id;
                 addMessages(msgs, dmName, true);
-            } catch { /* skip */ }
+            } catch (e) { console.error(`[Briefing/Slack] DM error:`, e.message); }
         }
     } catch (e) {
         console.error('[Briefing] Slack fetch failed:', e.message);
