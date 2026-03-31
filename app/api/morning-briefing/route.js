@@ -135,7 +135,7 @@ async function fetchSlackData() {
         // 1. Get channels the user is a member of
         // list_my_channels returns a section-based structure: { sections: [{channels:[...]}, ...] }
         // Flatten all channels from all sections into a single array.
-        const channelsResult = await mcpClient.callTool('slack-mcp', 'list_my_channels', {});
+        const channelsResult = await mcpClient.callTool('slack-mcp', 'list_my_channels', { compactOutput: false });
         const channelsData = parseMcpResult(channelsResult);
 
         let channels = [];
