@@ -8,6 +8,7 @@ const TEMPLATES = [
     { icon: '📧', label: 'Draft reply', prompt: 'Draft a reply to the latest email about ' },
     { icon: '🎯', label: 'Goal deep-dive', prompt: 'What is the status of our goals?' },
     { icon: '👥', label: 'Team check-in', prompt: 'Give me a team pulse check' },
+    { icon: '💬', label: 'Slack search', prompt: 'Search Slack for ' },
 ];
 
 // ─── Sub-components ───

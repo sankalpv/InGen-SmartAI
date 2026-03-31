@@ -705,7 +705,59 @@ register({
     },
 });
 
-// (Slack search tool removed — no Slack integration currently)
+// 7. Slack Search — live search via slack-mcp
+register({
+    name: 'slack_search',
+    description: 'Search Slack messages by keyword, topic, or person. Supports modifiers: from:@alias (messages from a specific person), in:#channel (messages in a channel), after:YYYY-MM-DD (date filter). Returns message text, channel, user, and permalink. Use this when the user asks about Slack discussions, what someone said, or recent conversations on a topic.',
+    icon: '💬',
+    parameters: {
+        query: { type: 'string', description: 'Slack search query. Supports modifiers: from:@alias, in:#channel, after:YYYY-MM-DD, "exact phrase"' },
+        count: { type: 'number', description: 'Max results to return (default: 10)' },
+        sort: { type: 'string', description: 'Sort order: score (relevance) or timestamp (default: timestamp)' },
+    },
+    async execute({ query, count = 10, sort = 'timestamp' }) {
+        if (!query) return { data: [], summary: 'No search query provided.', count: 0 };
+        const mcpClient = require('./mcp-client');
+
+        function parseResult(result) {
+            try {
+                const text = result?.content?.[0]?.text || '';
+                return typeof text === 'string' ? JSON.parse(text) : text;
+            } catch { return {}; }
+        }
+
+        try {
+            const result = await mcpClient.callTool('slack-mcp', 'search', {
+                query,
+                scope: 'messages',
+                count: Math.min(count, 20),
+                sort,
+                sort_dir: 'desc',
+            });
+            const data = parseResult(result);
+            const matches = data?.messages?.matches || [];
+
+            const formatted = matches.map(m => ({
+                channel: m.channel?.name || m.channel?.id || 'DM',
+                user: m.username || m.user || 'unknown',
+                text: (m.text || '').slice(0, 500).replace(/\s+/g, ' ').trim(),
+                ts: m.ts,
+                time: m.ts ? new Date(parseFloat(m.ts) * 1000).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : '',
+                permalink: m.permalink || null,
+                threadParent: m.threadParent?.text ? m.threadParent.text.slice(0, 200) : null,
+            }));
+
+            const summary = formatted.length > 0
+                ? `Found ${formatted.length} Slack message(s) for "${query}". Top result: @${formatted[0].user} in #${formatted[0].channel}: "${formatted[0].text.slice(0, 100)}..."`
+                : `No Slack messages found for "${query}".`;
+
+            return { data: formatted, summary, count: formatted.length };
+        } catch (e) {
+            logger.warn('slack_search tool failed:', e.message);
+            return { data: [], summary: `Slack search failed: ${e.message}`, count: 0, _error: true };
+        }
+    },
+});
 
 // 8. Goal Wins — Derive insights from tasks closed against goals in the last week (depth 3)
 register({
