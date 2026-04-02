@@ -658,8 +658,20 @@ export async function executeAgent(task, preferences = {}, onEvent = () => {}) {
         }
 
         let resultText = '';
-        // Use custom synthesis prompt if sub-agent provided one
-        if (customSynthesisPrompt) {
+
+        // ── Passthrough: tools that return self-contained formatted responses ──
+        // Skip the synthesize LLM call to prevent sections being dropped/reworded.
+        const PASSTHROUGH_TOOLS = new Set(['daily_briefing']);
+        const isPassthrough = evidence.length === 1 && PASSTHROUGH_TOOLS.has(evidence[0].tool) && !customSynthesisPrompt;
+
+        if (isPassthrough) {
+            const toolResult = evidence[0].result;
+            // daily_briefing stores full markdown in data.briefing; fall back to summary
+            resultText = toolResult.data?.briefing || toolResult.text || toolResult.summary || JSON.stringify(toolResult.data || {}, null, 2);
+            onEvent({ type: 'chunk', text: resultText });
+            logger.info(`Passthrough: skipping synthesize for tool "${evidence[0].tool}" (${resultText.length} chars)`);
+        } else if (customSynthesisPrompt) {
+            // Use custom synthesis prompt if sub-agent provided one
             await synthesizeWithPrompt(task, evidence, preferences, customSynthesisPrompt, followUpContext, (chunk) => {
                 resultText += chunk;
                 onEvent({ type: 'chunk', text: chunk });

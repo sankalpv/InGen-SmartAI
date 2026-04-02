@@ -3,103 +3,218 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { MessageSquare, X, Send, Bot, Sparkles, Trash2, Maximize2, Minimize2, Clock } from 'lucide-react';
 
-// Simple markdown-like formatting for AI responses
+// Rich markdown formatting for AI responses
 function FormattedMessage({ content }) {
     if (!content) return null;
 
-    const lines = content.split('\n');
-    const elements = [];
-    let inList = false;
-    let listItems = [];
-
-    const flushList = () => {
-        if (listItems.length > 0) {
-            elements.push(
-                <ul key={`list-${elements.length}`} style={{ margin: '8px 0', paddingLeft: '20px', listStyleType: 'disc' }}>
-                    {listItems.map((item, i) => (
-                        <li key={i} style={{ marginBottom: '4px', lineHeight: '1.6' }}>{formatInline(item)}</li>
-                    ))}
-                </ul>
-            );
-            listItems = [];
-            inList = false;
-        }
-    };
-
     const formatInline = (text) => {
-        // Bold: **text**
-        const parts = text.split(/(\*\*[^*]+\*\*)/g);
+        if (!text) return text;
+        // Split on bold (**text**) and inline code (`code`)
+        const parts = text.split(/(\*\*[^*]+\*\*|`[^`]+`)/g);
         return parts.map((part, i) => {
             if (part.startsWith('**') && part.endsWith('**')) {
-                return <strong key={i} style={{ color: '#e2e8f0', fontWeight: 600 }}>{part.slice(2, -2)}</strong>;
+                return <strong key={i} style={{ color: '#f1f5f9', fontWeight: 600 }}>{part.slice(2, -2)}</strong>;
             }
-            // Inline code: `code`
-            const codeParts = part.split(/(`[^`]+`)/g);
-            return codeParts.map((cp, j) => {
-                if (cp.startsWith('`') && cp.endsWith('`')) {
-                    return (
-                        <code key={`${i}-${j}`} style={{
-                            background: 'rgba(139, 92, 246, 0.15)',
-                            padding: '1px 5px',
-                            borderRadius: '4px',
-                            fontSize: '0.85em',
-                            color: '#c4b5fd'
-                        }}>
-                            {cp.slice(1, -1)}
-                        </code>
-                    );
-                }
-                return cp;
-            });
+            if (part.startsWith('`') && part.endsWith('`')) {
+                return (
+                    <code key={i} style={{
+                        background: 'rgba(139, 92, 246, 0.15)',
+                        padding: '1px 5px',
+                        borderRadius: '4px',
+                        fontSize: '0.85em',
+                        color: '#c4b5fd',
+                        fontFamily: 'monospace',
+                    }}>
+                        {part.slice(1, -1)}
+                    </code>
+                );
+            }
+            return part;
         });
     };
 
-    lines.forEach((line, idx) => {
+    // Parse markdown table
+    const parseTable = (tableLines) => {
+        const rows = tableLines
+            .filter(l => l.trim() && !l.trim().match(/^\|[-: |]+\|$/)) // skip separator row
+            .map(l => l.trim().replace(/^\||\|$/g, '').split('|').map(c => c.trim()));
+        if (rows.length === 0) return null;
+        const [header, ...body] = rows;
+        return (
+            <div style={{ overflowX: 'auto', margin: '10px 0' }}>
+                <table style={{
+                    width: '100%',
+                    borderCollapse: 'collapse',
+                    fontSize: '12px',
+                    lineHeight: '1.5',
+                }}>
+                    <thead>
+                        <tr>
+                            {header.map((cell, i) => (
+                                <th key={i} style={{
+                                    padding: '7px 10px',
+                                    textAlign: 'left',
+                                    background: 'rgba(139, 92, 246, 0.12)',
+                                    color: '#c4b5fd',
+                                    fontWeight: 600,
+                                    borderBottom: '1px solid rgba(139, 92, 246, 0.25)',
+                                    whiteSpace: 'nowrap',
+                                }}>
+                                    {formatInline(cell)}
+                                </th>
+                            ))}
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {body.map((row, ri) => (
+                            <tr key={ri} style={{ borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
+                                {row.map((cell, ci) => (
+                                    <td key={ci} style={{
+                                        padding: '6px 10px',
+                                        color: ci === 0 ? '#e2e8f0' : '#94a3b8',
+                                        background: ri % 2 === 0 ? 'transparent' : 'rgba(255,255,255,0.015)',
+                                        verticalAlign: 'top',
+                                    }}>
+                                        {formatInline(cell)}
+                                    </td>
+                                ))}
+                            </tr>
+                        ))}
+                    </tbody>
+                </table>
+            </div>
+        );
+    };
+
+    const lines = content.split('\n');
+    const elements = [];
+    let i = 0;
+
+    while (i < lines.length) {
+        const line = lines[i];
         const trimmed = line.trim();
 
-        // Bullet list items
-        if (trimmed.startsWith('- ') || trimmed.startsWith('• ') || trimmed.match(/^\d+\.\s/)) {
-            inList = true;
-            const text = trimmed.replace(/^[-•]\s+/, '').replace(/^\d+\.\s+/, '');
-            listItems.push(text);
-            return;
+        // Horizontal rule
+        if (trimmed === '---' || trimmed === '***' || trimmed === '___') {
+            elements.push(<hr key={`hr-${i}`} style={{ border: 'none', borderTop: '1px solid rgba(255,255,255,0.08)', margin: '12px 0' }} />);
+            i++;
+            continue;
         }
 
-        flushList();
-
-        // Empty line
-        if (trimmed === '') {
-            elements.push(<div key={`br-${idx}`} style={{ height: '8px' }} />);
-            return;
+        // Table detection — collect all consecutive table lines
+        if (trimmed.startsWith('|') && trimmed.endsWith('|')) {
+            const tableLines = [];
+            while (i < lines.length && lines[i].trim().startsWith('|')) {
+                tableLines.push(lines[i]);
+                i++;
+            }
+            const table = parseTable(tableLines);
+            if (table) elements.push(<div key={`table-${elements.length}`}>{table}</div>);
+            continue;
         }
 
-        // Heading-like (starts with ### or ## or #)
-        if (trimmed.startsWith('### ')) {
+        // H1
+        if (trimmed.startsWith('# ') && !trimmed.startsWith('## ')) {
             elements.push(
-                <div key={idx} style={{ fontWeight: 600, fontSize: '0.95em', color: '#c4b5fd', marginTop: '12px', marginBottom: '4px' }}>
-                    {formatInline(trimmed.slice(4))}
+                <div key={`h1-${i}`} style={{
+                    fontWeight: 700, fontSize: '1.05em', color: '#f1f5f9',
+                    marginTop: '16px', marginBottom: '6px',
+                    paddingBottom: '6px',
+                    borderBottom: '1px solid rgba(139,92,246,0.2)',
+                }}>
+                    {formatInline(trimmed.slice(2))}
                 </div>
             );
-            return;
+            i++; continue;
         }
-        if (trimmed.startsWith('## ')) {
+
+        // H2
+        if (trimmed.startsWith('## ') && !trimmed.startsWith('### ')) {
             elements.push(
-                <div key={idx} style={{ fontWeight: 700, fontSize: '1em', color: '#a78bfa', marginTop: '14px', marginBottom: '4px' }}>
+                <div key={`h2-${i}`} style={{
+                    fontWeight: 700, fontSize: '0.98em', color: '#a78bfa',
+                    marginTop: '14px', marginBottom: '4px',
+                    display: 'flex', alignItems: 'center', gap: '8px',
+                }}>
+                    <span style={{ width: '3px', height: '14px', background: 'linear-gradient(180deg, #a78bfa, #6366f1)', borderRadius: '2px', flexShrink: 0, display: 'inline-block' }} />
                     {formatInline(trimmed.slice(3))}
                 </div>
             );
-            return;
+            i++; continue;
+        }
+
+        // H3
+        if (trimmed.startsWith('### ')) {
+            elements.push(
+                <div key={`h3-${i}`} style={{
+                    fontWeight: 600, fontSize: '0.92em', color: '#c4b5fd',
+                    marginTop: '10px', marginBottom: '3px',
+                }}>
+                    {formatInline(trimmed.slice(4))}
+                </div>
+            );
+            i++; continue;
+        }
+
+        // Numbered list
+        if (trimmed.match(/^\d+\.\s/)) {
+            const listItems = [];
+            while (i < lines.length && lines[i].trim().match(/^\d+\.\s/)) {
+                listItems.push(lines[i].trim().replace(/^\d+\.\s+/, ''));
+                i++;
+            }
+            elements.push(
+                <ol key={`ol-${elements.length}`} style={{ margin: '6px 0', paddingLeft: '22px', listStyleType: 'decimal' }}>
+                    {listItems.map((item, li) => (
+                        <li key={li} style={{ marginBottom: '4px', lineHeight: '1.65', color: '#cbd5e1' }}>{formatInline(item)}</li>
+                    ))}
+                </ol>
+            );
+            continue;
+        }
+
+        // Bullet list
+        if (trimmed.startsWith('- ') || trimmed.startsWith('• ') || trimmed.startsWith('* ')) {
+            const listItems = [];
+            while (i < lines.length && (lines[i].trim().startsWith('- ') || lines[i].trim().startsWith('• ') || lines[i].trim().startsWith('* '))) {
+                listItems.push(lines[i].trim().replace(/^[-•*]\s+/, ''));
+                i++;
+            }
+            elements.push(
+                <ul key={`ul-${elements.length}`} style={{ margin: '6px 0', paddingLeft: '0', listStyle: 'none' }}>
+                    {listItems.map((item, li) => (
+                        <li key={li} style={{
+                            marginBottom: '5px', lineHeight: '1.65', color: '#cbd5e1',
+                            display: 'flex', alignItems: 'flex-start', gap: '8px',
+                        }}>
+                            <span style={{
+                                width: '5px', height: '5px', borderRadius: '50%',
+                                background: '#818cf8', flexShrink: 0, marginTop: '8px',
+                            }} />
+                            <span>{formatInline(item)}</span>
+                        </li>
+                    ))}
+                </ul>
+            );
+            continue;
+        }
+
+        // Empty line
+        if (trimmed === '') {
+            elements.push(<div key={`sp-${i}`} style={{ height: '6px' }} />);
+            i++; continue;
         }
 
         // Regular paragraph
         elements.push(
-            <p key={idx} style={{ margin: '4px 0', lineHeight: '1.65' }}>{formatInline(trimmed)}</p>
+            <p key={`p-${i}`} style={{ margin: '3px 0', lineHeight: '1.65', color: '#cbd5e1' }}>
+                {formatInline(trimmed)}
+            </p>
         );
-    });
+        i++;
+    }
 
-    flushList();
-
-    return <div>{elements}</div>;
+    return <div style={{ fontSize: '13.5px' }}>{elements}</div>;
 }
 
 // Suggested prompts per page context

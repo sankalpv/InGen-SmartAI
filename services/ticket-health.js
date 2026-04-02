@@ -1,4 +1,5 @@
 const mcpClient = require('./mcp-client');
+const oncallService = require('./oncall');
 const logger = require('./logger').child('TicketHealth');
 const fs = require('fs');
 const path = require('path');
@@ -323,6 +324,14 @@ async function buildDashboard(forceRefresh = false) {
         g => g.baselineStatus && g.baselineStatus !== 'UP_TO_DATE'
     ).length;
 
+    // 7. Fetch current oncall for each resolver group (non-blocking — dashboard still loads if this fails)
+    let oncallMap = {};
+    try {
+        oncallMap = await oncallService.getOncallForResolverGroups(groupNames);
+    } catch (e) {
+        logger.warn('Oncall lookup failed (non-blocking):', e.message);
+    }
+
     // Groups sorted by open count
     const groupList = Object.values(perGroup).sort((a, b) => b.open - a.open);
 
@@ -340,17 +349,23 @@ async function buildDashboard(forceRefresh = false) {
             baselineOverdue,
             statusDistribution: statusDist,
         },
-        groups: groupList.map(g => ({
-            name: g.name,
-            role: g.role,
-            primaryOwner: g.primaryOwner,
-            baselineStatus: g.baselineStatus,
-            open: g.open,
-            resolved30d: g.resolved30d,
-            oldestAge: g.oldestAge,
-            statusBreakdown: g.statusBreakdown,
-            ticketCount: g.tickets.length,
-        })),
+        groups: groupList.map(g => {
+            const oc = oncallMap[g.name] || null;
+            return {
+                name: g.name,
+                role: g.role,
+                primaryOwner: g.primaryOwner,
+                baselineStatus: g.baselineStatus,
+                open: g.open,
+                resolved30d: g.resolved30d,
+                oldestAge: g.oldestAge,
+                statusBreakdown: g.statusBreakdown,
+                ticketCount: g.tickets.length,
+                oncall: oc ? oc.oncall : [],
+                oncallTeam: oc ? oc.teamName : null,
+                shiftEnd: oc ? oc.shiftEnd : null,
+            };
+        }),
         agingTickets: agingTickets.filter(t => t.age >= 7).slice(0, 50),
         myTickets,
         allTickets: agingTickets,

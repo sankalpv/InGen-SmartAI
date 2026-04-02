@@ -178,18 +178,41 @@ async function poll() {
     try {
         const slack = require('./slack');
         
-        // Resolve self-DM channel (cached on global to survive hot-reloads)
+        // Resolve self-DM channel — prefer in-memory cache, then state file, then fresh resolve
         let channelId = agentState.cachedChannelId;
+        if (!channelId) {
+            // Check state file first (survives full process restarts)
+            try {
+                const stateRaw = fs.readFileSync(STATE_FILE, 'utf8');
+                const savedState = JSON.parse(stateRaw);
+                if (savedState.slackSelfDmChannelId) {
+                    channelId = savedState.slackSelfDmChannelId;
+                    agentState.cachedChannelId = channelId;
+                    logger.info(`Self-DM channel loaded from state file: ${channelId}`);
+                }
+            } catch (e) { /* state file missing or invalid — will resolve fresh */ }
+        }
         if (!channelId) {
             logger.info('Resolving self-DM channel...');
             const dmInfo = await slack.getMyDMs(5);
             channelId = dmInfo.channelId;
             agentState.cachedChannelId = channelId;
-            logger.info(`Self-DM channel resolved: ${channelId}`);
+            // Persist so future restarts skip the resolution API call
+            try {
+                const state = fs.existsSync(STATE_FILE) ? JSON.parse(fs.readFileSync(STATE_FILE, 'utf8')) : {};
+                state.slackSelfDmChannelId = channelId;
+                fs.writeFileSync(STATE_FILE, JSON.stringify(state, null, 2));
+            } catch (e) { logger.warn('Could not persist self-DM channel to state file:', e.message); }
+            logger.info(`Self-DM channel resolved and cached: ${channelId}`);
         }
 
-        // Read recent messages
-        const messages = await slack.getMessages(channelId, 20);
+        // Read recent messages — pass `since` so we only get messages newer than
+        // the last watermark (minus a 5-min buffer for clock skew / ordering).
+        // Without this, getMessages returns the oldest N messages in history, not the newest.
+        const lastWatermarkMs = getLastProcessedTs();
+        const sinceMs = Math.max(0, lastWatermarkMs - 5 * 60 * 1000);
+        const sinceIso = sinceMs > 0 ? new Date(sinceMs).toISOString() : undefined;
+        const messages = await slack.getMessages(channelId, 50, sinceIso ? { since: sinceIso } : {});
         if (!messages || messages.length === 0) return;
 
         // Compute max epoch ms across ALL messages (for watermark)
@@ -198,7 +221,6 @@ async function poll() {
             return ms > max ? ms : max;
         }, 0);
 
-        const lastWatermarkMs = getLastProcessedTs();
 
         // ──────────────────────────────────────────────────────
         // ONLY process messages that start with "Hey InGen"

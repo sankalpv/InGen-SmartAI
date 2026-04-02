@@ -605,7 +605,9 @@ async function checkAndSend() {
             try {
                 const context = await gatherContext(event);
                 const brief = await generateBrief(event, context);
-                await sendToSlack(event, brief, context);
+                // Slack auto-delivery disabled — getMyDMs() was resolving to wrong DM channels
+                // (attendee DMs instead of self-DM). Meeting prep is available via web UI only.
+                // await sendToSlack(event, brief, context);
                 markBriefed(eventId);
             } catch (e) {
                 logger.error(`Failed to prep for ${event.title}: ${e.message}`);

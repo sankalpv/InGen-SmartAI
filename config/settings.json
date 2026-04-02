@@ -5,13 +5,30 @@
   "ignoreExternalEmails": true,
   "insightConfidenceThreshold": 0.5,
   "lowPowerMode": false,
-  "phonetoolAlias": "",
+  "phonetoolAlias": "sankalpv",
   "promptUpdateUrl": "https://code.amazon.com/packages/InGen-SmartAI/blobs/mainline/--/config/prompts.json",
   "quip": {
-    "enabled": false,
+    "enabled": true,
     "baseUrl": "https://quip-amazon.com",
     "maxDocsPerEmail": 5,
     "timeoutSeconds": 30
+  },
+  "slackIndexer": {
+    "enabled": true,
+    "channels": [
+      "#cpp-lt",
+      "#cpp-automation-stores-sdm-pmt",
+      "#cpp-leads",
+      "#cpp-ams",
+      "#cpp-dfs",
+      "#cpp-imr",
+      "#cpp-drift-detection",
+      "#embedding-excellence-working-group",
+      "#insights",
+      "#paragon-tse-cpp-interoperability",
+      "#cpp-stores-automation-sdm"
+    ],
+    "lookbackDays": 30
   },
   "mcpServers": {
     "aws-outlook-mcp": {
@@ -36,7 +53,9 @@
     },
     "ingen-mcp": {
       "command": "/opt/homebrew/bin/node",
-      "args": ["services/mcp-server.js"],
+      "args": [
+        "services/mcp-server.js"
+      ],
       "env": {}
     }
   },
@@ -66,5 +85,6 @@
     "namespace": "InGen/Usage",
     "flushIntervalMs": 300000
   },
-  "test": true
+  "test": true,
+  "logUploadUrl": ""
 }

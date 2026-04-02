@@ -6,7 +6,7 @@
  * Uses batched progressive fetching: 20 emails at a time to avoid timeout
  */
 
-import { fetchOutlookEmails, fetchOutlookCalendar } from '../services/outlook-mcp.js';
+import { fetchOutlookEmailsHydrated, fetchOutlookCalendar } from '../services/outlook-mcp.js';
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
@@ -52,7 +52,7 @@ try {
 } catch (e) { /* ignore */ }
 
 try {
-    const fresh = await fetchOutlookEmails(TARGET_EMAILS);
+    const fresh = await fetchOutlookEmailsHydrated(TARGET_EMAILS);
     if (isValidEmailData(fresh)) {
         // Merge: update existing + prepend new
         const existingIds = new Set(allEmails.map(e => e.id));

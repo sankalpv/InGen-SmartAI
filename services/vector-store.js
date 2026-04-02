@@ -366,14 +366,19 @@ class VectorStore {
     async ingestSlackMessage(msg) {
         if (!this.loaded) await this.init();
 
-        const msgId = `slack:${msg.channel}:${msg.id || msg.timestamp}`;
+        const channel  = String(msg.channel || '');
+        const msgTs    = String(msg.id || msg.timestamp || Date.now());
+        const msgId    = `slack:${channel}:${msgTs}`;
+        const sender   = String(msg.from?.name || msg.user || 'Unknown');
+        const received = String(msg.timestamp || new Date().toISOString());
+
         const existing = this._stmtGetByOutlookId.get(msgId);
         if (existing) return { skipped: true, reason: 'duplicate' };
 
         const cleanedText = cleanBody(msg.message || msg.text || '');
         if (cleanedText.length < 10) return { skipped: true, reason: 'empty' };
 
-        const textToEmbed = `[Slack #${msg.channel}] ${msg.from?.name || msg.user || 'Unknown'}: ${cleanedText}`;
+        const textToEmbed = `[Slack #${channel}] ${sender}: ${cleanedText}`;
 
         try {
             const vector = await this.getEmbedding(textToEmbed);
@@ -382,12 +387,12 @@ class VectorStore {
             const info = this._stmtInsert.run({
                 type:      'slack',
                 outlookId: msgId,
-                subject:   `[Slack] ${msg.channel}`,
-                sender:    msg.from?.name || msg.user || '',
+                subject:   `[Slack] ${channel}`,
+                sender:    sender,
                 fromAddr:  '',
                 toAddr:    '',
-                folder:    msg.channel || '',
-                received:  msg.timestamp || new Date().toISOString(),
+                folder:    channel,
+                received:  received,
                 snippet:   cleanedText.substring(0, 500),
                 fullBody:  cleanedText,
             });

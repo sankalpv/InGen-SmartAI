@@ -222,67 +222,27 @@ async function getMyDMs(limit = 10) {
         const alias = settings.phonetoolAlias;
         if (!alias) throw new Error('phonetoolAlias not configured in settings.json');
 
-        // Strategy 1: Smart Search for the actual trigger phrase
-        // This finds exactly where the user is CURRENTLY talking to InGen
-        let channelId;
-        let userId;
-        try {
-            logger.info(`Performing Smart Search for "Hey InGen" to resolve active channel...`);
-            const searchResult = await mcpClient.callTool(SERVER, 'search', { query: `Hey InGen`, count: 5, scope: 'messages' });
-            const searchData = parseResult(searchResult);
-            const matches = searchData?.messages?.matches || [];
-            
-            // Sort matches by timestamp descending to find the absolute latest interaction
-            matches.sort((a, b) => parseFloat(b.ts || 0) - parseFloat(a.ts || 0));
-            
-            for (const match of matches) {
-                // If it's an IM (Direct Message)
-                if (match.channel?.is_im) {
-                    channelId = match.channel.id;
-                    userId = match.user;
-                    break;
-                }
-            }
-        } catch (e) {
-            logger.error(`Smart Search failed: ${e.message}`);
+        // Deterministic resolution: lookup_user by email → open_dm_channel with self.
+        // Search-based strategies are unreliable — they match ANY DM containing "Hey InGen"
+        // and can return a different channel each time depending on message recency.
+        const email = alias.includes('@') ? alias : `${alias}@amazon.com`;
+        const lookupResult = await mcpClient.callTool(SERVER, 'lookup_user', { query: email });
+        const userData = parseResult(lookupResult);
+        const userId = userData?.id;
+        if (!userId) throw new Error(`Could not find Slack user for alias: ${alias}`);
+
+        const dmResult = await mcpClient.callTool(SERVER, 'open_dm_channel', { userIds: userId });
+        const rawDmText = dmResult?.content?.[0]?.text || '';
+        const dmData = parseResult(dmResult);
+        let channelId = dmData?.channel_id || dmData?.channel?.id || dmData?.id || dmData?.channelId;
+        // Fallback: parse channel ID from raw text
+        if (!channelId && typeof rawDmText === 'string') {
+            const match = rawDmText.match(/["\s:](D[A-Z0-9]{8,})/);
+            if (match) channelId = match[1];
         }
+        if (!channelId) throw new Error(`open_dm_channel returned no channel ID for ${alias}. Response: ${rawDmText.substring(0, 200)}`);
 
-        // Strategy 2: Fallback to searching for messages FROM the user
-        if (!channelId) {
-            try {
-                const searchResult = await mcpClient.callTool(SERVER, 'search', { query: `from:@${alias}`, count: 10, scope: 'messages' });
-                const searchData = parseResult(searchResult);
-                const matches = searchData?.messages?.matches || [];
-                for (const match of matches) {
-                    if (match.channel?.is_im && (match.channel?.name === alias || match.username === alias)) {
-                        channelId = match.channel.id;
-                        userId = match.user;
-                        logger.info(`Resolved channel ${channelId} via fallback user search`);
-                        break;
-                    }
-                }
-            } catch (e) { /* silent */ }
-        }
-
-        // Strategy 3: Hard-boiled fallback (ID resolution + open_dm_channel)
-        if (!channelId) {
-            // Last resort: lookup_user by email
-            if (!userId) {
-                const email = alias.includes('@') ? alias : `${alias}@amazon.com`;
-                const lookupResult = await mcpClient.callTool(SERVER, 'lookup_user', { query: email });
-                const userData = parseResult(lookupResult);
-                userId = userData?.id;
-            }
-
-            if (!userId) throw new Error(`Could not find Slack user for alias: ${alias}`);
-
-            // Open DM channel
-            const dmResult = await mcpClient.callTool(SERVER, 'open_dm_channel', { userIds: userId });
-            const dmData = parseResult(dmResult);
-            channelId = dmData?.channel_id || dmData?.channel?.id || dmData?.id || dmData?.channelId;
-        }
-
-        if (!channelId) throw new Error(`Could not resolve self-DM channel for ${alias}`);
+        logger.info(`Self-DM channel resolved via open_dm_channel: ${channelId} (user: ${userId})`);
 
         // Fetch messages from self-DM
         const messages = await getMessages(channelId, limit);
@@ -342,7 +302,46 @@ async function postBlockMessage(channel, text) {
     return { ok: true, channel, messageTs };
 }
 
+/**
+ * Get all replies in a thread
+ * @param {string} channel - Channel name or ID
+ * @param {string} threadTs - Thread parent timestamp
+ * @returns {Array} Thread replies with { user, text, ts }
+ */
+async function getThread(channel, threadTs) {
+    const result = await mcpClient.callTool(SERVER, 'get_thread', { channel, threadTs });
+    checkError(result);
+    const data = parseResult(result);
+    const messages = data?.messages || data || [];
+    return Array.isArray(messages) ? messages : [];
+}
+
+/**
+ * Resolve a channel name to its ID
+ * @param {string} name - Channel name (with or without #)
+ * @returns {{ id, name, is_private }} or null
+ */
+async function resolveChannel(name) {
+    const cleanName = name.replace(/^#/, '');
+    const result = await mcpClient.callTool(SERVER, 'get_channel', { channel: `#${cleanName}` });
+    checkError(result);
+    const data = parseResult(result);
+    return data?.id ? { id: data.id, name: data.name || cleanName, is_private: !!data.is_private } : null;
+}
+
+/**
+ * Look up a Slack user by alias, email, or user ID
+ * @param {string} query - User alias, email, or Slack user ID
+ * @returns {{ id, display_name, real_name, email }} or null
+ */
+async function lookupUser(query) {
+    const result = await mcpClient.callTool(SERVER, 'lookup_user', { query });
+    checkError(result);
+    return parseResult(result);
+}
+
 module.exports = {
     postToChannel, postToChannelByName, sendDM,
     postMessage, editMessage, getMessages, getMyDMs, postBlockMessage,
+    getThread, resolveChannel, lookupUser,
 };

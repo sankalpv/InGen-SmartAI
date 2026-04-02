@@ -10,6 +10,8 @@ export default function SettingsModal({ isOpen, onClose }) {
     const [ignoreExternal, setIgnoreExternal] = useState(false);
     const [bedrockBearerToken, setBedrockBearerToken] = useState('');
     const [logUploadUrl, setLogUploadUrl] = useState('');
+    const [slackIndexerEnabled, setSlackIndexerEnabled] = useState(false);
+    const [slackIndexerChannels, setSlackIndexerChannels] = useState('');
     const [isUploadingLogs, setIsUploadingLogs] = useState(false);
     const [logUploadStatus, setLogUploadStatus] = useState(null);
     const [gistUrl, setGistUrl] = useState(null);
@@ -33,6 +35,8 @@ export default function SettingsModal({ isOpen, onClose }) {
             setIgnoreExternal(configData.ignoreExternalEmails === true);
             setBedrockBearerToken(configData.bedrockBearerToken || '');
             setLogUploadUrl(configData.logUploadUrl || '');
+            setSlackIndexerEnabled(configData.slackIndexer?.enabled === true);
+            setSlackIndexerChannels((configData.slackIndexer?.channels || []).join(', '));
 
             const calRes = await fetch('/api/settings/calendars');
             const calData = await calRes.json();
@@ -59,7 +63,12 @@ export default function SettingsModal({ isOpen, onClose }) {
                     promptUpdateUrl: promptUrl,
                     ignoreExternalEmails: ignoreExternal,
                     bedrockBearerToken: bedrockBearerToken,
-                    logUploadUrl: logUploadUrl
+                    logUploadUrl: logUploadUrl,
+                    slackIndexer: {
+                        enabled: slackIndexerEnabled,
+                        channels: slackIndexerChannels.split(',').map(c => c.trim().replace(/^#/, '')).filter(Boolean).map(c => `#${c}`),
+                        lookbackDays: 30,
+                    }
                 })
             });
             if (!res.ok) throw new Error('Failed to save');
@@ -215,6 +224,52 @@ export default function SettingsModal({ isOpen, onClose }) {
                         </div>
                         <input type="checkbox" checked={ignoreExternal} onChange={(e) => setIgnoreExternal(e.target.checked)}
                             style={{ width: '18px', height: '18px', accentColor: '#8b5cf6', cursor: 'pointer' }} />
+                    </div>
+                </div>
+
+                {/* Slack Channel Indexer */}
+                <div style={{ marginBottom: '24px' }}>
+                    {sectionTitle('💬', 'Slack Channel Indexer')}
+                    <div style={{
+                        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                        padding: '12px 14px', borderRadius: '10px', marginBottom: '10px',
+                        background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)',
+                    }}>
+                        <div>
+                            <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-primary)' }}>Enable Auto-Indexing</div>
+                            <div style={{ fontSize: '11px', color: 'var(--text-tertiary)', marginTop: '2px' }}>Index Slack channels every 15 min for semantic search</div>
+                        </div>
+                        <input type="checkbox" checked={slackIndexerEnabled} onChange={(e) => setSlackIndexerEnabled(e.target.checked)}
+                            style={{ width: '18px', height: '18px', accentColor: '#8b5cf6', cursor: 'pointer' }} />
+                    </div>
+                    <div>
+                        <label style={{ fontSize: '11px', fontWeight: 600, color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '4px', display: 'block' }}>
+                            Channels to Index
+                        </label>
+                        <input
+                            type="text"
+                            value={slackIndexerChannels}
+                            onChange={(e) => setSlackIndexerChannels(e.target.value)}
+                            placeholder="#my-team, #eng-leads, #staff-eng"
+                            style={inputStyle}
+                        />
+                        {slackIndexerChannels && (
+                            <div style={{ marginTop: '6px', display: 'flex', flexWrap: 'wrap', gap: '4px' }}>
+                                {slackIndexerChannels.split(',').map(c => c.trim()).filter(Boolean).map((ch, i) => (
+                                    <span key={i} style={{
+                                        padding: '2px 8px', borderRadius: '6px', fontSize: '11px', fontWeight: 600,
+                                        background: 'rgba(139,92,246,0.12)', color: '#a78bfa',
+                                        border: '1px solid rgba(139,92,246,0.2)',
+                                    }}>
+                                        {ch.startsWith('#') ? ch : `#${ch}`}
+                                    </span>
+                                ))}
+                            </div>
+                        )}
+                        <div style={{ marginTop: '6px', fontSize: '11px', color: 'var(--text-tertiary)', lineHeight: '1.5' }}>
+                            Comma-separated channel names. Messages are embedded into the vector store for RAG search.
+                            {' '}Requires app restart to pick up changes. Set to 90 days lookback for better recall.
+                        </div>
                     </div>
                 </div>
 

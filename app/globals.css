@@ -595,21 +595,176 @@ body {
     transition: margin-left 0.25s ease, width 0.25s ease;
 }
 
-/* ============ SIDEBAR (Frosted Pane) ============ */
+/* ============ SIDEBAR (legacy class — keep for light theme overrides) ============ */
 .sidebar {
     position: fixed;
-    width: 280px;
     height: 100vh;
-    background: rgba(10, 10, 15, 0.6);
-    /* Slightly darker for contrast */
-    backdrop-filter: blur(60px);
-    -webkit-backdrop-filter: blur(60px);
-    /* Heavy blur */
-    border-right: 1px solid var(--glass-base-border);
-    padding: 32px 24px;
     display: flex;
     flex-direction: column;
     z-index: 100;
+    overflow: hidden;
+}
+
+/* ============ SIDEBAR v2 — hover-expand with groups ============ */
+.ingen-sidebar {
+    position: fixed;
+    top: 0;
+    left: 0;
+    height: 100vh;
+    width: 72px;
+    z-index: 200;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    background: rgba(10,10,16,0.97);
+    border-right: 1px solid rgba(255,255,255,0.07);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    transition: width 0.22s cubic-bezier(0.4,0,0.2,1);
+}
+
+/* Hover expand — only when unpinned */
+.ingen-sidebar[data-pin="unpinned"]:hover {
+    width: 280px;
+}
+
+/* Pinned open */
+.ingen-sidebar[data-pin="pinned-open"] {
+    width: 280px;
+}
+
+/* Pinned closed — never expand */
+.ingen-sidebar[data-pin="pinned-closed"] {
+    width: 72px;
+}
+
+/* Light theme */
+[data-theme="light"] .ingen-sidebar {
+    background: rgba(255,255,255,0.92);
+    border-right: 1px solid rgba(0,0,0,0.08);
+}
+
+/* Labels: hidden when narrow, shown when wide */
+.ingen-sidebar-label {
+    opacity: 0;
+    max-width: 0;
+    overflow: hidden;
+    white-space: nowrap;
+    transition: opacity 0.18s ease, max-width 0.22s ease;
+    pointer-events: none;
+    display: inline-block;
+}
+
+.ingen-sidebar[data-pin="unpinned"]:hover .ingen-sidebar-label,
+.ingen-sidebar[data-pin="pinned-open"] .ingen-sidebar-label {
+    opacity: 1;
+    max-width: 200px;
+    pointer-events: auto;
+}
+
+/* Section group body */
+.ingen-section-body {
+    max-height: 0;
+    overflow: hidden;
+    transition: max-height 0.2s ease;
+}
+
+.ingen-section-body.expanded {
+    max-height: 200px;
+}
+
+/* Collapse section bodies when sidebar is narrow */
+.ingen-sidebar:not([data-pin="unpinned"]:hover):not([data-pin="pinned-open"]) .ingen-section-body {
+    max-height: 0 !important;
+}
+
+/* Nav item */
+.ingen-nav-item {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 9px 11px;
+    border-radius: 10px;
+    font-size: 0.875rem;
+    font-weight: 400;
+    color: rgba(255,255,255,0.6);
+    text-decoration: none;
+    border: 1px solid transparent;
+    transition: background 0.15s, color 0.15s;
+    white-space: nowrap;
+    overflow: hidden;
+    cursor: pointer;
+    width: 100%;
+    box-sizing: border-box;
+    background: none;
+    font-family: inherit;
+}
+
+.ingen-nav-item:hover {
+    background: rgba(255,255,255,0.05);
+    color: rgba(255,255,255,0.95);
+}
+
+.ingen-nav-item.active {
+    background: rgba(139,92,246,0.12);
+    border-color: rgba(139,92,246,0.22);
+    color: #a78bfa;
+    font-weight: 600;
+}
+
+[data-theme="light"] .ingen-nav-item {
+    color: rgba(0,0,0,0.55);
+}
+[data-theme="light"] .ingen-nav-item:hover {
+    background: rgba(0,0,0,0.04);
+    color: rgba(0,0,0,0.85);
+}
+[data-theme="light"] .ingen-nav-item.active {
+    background: rgba(99,102,241,0.08);
+    border-color: rgba(99,102,241,0.18);
+    color: #4f46e5;
+}
+
+/* Section header */
+.ingen-section-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    padding: 6px 10px;
+    background: transparent;
+    border: none;
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 0.7rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.07em;
+    color: rgba(255,255,255,0.35);
+    font-family: inherit;
+    transition: background 0.15s, color 0.15s;
+    overflow: hidden;
+    white-space: nowrap;
+}
+
+.ingen-section-header.has-active {
+    color: #a78bfa;
+}
+
+.ingen-section-header:hover {
+    background: rgba(255,255,255,0.04);
+    color: rgba(255,255,255,0.7);
+}
+
+[data-theme="light"] .ingen-section-header {
+    color: rgba(0,0,0,0.35);
+}
+[data-theme="light"] .ingen-section-header.has-active {
+    color: #4f46e5;
+}
+[data-theme="light"] .ingen-section-header:hover {
+    background: rgba(0,0,0,0.03);
+    color: rgba(0,0,0,0.7);
 }
 
 .sidebar-logo {

@@ -11,6 +11,7 @@ const ollamaClient = require('./ollama-client'); // Ollama availability check
 const issuesParser = require('./issues-parser'); // Issues folder parser
 const issuesStore = require('./issues-store'); // Issues SQLite store
 const slackAgent = require('./slack-agent'); // Slack DM agent
+const slackIndexer = require('./slack-indexer'); // Slack channel ambient indexer
 const logger = require('./logger').child('Agent');
 
 // Configuration
@@ -250,6 +251,47 @@ if (slackAgent.isEnabled()) {
     }, 45000);
 } else {
     logger.info('Slack DM agent disabled (no slack-mcp or phonetoolAlias configured)');
+}
+
+// Slack channel ambient indexer — indexes configured channels into vector store every 15 min
+// Requires slackIndexer.enabled=true and slackIndexer.channels[] in config/settings.json
+const SLACK_INDEX_CRON = '*/15 * * * *'; // Every 15 minutes
+let slackIndexerRunning = false;
+const indexerConfig = slackIndexer.getConfig();
+if (indexerConfig.enabled && indexerConfig.channels.length > 0) {
+    logger.info(`Slack channel indexer enabled — ${indexerConfig.channels.length} channel(s), every 15 min`);
+    cron.schedule(SLACK_INDEX_CRON, async () => {
+        if (slackIndexerRunning) {
+            logger.info('Slack indexer still running from previous tick — skipping');
+            return;
+        }
+        slackIndexerRunning = true;
+        try {
+            const result = await slackIndexer.run();
+            if (result.totalChunks > 0) {
+                logger.info(`Slack indexer: ${result.totalChunks} new chunks indexed`);
+            }
+        } catch (e) {
+            logger.warn('Slack indexer tick failed:', e.message);
+        } finally {
+            slackIndexerRunning = false;
+        }
+    });
+    // Initial indexer run after 90s (let Slack MCP and other services settle)
+    setTimeout(async () => {
+        if (slackIndexerRunning) return;
+        slackIndexerRunning = true;
+        try {
+            logger.info('Starting initial Slack channel indexer run...');
+            await slackIndexer.run();
+        } catch (e) {
+            logger.warn('Initial Slack indexer run failed:', e.message);
+        } finally {
+            slackIndexerRunning = false;
+        }
+    }, 90000);
+} else {
+    logger.info('Slack channel indexer disabled (set slackIndexer.enabled=true in settings.json)');
 }
 
 // Background agent ready

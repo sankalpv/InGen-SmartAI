@@ -550,7 +550,7 @@ export default function TicketHealthPage() {
                             <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                                 <thead>
                                     <tr>
-                                        {['Resolver Group', 'Your Role', 'Open', 'Resolved (30d)', 'Status Breakdown', 'Oldest', 'Baseline'].map(h => (
+                                        {['Resolver Group', 'Your Role', '🔔 Oncall', 'Shift Ends', 'Open', 'Resolved (30d)', 'Status Breakdown', 'Oldest', 'Baseline'].map(h => (
                                             <th key={h} style={{
                                                 textAlign: 'left', fontSize: '10px', color: 'rgba(255,255,255,0.35)',
                                                 textTransform: 'uppercase', letterSpacing: '1px', padding: '10px 14px',
@@ -589,6 +589,29 @@ export default function TicketHealthPage() {
                                                     }}>
                                                         {g.role}
                                                     </span>
+                                                </td>
+                                                <td style={{ padding: '14px', borderBottom: '1px solid rgba(255,255,255,0.03)' }}>
+                                                    {g.oncall && g.oncall.length > 0 ? (
+                                                        <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap' }}>
+                                                            {g.oncall.map((alias, i) => (
+                                                                <a key={i} href={`https://phonetool.amazon.com/users/${alias}`} target="_blank" rel="noopener noreferrer"
+                                                                    onClick={e => e.stopPropagation()}
+                                                                    style={{
+                                                                        padding: '3px 10px', borderRadius: '8px', fontSize: '11px', fontWeight: 600,
+                                                                        background: 'rgba(34,211,238,0.1)', color: '#22d3ee',
+                                                                        border: '1px solid rgba(34,211,238,0.2)', textDecoration: 'none',
+                                                                        display: 'inline-flex', alignItems: 'center', gap: '4px',
+                                                                    }}>
+                                                                    🔔 {alias}
+                                                                </a>
+                                                            ))}
+                                                        </div>
+                                                    ) : (
+                                                        <span style={{ color: 'rgba(255,255,255,0.15)', fontSize: '11px' }}>—</span>
+                                                    )}
+                                                </td>
+                                                <td style={{ padding: '14px', borderBottom: '1px solid rgba(255,255,255,0.03)', fontSize: '11px', color: 'rgba(255,255,255,0.4)', whiteSpace: 'nowrap' }}>
+                                                    {g.shiftEnd ? formatDate(g.shiftEnd) : '—'}
                                                 </td>
                                                 <td style={{ padding: '14px', borderBottom: '1px solid rgba(255,255,255,0.03)', fontSize: '14px' }}>
                                                     <span style={{ fontWeight: 700, color: openCountColor(g.open) }}>{g.open}</span>
