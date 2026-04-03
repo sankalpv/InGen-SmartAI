@@ -24,6 +24,14 @@ export async function GET(req) {
 
         if (events && events.length > 0) {
             localStore.saveCalendar(events);
+            return NextResponse.json({ meetings: events, source: 'mcp' });
+        }
+
+        // MCP returned 0 events — check if cache has recent data (Outlook may be offline)
+        const cached = localStore.getCalendar();
+        if (cached.exists && cached.data && cached.data.length > 0 && cached.ageMinutes < 1440) {
+            console.warn(`[API/Calendar] MCP returned 0 events — serving cache (${cached.ageMinutes}m old, ${cached.data.length} events)`);
+            return NextResponse.json({ meetings: cached.data, source: 'cache-zero-fallback', ageMinutes: cached.ageMinutes });
         }
 
         return NextResponse.json({ meetings: events, source: 'mcp' });

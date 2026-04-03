@@ -323,10 +323,51 @@ async function getThread(channel, threadTs) {
  */
 async function resolveChannel(name) {
     const cleanName = name.replace(/^#/, '');
-    const result = await mcpClient.callTool(SERVER, 'get_channel', { channel: `#${cleanName}` });
-    checkError(result);
-    const data = parseResult(result);
-    return data?.id ? { id: data.id, name: data.name || cleanName, is_private: !!data.is_private } : null;
+
+    // Strategy 1: Direct get_channel (works if we're a member and name is exact)
+    try {
+        const result = await mcpClient.callTool(SERVER, 'get_channel', { channel: `#${cleanName}` });
+        const text = result?.content?.[0]?.text || '';
+        // get_channel returns error text on failure but doesn't throw
+        if (typeof text === 'string' && (text.includes('not found') || text.includes('Error'))) {
+            throw new Error(text);
+        }
+        const data = parseResult(result);
+        if (data?.id) return { id: data.id, name: data.name || cleanName, is_private: !!data.is_private };
+    } catch (e) {
+        logger.info(`get_channel failed for #${cleanName}: ${e.message?.substring(0, 80)}, trying search`);
+    }
+
+    // Strategy 2: Search for a message in the channel to discover its ID
+    try {
+        const searchResult = await mcpClient.callTool(SERVER, 'search', { query: `in:#${cleanName}`, count: 1, scope: 'messages' });
+        const data = parseResult(searchResult);
+        const channelId = data?.messages?.matches?.[0]?.channel?.id;
+        const channelNameResolved = data?.messages?.matches?.[0]?.channel?.name;
+        if (channelId) {
+            logger.info(`Resolved #${cleanName} → ${channelId} via search`);
+            return { id: channelId, name: channelNameResolved || cleanName, is_private: false };
+        }
+    } catch (e) {
+        logger.info(`Search resolution failed for #${cleanName}: ${e.message?.substring(0, 80)}`);
+    }
+
+    // Strategy 3: List all channels and fuzzy-match
+    try {
+        const channels = await listMyChannels();
+        const exact = channels.find(c => c.name === cleanName);
+        if (exact) return exact;
+        // Fuzzy: partial match
+        const partial = channels.find(c => c.name.includes(cleanName) || cleanName.includes(c.name));
+        if (partial) {
+            logger.info(`Fuzzy matched #${cleanName} → ${partial.id} (${partial.name})`);
+            return partial;
+        }
+    } catch (e) {
+        logger.info(`Channel list fallback failed: ${e.message?.substring(0, 80)}`);
+    }
+
+    return null;
 }
 
 /**
