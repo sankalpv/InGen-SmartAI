@@ -24,6 +24,40 @@ function fetchOutlookCalendar() {
  * Main proactive analysis run
  * Called periodically by background agent (every 30 minutes)
  */
+async function generateActionItemInsights() {
+    try {
+        const notesStore = require('./notes-store');
+        const dueItems = await notesStore.getDueActionItems(3); // due within 3 days
+        if (dueItems.length === 0) return;
+
+        const hasSimilar = await insightStore.hasRecentSimilarInsight(
+            'action_items_due',
+            'Action items due',
+            12 // check every 12 hours
+        );
+        if (hasSimilar) return;
+
+        const overdue = dueItems.filter(i => i.isOverdue);
+        const dueToday = dueItems.filter(i => !i.isOverdue);
+        const lines = [];
+        if (overdue.length > 0) lines.push(`⚠️ ${overdue.length} overdue: ${overdue.map(i => `${(i.owner || '?').replace('@', '')} — ${i.action}`).join('; ')}`);
+        if (dueToday.length > 0) lines.push(`📅 ${dueToday.length} due soon: ${dueToday.map(i => `${(i.owner || '?').replace('@', '')} — ${i.action}`).join('; ')}`);
+
+        const insight = {
+            type: 'action_items_due',
+            priority: overdue.length > 0 ? 'high' : 'medium',
+            title: `${dueItems.length} action item${dueItems.length > 1 ? 's' : ''} need attention`,
+            description: lines.join('\n'),
+            data: { overdue: overdue.length, dueSoon: dueToday.length, items: dueItems.slice(0, 10) },
+            source: 'meeting-notes',
+        };
+        await insightStore.storeInsight(insight);
+        logger.info(`Created action items due insight (${overdue.length} overdue, ${dueToday.length} due soon)`);
+    } catch (e) {
+        logger.warn('Action item insight generation failed:', e.message);
+    }
+}
+
 async function runProactiveAnalysis() {
     let generated = 0;
     let skipped = 0;
@@ -62,7 +96,10 @@ async function runProactiveAnalysis() {
         // 5. Weekly report (Mondays only)
         await generateWeeklyReportIfNeeded(emails, meetings);
         
-        // 6. Cleanup old insights
+        // 6. Action items from meeting notes
+        await generateActionItemInsights();
+        
+        // 7. Cleanup old insights
         await insightStore.cleanupOldInsights(90);
         
         const endCount = (await insightStore.getStats()).total || 0;

@@ -25,6 +25,7 @@ import {
     ChevronRight,
     PanelLeftClose,
     PanelLeftOpen,
+    StickyNote,
 } from 'lucide-react';
 import { useTheme } from '@/components/ThemeProvider';
 
@@ -32,6 +33,7 @@ import { useTheme } from '@/components/ThemeProvider';
 
 const PINNED_ITEMS = [
     { href: '/', label: 'Dashboard', icon: LayoutDashboard, requiresOutlook: true },
+    { href: '/notes', label: 'Meeting Notes', icon: StickyNote },
     { href: '/agent', label: 'Agent Workspace', icon: BrainCircuit },
 ];
 
