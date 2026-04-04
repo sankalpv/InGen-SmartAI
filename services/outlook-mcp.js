@@ -361,12 +361,23 @@ function normalizeEmail(raw) {
         // - email_read: body is a raw HTML string directly on raw.body
         // - email_inbox: body.content (nested object) or bodyPreview
         let bodyRaw = '';
+        let bodyHtml = '';  // Preserve raw HTML for iframe rendering
         if (typeof raw.body === 'string') {
-            // email_read returns body as raw HTML string — strip tags
-            bodyRaw = raw.body.trim().startsWith('<') ? stripHtml(raw.body) : raw.body;
+            // email_read returns body as raw HTML string
+            if (raw.body.trim().startsWith('<')) {
+                bodyHtml = raw.body;         // Keep raw HTML for iframe
+                bodyRaw = stripHtml(raw.body); // Plain text for RAG/search
+            } else {
+                bodyRaw = raw.body;
+            }
         } else {
-            bodyRaw = raw.body?.content || raw.bodyContent || raw.bodyPreview || raw.preview || '';
-            bodyRaw = decodeMimeBody(bodyRaw);
+            const rawContent = raw.body?.content || raw.bodyContent || '';
+            // If body.content is HTML, preserve it for iframe
+            if (rawContent.trim().startsWith('<')) {
+                bodyHtml = rawContent;
+            }
+            bodyRaw = rawContent ? decodeMimeBody(rawContent) : (raw.bodyPreview || raw.preview || '');
+            if (!bodyRaw) bodyRaw = decodeMimeBody(raw.bodyPreview || raw.preview || '');
         }
 
         return {
@@ -375,6 +386,7 @@ function normalizeEmail(raw) {
             subject,
             snippet:        raw.bodyPreview || raw.preview || raw.snippet || (bodyRaw ? bodyRaw.substring(0, 200) : ''),
             body:           bodyRaw,
+            bodyHtml:       bodyHtml || '',  // Raw HTML for iframe rendering
             date:           dateStr,
             isUnread,
             labels,

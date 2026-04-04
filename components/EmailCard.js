@@ -196,13 +196,13 @@ function ThreadMessage({ msg, senderName, defaultOpen }) {
  * Uses a sandboxed iframe for HTML emails (preserves tables, images, CSS).
  * Falls back to plain text for non-HTML content.
  */
-function EmailBody({ body, snippet }) {
+function EmailBody({ body, bodyHtml, snippet }) {
     const [iframeHeight, setIframeHeight] = useState(200);
-    const iframeRef = useState(null);
     const content = body || snippet || '';
     
-    // Detect if content is HTML (has tags)
-    const isHtml = /<[a-z][\s\S]*>/i.test(content);
+    // Prefer raw HTML for iframe rendering (preserved from normalizeEmail)
+    const htmlContent = bodyHtml || '';
+    const hasHtml = htmlContent.length > 0 || /<[a-z][\s\S]*>/i.test(content);
 
     const handleIframeLoad = (e) => {
         try {
@@ -222,16 +222,16 @@ function EmailBody({ body, snippet }) {
         );
     }
 
-    if (isHtml) {
-        // Render rich HTML in sandboxed iframe
-        // Inject dark-mode base styles so white-background emails are readable
+    if (hasHtml) {
+        // Render rich HTML in sandboxed iframe — use preserved raw HTML if available
+        const iframeBody = htmlContent || content;
         const styledContent = `
             <html><head><style>
                 body { margin: 8px; font-family: -apple-system, 'Segoe UI', Roboto, sans-serif; font-size: 14px; line-height: 1.6; color: #e2e8f0; background: #0f1729; }
                 a { color: #818cf8; }
                 img { max-width: 100%; height: auto; }
                 table { max-width: 100%; }
-            </style></head><body>${content}</body></html>`;
+            </style></head><body>${iframeBody}</body></html>`;
 
         return (
             <div style={{ marginBottom: '12px', borderRadius: '8px', overflow: 'hidden', border: '1px solid rgba(255,255,255,0.06)' }}
@@ -493,7 +493,7 @@ export default function EmailCard({ email }) {
                     )}
                     {/* Fallback: show cached body when thread is empty or not loaded */}
                     {(!thread || (thread && thread.length === 0)) && !threadLoading && (
-                        <EmailBody body={email.body} snippet={email.snippet} />
+                        <EmailBody body={email.body} bodyHtml={email.bodyHtml} snippet={email.snippet} />
                     )}
 
                     {/* Ask Question */}
