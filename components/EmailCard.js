@@ -489,11 +489,26 @@ export default function EmailCard({ email }) {
         setIsAsking(true);
         setAnswer(null);
         try {
+            // Build full email body — prefer thread content when available
+            const MAX_PER_MSG = 4000;
+            const MAX_TOTAL = 50000;
+            let askBody = email.body || email.snippet || '';
+            if (thread && thread.length > 0) {
+                askBody = thread.map(m => {
+                    const sender = m.sender?.name || m.sender?.email || 'Unknown';
+                    const body = (m.body || '').slice(0, MAX_PER_MSG);
+                    return `From: ${sender}\n${body}`;
+                }).join('\n---\n');
+            }
+            if (askBody.length > MAX_TOTAL) {
+                askBody = askBody.slice(0, MAX_TOTAL) + '\n\n[... truncated ...]';
+            }
+
             const res = await fetch('/api/ask', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                    emailBody: email.body || email.snippet,
+                    emailBody: askBody,
                     question: question,
                     email: email
                 })
