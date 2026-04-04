@@ -525,6 +525,13 @@ export default function AIChat({ pageContext }) {
 
     const sendMessage = useCallback(async (messageText) => {
         if (!messageText.trim() || isLoading) return;
+        // Track search session for adaptive learning
+        const chatSessionId = `chat-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+        fetch('/api/feedback', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ type: 'search-results', sessionId: chatSessionId, queryText: messageText, results: [{ docId: 'chat-response', rank: 1 }] }),
+        }).catch(() => {});
 
         const userMessage = { role: 'user', content: messageText, time: new Date() };
         setMessages(prev => [...prev, userMessage]);

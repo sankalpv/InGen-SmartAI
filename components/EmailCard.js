@@ -207,6 +207,14 @@ export default function EmailCard({ email }) {
     const handleToggle = async () => {
         const opening = !expanded;
         setExpanded(opening);
+        // Track email click for adaptive learning
+        if (opening && email?.id) {
+            fetch('/api/feedback', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ type: 'result-click', sessionId: 'email-triage', docId: email.id, dwellMs: null }),
+            }).catch(() => {});
+        }
         // Fetch thread on first open
         if (opening && !thread && !threadLoading && email.conversationId) {
             setThreadLoading(true);

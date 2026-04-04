@@ -105,6 +105,9 @@ async function runProactiveAnalysis() {
         // 8. Mark ignored alerts (no user action after 24h) for feedback tracking
         try { const feedbackStore = require('./feedback-store'); await feedbackStore.markIgnoredAlerts(24); } catch (e) { /* feedback store not ready */ }
         
+        // 9. Run adaptive engine (nightly preference adjustment from feedback signals)
+        try { const adaptiveEngine = require('./adaptive-engine'); await adaptiveEngine.runAdaptation(); } catch (e) { logger.warn('Adaptive engine skipped:', e.message); }
+        
         const endCount = (await insightStore.getStats()).total || 0;
         generated = endCount - startCount;
         
