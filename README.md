@@ -181,6 +181,41 @@ Resolver group ticket dashboard showing open/aging/SLA status across your teams.
 
 **Data flow:** `builder-mcp` → `TicketingReadActions` → `ticket-health.js` (caching) → React dashboard; Slack send: `slack-mcp` → channel name resolution (direct / search / list) → `post_message`
 
+### 🧠 Adaptive Learning
+InGen learns from your behavior to improve over time. Visible feedback hooks across the UI:
+
+- **Email category override** — Click any priority badge (Respond Now / Respond Today / FYI) to re-categorize. Shows 🏷️ after correction. InGen learns sender patterns.
+- **Draft reply feedback** — 👍/👎 on every AI-generated draft reply
+- **Q&A answer feedback** — 👍/👎 on "Ask a question about this email" answers
+- **Chat feedback** — 👍/👎 on every Dive Deep assistant message
+- **Passive signals** — Email click tracking, page view tracking, search session tracking
+
+**Pipeline:** UX → `/api/feedback` → `feedback-store.js` (SQLite) → `adaptive-engine.js` (nightly) → improved AI responses
+
+### 📨 Email Thread View
+Expanding an email loads the full conversation thread from Exchange:
+
+- Individual message bubbles with sender avatars, timestamps, expand/collapse
+- Thread summary with message count
+- Full HTML rendering in sandboxed iframe (dark-mode enforced)
+- Graceful fallback to cached body when thread loading fails
+
+### 🤖 Slack Agent
+Background agent monitors your Slack DMs and responds automatically:
+
+- Polls DMs via `slack-mcp` every 60 seconds
+- Detects new messages since last watermark
+- Uses full InGen AI (RAG + tools) to generate contextual replies
+- Posts responses as threaded replies
+- Indexes Slack channel content into vector store for RAG search
+
+### 📝 Notes
+Personal notes page for quick capture and reference:
+
+- Create, edit, delete notes
+- Rich text support
+- Persistent storage via SQLite
+
 ### 🌗 Dark/Light Theme
 Toggle between dark and light mode from the sidebar or Settings page. Preference persists in localStorage with anti-flash script for instant theme application on page load.
 
@@ -318,13 +353,17 @@ npm run test:generate       # Auto-generate test stubs for new modules
 
 | Route | Page | Description |
 |---|---|---|
-| `/` | Dashboard | AI briefing, email triage, meeting prep, AI chat |
+| `/` | Dashboard | AI briefing, email triage (priority swim lanes), meeting prep, AI chat |
 | `/week-ahead` | Week Ahead | 7-day calendar with AI coaching |
+| `/meeting-prep` | Meeting Prep | AI-powered meeting preparation with context |
 | `/leadership` | Leadership | Time audit, relationships, action items, blockers |
 | `/my-team` | Team Health | WBR goal status with AI summary |
-| `/eng-metrics` | Code Metrics | Per-engineer CR dashboard |
-| `/ticket-health` | Ticket Health | Resolver group ticket dashboard |
+| `/eng-metrics` | Code Metrics | Per-engineer CR dashboard with heatmaps |
+| `/ticket-health` | Ticket Health | Resolver group ticket dashboard with Slack integration |
+| `/notes` | Notes | Personal notes with create/edit/delete |
+| `/agent` | Agent Workspace | AI agent task execution with tool registry |
 | `/wbr-prep` | WBR Prep | Weekly Business Review preparation document |
+| `/sde3-focus` | SDE3 Focus | Senior engineer development tracking |
 | `/insights/analytics` | Insights | Proactive AI insight analytics |
 | `/settings` | Settings | Calendar, alias, Quip, WBR config, org sync, AI temperature, Bedrock, theme |
 
@@ -397,6 +436,111 @@ Creates `~/Desktop/InGen.tar.gz` (< 3 MB) ready to share via Slack. The packager
 - **No accounts** — No sign-ups, no subscriptions
 - **No telemetry** — Zero tracking or analytics
 - **Your data stays yours** — Emails, calendar, and AI responses are stored only in `~/InGen/data/`
+
+---
+
+## 🤝 Contributing
+
+InGen is actively developed and we welcome contributions from across the org! Whether you're an SDM wanting a new dashboard view, an SDE wanting to improve the AI, or a PM wanting better meeting prep — there's something for everyone.
+
+### Getting Started
+
+```bash
+# Clone the repo
+git clone ssh://git.amazon.com/pkg/InGen-SmartAI ~/InGen-dev
+cd ~/InGen-dev
+
+# Install dependencies
+npm install
+
+# Run in development mode (hot reload)
+npm run dev
+
+# Open http://localhost:3000
+```
+
+### How to Contribute
+
+#### 1. Create a Share Branch
+
+InGen uses GitFarm share branches for collaboration:
+
+```bash
+# Create your feature branch
+git push amazon HEAD:refs/namespaces/share/refs/namespaces/YOUR_ALIAS/refs/heads/FEATURE_NAME
+```
+
+Your branch will appear at: `https://code.amazon.com/packages/InGen-SmartAI/logs/share/YOUR_ALIAS/FEATURE_NAME`
+
+#### 2. Follow the Kiro Steering Files
+
+InGen uses [Kiro](https://kiro.dev) steering files (`.kiro/steering/`) to guide all development. Before writing code, familiarize yourself with:
+
+| File | What It Covers |
+|------|---------------|
+| `ingen-smartai-architecture.md` | Project structure, data flow, module responsibilities |
+| `ingen-smartai-anti-patterns.md` | What NOT to do — common mistakes and how to avoid them |
+| `react-best-practices.md` | 40+ React/Next.js performance rules |
+| `testing-best-practices.md` | Testing philosophy: minimal mocking, behavioral tests |
+| `email-data-flow.md` | Email cache format, MCP data sources, content caps |
+| `composition-patterns.md` | DRY patterns, component extraction guidelines |
+
+If you use Kiro as your IDE, these files are automatically loaded as context for AI assistants — ensuring AI-generated code follows project conventions.
+
+#### 3. Code Quality Standards
+
+InGen enforces formatting automatically via **Prettier + Husky pre-commit hooks**:
+
+- **Prettier** runs on every commit (`.prettierrc` config)
+- **ESLint** for code quality (`eslint.config.mjs`)
+- **No empty catch blocks** — at minimum log a warning
+- **No inline styles** when the pattern repeats 15+ times — extract to CSS classes
+- **Component files < 400 lines** — extract sub-components
+- **Services own business logic**, routes own HTTP concerns, components own UI
+
+#### 4. Run Tests Before Submitting
+
+```bash
+npm test                    # All 605 tests must pass
+npm run test:coverage       # Check coverage report
+```
+
+### Areas Where You Can Help
+
+| Area | Difficulty | Description |
+|------|-----------|-------------|
+| 🐛 Bug fixes | Easy | Fix UI issues, edge cases, error handling |
+| 📊 New dashboard views | Medium | Add pages for oncall rotation, sprint tracking, team pulse |
+| 🤖 AI improvements | Medium | Better prompt engineering, model selection, RAG quality |
+| 🔌 New MCP integrations | Medium | Connect to Quip, Sage, JIRA, or other internal tools |
+| 🧪 Test coverage | Medium | Add behavioral tests following `.kiro/steering/testing-best-practices.md` |
+| ♿ Accessibility | Medium | Add ARIA labels, keyboard navigation, screen reader support |
+| 📱 Mobile responsiveness | Medium | Optimize dashboard for tablet/mobile views |
+| 🏗️ Architecture | Hard | Migrate routes to `withRouteHandler`, adopt `readSettingsSafe`, unified cache |
+| 🪟 Windows support | Hard | Improve PowerShell-based Outlook integration for Windows |
+
+### Project Structure
+
+```
+├── app/                    # Next.js App Router (pages + API routes)
+│   ├── page.js            # Dashboard (email triage, meetings, AI chat)
+│   ├── api/               # 37+ API route handlers
+│   └── [feature]/page.js  # Feature pages (eng-metrics, ticket-health, etc.)
+├── components/             # React components (EmailCard, MeetingCard, AIChat, etc.)
+├── services/               # 45+ backend service modules (AI, email, calendar, Slack, etc.)
+├── config/                 # Runtime config (settings.json, prompts.json)
+├── data/                   # Local data cache (emails.json, SQLite databases)
+├── brain/                  # Vector store (HNSWLib index + SQLite vectors)
+├── scripts/                # Install, update, sync, and utility scripts
+├── .kiro/steering/         # AI development guidelines
+└── __tests__/              # Jest test suites + MCP fixtures
+```
+
+### Contact
+
+- **Slack:** #ingen-smartai (or DM @sankalpv)
+- **Code Browser:** https://code.amazon.com/packages/InGen-SmartAI
+- **Owner:** Sankalp Verma (sankalpv@)
 
 ---
 
