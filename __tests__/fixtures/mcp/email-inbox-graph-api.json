@@ -1,0 +1,32 @@
+[
+  {
+    "id": "msg-graph-001",
+    "conversationId": "conv-graph-001",
+    "subject": "Sprint Planning Agenda",
+    "from": {
+      "emailAddress": {
+        "name": "Dave Engineer",
+        "address": "dave@example.com"
+      }
+    },
+    "receivedDateTime": "2025-01-15T16:00:00Z",
+    "bodyPreview": "Here is the agenda for tomorrow's sprint planning...",
+    "isRead": false,
+    "hasAttachments": false
+  },
+  {
+    "id": "msg-graph-002",
+    "conversationId": "conv-graph-002",
+    "subject": "Re: Architecture Review",
+    "from": {
+      "emailAddress": {
+        "name": "Eve Architect",
+        "address": "eve@example.com"
+      }
+    },
+    "receivedDateTime": "2025-01-15T15:00:00Z",
+    "bodyPreview": "I've reviewed the design doc and have some feedback...",
+    "isRead": true,
+    "hasAttachments": true
+  }
+]

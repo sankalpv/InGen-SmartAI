@@ -1,0 +1,8 @@
+{
+  "content": [
+    {
+      "type": "text",
+      "text": "{\"success\":true,\"content\":{\"emails\":[{\"conversationId\":\"inner-conv-001\",\"topic\":\"Double Wrapped Email\",\"senders\":[\"Wrapped Sender\"],\"lastDeliveryTime\":\"2025-01-15T12:00:00Z\",\"preview\":\"This was double-wrapped by MCP\",\"unreadCount\":1}]}}"
+    }
+  ]
+}

@@ -1,0 +1,36 @@
+# dependencies
+node_modules/
+
+# build output
+.next/
+out/
+build/
+
+# coverage
+coverage/
+
+# local data
+data/
+brain/
+
+# logs
+*.log
+logs/
+
+# misc
+.DS_Store
+*.pem
+.vercel
+debug_ui_output.json
+
+# demo artifacts
+scripts/demo-audio/
+scripts/demo-output/
+
+# test artifacts
+test-results/
+playwright-report/
+e2e/.auth/
+
+# package-lock
+package-lock.json

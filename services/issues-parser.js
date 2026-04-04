@@ -168,7 +168,7 @@ function extractTimestampFromSubject(subject) {
     if (match) {
         try {
             return new Date(match[1].replace(' ', 'T') + 'Z').toISOString();
-        } catch (e) {}
+        } catch (e) { /* skip */ }
     }
     return null;
 }
@@ -179,7 +179,7 @@ function extractCreatedTimestamp(body) {
     if (match) {
         try {
             return new Date(match[1].replace(' ', 'T') + 'Z').toISOString();
-        } catch (e) {}
+        } catch (e) { /* skip */ }
     }
     return null;
 }
@@ -434,7 +434,7 @@ async function parseIssueEmail(email) {
         for (const event of slaEvents) {
             try {
                 await issuesStore.addSlaEvent({ issueId, ...event });
-            } catch (e) {}
+            } catch (e) { /* skip */ }
         }
         
         // Extract and store cross-team dependencies
@@ -442,7 +442,7 @@ async function parseIssueEmail(email) {
         for (const dep of deps) {
             try {
                 await issuesStore.addDependency({ issueId, ...dep });
-            } catch (e) {}
+            } catch (e) { /* skip */ }
         }
         
         // Record this email as parsed
@@ -542,7 +542,7 @@ async function classifyActivities() {
             if (activity.id) {
                 try {
                     await issuesStore.classifyActivity(activity.id, activityType, 0.8);
-                } catch (e) {}
+                } catch (e) { /* skip */ }
             }
         }
     }

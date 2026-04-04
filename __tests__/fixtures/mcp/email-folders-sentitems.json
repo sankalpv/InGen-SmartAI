@@ -1,0 +1,27 @@
+{
+  "success": true,
+  "content": {
+    "folders": {
+      "content": {
+        "Body": {
+          "Conversations": [
+            {
+              "ConversationId": { "Id": "sent-conv-001" },
+              "ConversationTopic": "Re: Project Timeline Update",
+              "UniqueSenders": ["Me"],
+              "LastDeliveryTime": "2025-01-15T11:00:00Z",
+              "Preview": "I've updated the timeline as discussed..."
+            },
+            {
+              "ConversationId": { "Id": "sent-conv-002" },
+              "ConversationTopic": "Action Items from Retro",
+              "UniqueSenders": ["Me"],
+              "LastDeliveryTime": "2025-01-15T09:30:00Z",
+              "Preview": "Here are the action items we agreed on..."
+            }
+          ]
+        }
+      }
+    }
+  }
+}

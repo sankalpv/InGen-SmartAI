@@ -22,7 +22,7 @@ function getLocalEmails() {
                 return cached.data;
             }
         }
-    } catch (e) { }
+    } catch (e) { /* parse error — skip */ }
     return null;
 }
 

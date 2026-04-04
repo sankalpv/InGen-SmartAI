@@ -1,0 +1,35 @@
+{
+  "success": true,
+  "content": {
+    "message": "Retrieved 3 emails from inbox",
+    "emails": [
+      {
+        "conversationId": "AAQkAGQ0-conv-001",
+        "topic": "Weekly SDM Sync Notes",
+        "senders": ["Alice Johnson"],
+        "lastDeliveryTime": "2025-01-15T14:30:00Z",
+        "preview": "Here are the notes from today's sync meeting...",
+        "unreadCount": 1,
+        "hasAttachments": false
+      },
+      {
+        "conversationId": "AAQkAGQ0-conv-002",
+        "topic": "[EXTERNAL] Vendor Proposal Q2",
+        "senders": ["Bob External"],
+        "lastDeliveryTime": "2025-01-15T13:00:00Z",
+        "preview": "Please find attached our proposal for Q2...",
+        "unreadCount": 0,
+        "hasAttachments": true
+      },
+      {
+        "conversationId": "AAQkAGQ0-conv-003",
+        "topic": "1:1 Follow-up Items",
+        "senders": [{ "name": "Carol Manager", "email": "carol@example.com" }],
+        "lastDeliveryTime": "2025-01-15T10:00:00Z",
+        "preview": "Action items from our 1:1 discussion...",
+        "unreadCount": 2,
+        "hasAttachments": false
+      }
+    ]
+  }
+}

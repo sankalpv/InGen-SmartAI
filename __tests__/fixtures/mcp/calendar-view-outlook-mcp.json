@@ -1,0 +1,36 @@
+{
+  "success": true,
+  "content": {
+    "events": [
+      {
+        "meetingId": "mtg-mcp-001",
+        "subject": "Team Standup",
+        "start": "2025-01-15T09:00:00Z",
+        "end": "2025-01-15T09:15:00Z",
+        "location": "Virtual",
+        "status": "busy",
+        "organizer": "alice@example.com",
+        "isAllDay": false,
+        "isRecurring": true,
+        "isCanceled": false,
+        "attendees": [
+          { "name": "Alice", "email": "alice@example.com" },
+          { "name": "Bob", "email": "bob@example.com" }
+        ]
+      },
+      {
+        "meetingId": "mtg-mcp-002",
+        "subject": "All-Hands Q1 Review",
+        "start": "2025-01-15T14:00:00Z",
+        "end": "2025-01-15T15:00:00Z",
+        "location": "Main Auditorium",
+        "status": "tentative",
+        "organizer": "vp@example.com",
+        "isAllDay": false,
+        "isRecurring": false,
+        "isCanceled": false,
+        "attendees": []
+      }
+    ]
+  }
+}

@@ -1,0 +1,13 @@
+{
+  "enabled": true,
+  "name": "Lint & Format After Task",
+  "description": "Runs ESLint and Prettier checks after each spec task completes. Both must pass with zero errors for the task to be considered done.",
+  "version": "1",
+  "when": {
+    "type": "postTaskExecution"
+  },
+  "then": {
+    "type": "askAgent",
+    "prompt": "A spec task just completed. Before marking it fully done, you MUST run `npm run lint` and `npm run format:check` to verify zero ESLint errors/warnings and all files are properly formatted. If either command fails, fix the issues now — the task is not complete until both pass cleanly. Do not skip this step."
+  }
+}
