@@ -97,14 +97,19 @@ export const runtime = 'nodejs';
 export async function GET(request) {
     const { searchParams } = new URL(request.url);
     const conversationId = searchParams.get('conversationId');
+    const messageId = searchParams.get('messageId');
     const summarize = searchParams.get('summarize') === 'true';
 
-    if (!conversationId) {
-        return NextResponse.json({ error: 'conversationId required' }, { status: 400 });
+    if (!conversationId && !messageId) {
+        return NextResponse.json({ error: 'conversationId or messageId required' }, { status: 400 });
     }
 
     try {
-        const result = await mcpClient.callTool('aws-outlook-mcp', 'email_read', { conversationId });
+        // Prefer message_id (works in v0.3.2) over conversationId (ConversationNodes bug)
+        const readArgs = messageId
+            ? { message_id: messageId }
+            : { conversationId };
+        const result = await mcpClient.callTool('aws-outlook-mcp', 'email_read', readArgs);
 
         // The MCP server double-wraps: outer envelope is { content: [{ type:'text', text: '<JSON>' }] }
         // where the inner text is the actual { success, content: { emails: [...] } } payload.

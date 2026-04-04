@@ -302,12 +302,15 @@ export default function EmailCard({ email }) {
                 body: JSON.stringify({ type: 'result-click', sessionId: 'email-triage', docId: email.id, dwellMs: null }),
             }).catch(() => {});
         }
-        // Fetch thread on first open
-        if (opening && !thread && !threadLoading && email.conversationId) {
+        // Fetch full email body on first open — use messageId (works in v0.3.2)
+        if (opening && !thread && !threadLoading && (email.id || email.conversationId)) {
             setThreadLoading(true);
             setThreadError(null);
             try {
-                const res = await fetch(`/api/email-thread?conversationId=${encodeURIComponent(email.conversationId)}`);
+                const param = email.id
+                    ? `messageId=${encodeURIComponent(email.id)}`
+                    : `conversationId=${encodeURIComponent(email.conversationId)}`;
+                const res = await fetch(`/api/email-thread?${param}`);
                 const data = await res.json();
                 if (data.success) {
                     setThread(data.messages);
