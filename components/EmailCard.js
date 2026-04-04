@@ -225,12 +225,28 @@ function EmailBody({ body, bodyHtml, snippet }) {
     if (hasHtml) {
         // Render rich HTML in sandboxed iframe — use preserved raw HTML if available
         const iframeBody = htmlContent || content;
+        /* Force dark-mode readable text — !important overrides Outlook's
+           inline color:black / color:windowtext / color:#000 styles.
+           Colors match globals.css --text-primary (#e2e8f0) and --accent (#818cf8). */
         const styledContent = `
             <html><head><style>
-                body { margin: 8px; font-family: -apple-system, 'Segoe UI', Roboto, sans-serif; font-size: 14px; line-height: 1.6; color: #e2e8f0; background: #0f1729; }
-                a { color: #818cf8; }
+                body, p, div, span, td, th, li, h1, h2, h3, h4, h5, h6,
+                b, strong, em, i, u, blockquote, pre, code, font, center,
+                .MsoNormal, .MsoListParagraph, .WordSection1, .WordSection2 {
+                    color: #e2e8f0 !important;
+                    font-family: -apple-system, 'Segoe UI', Roboto, sans-serif !important;
+                }
+                body {
+                    margin: 8px;
+                    font-size: 14px;
+                    line-height: 1.6;
+                    background: #0f1729 !important;
+                }
+                a { color: #818cf8 !important; }
                 img { max-width: 100%; height: auto; }
-                table { max-width: 100%; }
+                table { max-width: 100%; border-collapse: collapse; }
+                td, th { border-color: rgba(255,255,255,0.1) !important; padding: 4px 8px; }
+                hr { border-color: rgba(255,255,255,0.1) !important; }
             </style></head><body>${iframeBody}</body></html>`;
 
         return (
