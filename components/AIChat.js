@@ -838,6 +838,40 @@ export default function AIChat({ pageContext }) {
                             )}
 
                             {/* Sources — sorted by similarity, clickable, with scores */}
+                            {/* Chat feedback — adaptive learning */}
+                            {msg.role === 'assistant' && !msg.streaming && msg.content && msg.content.length > 20 && (
+                                <div style={{ display: 'flex', gap: '4px', marginTop: '6px' }}>
+                                    <button
+                                        onClick={() => {
+                                            const btn = document.querySelector(`[data-feedback-id="chat-${idx}"]`);
+                                            if (btn) btn.dataset.voted = 'up';
+                                            fetch('/api/feedback', {
+                                                method: 'POST',
+                                                headers: { 'Content-Type': 'application/json' },
+                                                body: JSON.stringify({ type: 'chat-feedback', sessionId: `chat-${Date.now()}`, messageId: `msg-${idx}`, score: 1 }),
+                                            }).catch(() => {});
+                                        }}
+                                        data-feedback-id={`chat-${idx}`}
+                                        style={{ padding: '2px 6px', border: 'none', borderRadius: '4px', cursor: 'pointer', background: 'rgba(255,255,255,0.05)', color: '#64748b', fontSize: '11px', display: 'flex', alignItems: 'center', gap: '3px' }}
+                                        title="Helpful"
+                                    >
+                                        👍
+                                    </button>
+                                    <button
+                                        onClick={() => {
+                                            fetch('/api/feedback', {
+                                                method: 'POST',
+                                                headers: { 'Content-Type': 'application/json' },
+                                                body: JSON.stringify({ type: 'chat-feedback', sessionId: `chat-${Date.now()}`, messageId: `msg-${idx}`, score: -1 }),
+                                            }).catch(() => {});
+                                        }}
+                                        style={{ padding: '2px 6px', border: 'none', borderRadius: '4px', cursor: 'pointer', background: 'rgba(255,255,255,0.05)', color: '#64748b', fontSize: '11px', display: 'flex', alignItems: 'center', gap: '3px' }}
+                                        title="Not helpful"
+                                    >
+                                        👎
+                                    </button>
+                                </div>
+                            )}
                             {msg.sources && msg.sources.length > 0 && !msg.streaming && (
                                 <SourcesPanel sources={msg.sources} />
                             )}

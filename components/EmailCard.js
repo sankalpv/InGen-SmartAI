@@ -1,6 +1,6 @@
 'use client';
 import { useState } from 'react';
-import { ChevronDown, ChevronUp, Sparkles, Copy, Send, Clock, X, RefreshCw, MessageSquare } from 'lucide-react';
+import { ChevronDown, ChevronUp, Sparkles, Copy, Send, Clock, X, RefreshCw, MessageSquare, ThumbsUp, ThumbsDown, Tag } from 'lucide-react';
 
 const avatarColors = [
     'linear-gradient(135deg, #4f8cff, #3b6fd4)',
@@ -293,13 +293,72 @@ export default function EmailCard({ email }) {
     const [answer, setAnswer] = useState(null);
     const [isAsking, setIsAsking] = useState(false);
 
+    // Adaptive Learning: category override + draft feedback
+    const [overriddenCategory, setOverriddenCategory] = useState(null);
+    const [showCategoryPicker, setShowCategoryPicker] = useState(false);
+    const [draftFeedback, setDraftFeedback] = useState(null); // 'up' | 'down' | null
+    const [answerFeedback, setAnswerFeedback] = useState(null); // 'up' | 'down' | null
+
     const categoryConfig = {
-        respond_now: { label: 'Respond Now', className: 'urgent' },
-        respond_today: { label: 'Respond Today', className: 'high' },
-        fyi: { label: 'FYI', className: 'low' },
+        respond_now: { label: 'Respond Now', className: 'urgent', color: '#ef4444' },
+        respond_today: { label: 'Respond Today', className: 'high', color: '#eab308' },
+        fyi: { label: 'FYI', className: 'low', color: '#6b7280' },
     };
 
-    const category = categoryConfig[email.aiCategory] || categoryConfig.fyi;
+    const effectiveCategory = overriddenCategory || email.aiCategory || 'fyi';
+    const category = categoryConfig[effectiveCategory] || categoryConfig.fyi;
+
+    // Send category correction to adaptive learning backend
+    const handleCategoryOverride = (newCat, e) => {
+        e.stopPropagation();
+        setOverriddenCategory(newCat);
+        setShowCategoryPicker(false);
+        fetch('/api/feedback', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                type: 'category-correction',
+                emailId: email.id,
+                originalCategory: email.aiCategory || 'fyi',
+                correctedCategory: newCat,
+                from: typeof email.from === 'string' ? email.from : email.from?.email || '',
+                subject: email.subject,
+            }),
+        }).catch(() => {});
+    };
+
+    // Send draft quality feedback to adaptive learning backend
+    const handleDraftFeedback = (score, e) => {
+        e.stopPropagation();
+        setDraftFeedback(score);
+        fetch('/api/feedback', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                type: 'draft-feedback',
+                emailId: email.id,
+                score: score === 'up' ? 1 : -1,
+                draftText: draft?.substring(0, 500),
+            }),
+        }).catch(() => {});
+    };
+
+    // Send answer quality feedback
+    const handleAnswerFeedback = (score, e) => {
+        e.stopPropagation();
+        setAnswerFeedback(score);
+        fetch('/api/feedback', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                type: 'answer-feedback',
+                emailId: email.id,
+                score: score === 'up' ? 1 : -1,
+                question,
+                answerText: answer?.substring(0, 500),
+            }),
+        }).catch(() => {});
+    };
 
     const handleToggle = async () => {
         const opening = !expanded;
@@ -451,9 +510,49 @@ export default function EmailCard({ email }) {
                 </div>
 
                 <div className="email-meta">
-                    <span className={`priority-badge ${category.className}`}>
+                    {/* Clickable category badge — click to override AI categorization */}
+                    <span
+                        className={`priority-badge ${category.className}`}
+                        onClick={(e) => { e.stopPropagation(); setShowCategoryPicker(p => !p); }}
+                        title="Click to re-categorize (teaches InGen)"
+                        style={{ cursor: 'pointer', position: 'relative' }}
+                    >
+                        {overriddenCategory && <Tag size={10} style={{ marginRight: '3px', opacity: 0.7 }} />}
                         {category.label}
                     </span>
+                    {/* Category picker dropdown */}
+                    {showCategoryPicker && (
+                        <div
+                            onClick={(e) => e.stopPropagation()}
+                            style={{
+                                position: 'absolute', zIndex: 50, right: '60px', top: '45px',
+                                background: '#1e293b', border: '1px solid #334155', borderRadius: '8px',
+                                padding: '6px', display: 'flex', flexDirection: 'column', gap: '4px',
+                                boxShadow: '0 8px 30px rgba(0,0,0,0.4)',
+                            }}
+                        >
+                            <div style={{ fontSize: '10px', color: '#94a3b8', padding: '2px 8px', fontWeight: 600, textTransform: 'uppercase' }}>
+                                Re-categorize
+                            </div>
+                            {Object.entries(categoryConfig).map(([key, cfg]) => (
+                                <button
+                                    key={key}
+                                    onClick={(e) => handleCategoryOverride(key, e)}
+                                    style={{
+                                        padding: '6px 12px', border: 'none', borderRadius: '6px', cursor: 'pointer',
+                                        background: effectiveCategory === key ? `${cfg.color}22` : 'transparent',
+                                        color: effectiveCategory === key ? cfg.color : '#94a3b8',
+                                        fontSize: '12px', fontWeight: 500, textAlign: 'left',
+                                        transition: 'background 0.15s',
+                                    }}
+                                    onMouseEnter={(e) => { e.target.style.background = `${cfg.color}15`; }}
+                                    onMouseLeave={(e) => { e.target.style.background = effectiveCategory === key ? `${cfg.color}22` : 'transparent'; }}
+                                >
+                                    {cfg.label}
+                                </button>
+                            ))}
+                        </div>
+                    )}
                     <span className={`email-source ${email.source}`}>
                         {email.source}
                     </span>
@@ -544,7 +643,34 @@ export default function EmailCard({ email }) {
                         </div>
                         {answer && (
                             <div style={{ marginTop: '12px', padding: '10px', background: '#0f172a', borderRadius: '6px', fontSize: '0.9rem', lineHeight: '1.5', borderLeft: '3px solid #10b981' }}>
-                                <strong>Answer:</strong> {answer}
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                                    <div><strong>Answer:</strong> {answer}</div>
+                                    {/* Answer feedback — adaptive learning */}
+                                    <div style={{ display: 'flex', gap: '4px', flexShrink: 0, marginLeft: '8px' }}>
+                                        <button
+                                            onClick={(e) => handleAnswerFeedback('up', e)}
+                                            style={{
+                                                padding: '3px 6px', border: 'none', borderRadius: '4px', cursor: 'pointer',
+                                                background: answerFeedback === 'up' ? 'rgba(34,197,94,0.2)' : 'transparent',
+                                                color: answerFeedback === 'up' ? '#22c55e' : '#64748b',
+                                            }}
+                                            title="Helpful answer"
+                                        >
+                                            <ThumbsUp size={13} />
+                                        </button>
+                                        <button
+                                            onClick={(e) => handleAnswerFeedback('down', e)}
+                                            style={{
+                                                padding: '3px 6px', border: 'none', borderRadius: '4px', cursor: 'pointer',
+                                                background: answerFeedback === 'down' ? 'rgba(239,68,68,0.2)' : 'transparent',
+                                                color: answerFeedback === 'down' ? '#ef4444' : '#64748b',
+                                            }}
+                                            title="Not helpful"
+                                        >
+                                            <ThumbsDown size={13} />
+                                        </button>
+                                    </div>
+                                </div>
                             </div>
                         )}
                     </div>
@@ -586,7 +712,34 @@ export default function EmailCard({ email }) {
 
                             {!isGenerating && (
                                 <div className="email-reply-actions" style={{ flexDirection: 'column', gap: '8px', alignItems: 'stretch' }}>
-                                    <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end', marginTop: '8px' }}>
+                                    <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end', marginTop: '8px', alignItems: 'center' }}>
+                                        {/* Draft feedback — adaptive learning */}
+                                        <div style={{ display: 'flex', gap: '2px', marginRight: 'auto' }}>
+                                            <button
+                                                onClick={(e) => handleDraftFeedback('up', e)}
+                                                title="Good draft"
+                                                style={{
+                                                    padding: '4px 8px', border: 'none', borderRadius: '4px', cursor: 'pointer',
+                                                    background: draftFeedback === 'up' ? 'rgba(34,197,94,0.2)' : 'rgba(255,255,255,0.05)',
+                                                    color: draftFeedback === 'up' ? '#22c55e' : '#64748b',
+                                                    fontSize: '11px', display: 'flex', alignItems: 'center', gap: '3px',
+                                                }}
+                                            >
+                                                <ThumbsUp size={12} /> {draftFeedback === 'up' ? 'Thanks!' : ''}
+                                            </button>
+                                            <button
+                                                onClick={(e) => handleDraftFeedback('down', e)}
+                                                title="Poor draft"
+                                                style={{
+                                                    padding: '4px 8px', border: 'none', borderRadius: '4px', cursor: 'pointer',
+                                                    background: draftFeedback === 'down' ? 'rgba(239,68,68,0.2)' : 'rgba(255,255,255,0.05)',
+                                                    color: draftFeedback === 'down' ? '#ef4444' : '#64748b',
+                                                    fontSize: '11px', display: 'flex', alignItems: 'center', gap: '3px',
+                                                }}
+                                            >
+                                                <ThumbsDown size={12} /> {draftFeedback === 'down' ? 'Noted' : ''}
+                                            </button>
+                                        </div>
                                         <button className="btn btn-secondary" onClick={handleCopy}>
                                             <Copy size={14} />
                                             {copied ? 'Copied!' : 'Copy'}

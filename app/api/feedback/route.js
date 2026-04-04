@@ -53,6 +53,42 @@ export async function POST(request) {
                 return NextResponse.json({ ok: true });
             }
 
+            // ── Adaptive Learning: Email Category Override ──────────────────
+            case 'category-correction': {
+                const { emailId, originalCategory, correctedCategory, from, subject } = body;
+                console.log(`[Feedback] Category correction: ${emailId} ${originalCategory}→${correctedCategory} from=${from}`);
+                // Store as a search correction (reuses existing table — correction text captures the override)
+                await feedbackStore.recordSearchCorrection(
+                    `category-${emailId}`,
+                    JSON.stringify({ originalCategory, correctedCategory, from, subject, timestamp: new Date().toISOString() })
+                );
+                return NextResponse.json({ ok: true });
+            }
+
+            // ── Adaptive Learning: Draft Quality Feedback ──────────────────
+            case 'draft-feedback': {
+                const { emailId, score, draftText } = body;
+                console.log(`[Feedback] Draft feedback: ${emailId} score=${score}`);
+                await feedbackStore.recordResultClick(`draft-${emailId}`, emailId, score > 0 ? 5000 : 100);
+                return NextResponse.json({ ok: true });
+            }
+
+            // ── Adaptive Learning: Q&A Answer Quality Feedback ─────────────
+            case 'answer-feedback': {
+                const { emailId, score, question: q, answerText } = body;
+                console.log(`[Feedback] Answer feedback: ${emailId} score=${score} q="${q?.substring(0, 50)}"`);
+                await feedbackStore.recordResultClick(`answer-${emailId}`, emailId, score > 0 ? 5000 : 100);
+                return NextResponse.json({ ok: true });
+            }
+
+            // ── Adaptive Learning: Chat Answer Feedback ────────────────────
+            case 'chat-feedback': {
+                const { sessionId: chatSession, messageId, score: chatScore } = body;
+                console.log(`[Feedback] Chat feedback: session=${chatSession} msg=${messageId} score=${chatScore}`);
+                await feedbackStore.recordResultClick(chatSession || 'chat', messageId || 'unknown', chatScore > 0 ? 5000 : 100);
+                return NextResponse.json({ ok: true });
+            }
+
             default:
                 return NextResponse.json({ error: `Unknown feedback type: ${type}` }, { status: 400 });
         }
