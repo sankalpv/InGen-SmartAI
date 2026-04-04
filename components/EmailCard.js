@@ -394,8 +394,8 @@ export default function EmailCard({ email }) {
                             ))}
                         </div>
                     )}
-                    {/* Fallback: show cached body while thread loads */}
-                    {!thread && !threadLoading && (
+                    {/* Fallback: show cached body when thread is empty or not loaded */}
+                    {(!thread || (thread && thread.length === 0)) && !threadLoading && (
                         <div style={{
                             whiteSpace: 'pre-wrap',
                             wordBreak: 'break-word',
