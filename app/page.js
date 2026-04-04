@@ -19,23 +19,26 @@ import MorningBriefing from '@/components/MorningBriefing'; // Cinematic voice b
 // Email Priority Lanes Component - Visual swim lanes by urgency
 const PAGE_SIZE = 20;
 
-function EmailPriorityLanes({ emails, onDateRangeChange, isLoadingEmails }) {
+function EmailPriorityLanes({ emails }) {
     const [emailDateRange, setEmailDateRange] = useState(1); // Default: today
     const [currentPage, setCurrentPage] = useState(1);
 
-    // No client-side date filter needed — API already filters by days
-    const filteredEmails = emails;
+    // Client-side date filtering — cache has accumulated history
+    const cutoffDate = new Date(Date.now() - emailDateRange * 24 * 60 * 60 * 1000);
+    const filteredEmails = emails.filter(e => {
+        const emailDate = new Date(e.date || e.received || e.receivedDateTime);
+        return emailDate >= cutoffDate;
+    });
 
     // Pagination
     const totalPages = Math.ceil(filteredEmails.length / PAGE_SIZE);
     const startIdx = (currentPage - 1) * PAGE_SIZE;
     const paginatedEmails = filteredEmails.slice(startIdx, startIdx + PAGE_SIZE);
 
-    // When user clicks a date filter, re-fetch from API
+    // Filter locally — instant, no API call
     const handleDateRangeChange = (value) => {
         setEmailDateRange(value);
         setCurrentPage(1);
-        if (onDateRangeChange) onDateRangeChange(value);
     };
 
     const dateRangeOptions = [
@@ -257,7 +260,7 @@ export default function Dashboard() {
 
         try {
             // PHASE 1: Fast initial load (20 emails + calendar) - target <3s
-            const emailUrl = currentSource === 'outlook' ? `/api/outlook-local?count=200&days=1` : '/api/emails';
+            const emailUrl = currentSource === 'outlook' ? '/api/outlook-local?count=500' : '/api/emails';
 
             const [emailRes, calendarRes] = await Promise.allSettled([
                 fetch(emailUrl),
@@ -610,11 +613,7 @@ export default function Dashboard() {
                             <div className="empty-state-text">No emails to show</div>
                         </div>
                     ) : (
-                        <EmailPriorityLanes
-                            emails={sortedEmails}
-                            onDateRangeChange={fetchEmailsByDays}
-                            isLoadingEmails={emailsLoading}
-                        />
+                        <EmailPriorityLanes emails={sortedEmails} />
                     )}
                 </div>
             )}

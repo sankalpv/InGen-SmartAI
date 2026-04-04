@@ -373,11 +373,22 @@ export default function EmailCard({ email }) {
         e.stopPropagation();
         setIsGenerating(true);
         try {
+            // Build full email body: prefer thread content > displayed body > preview
+            let fullBody = email.body || email.snippet || '';
+            if (thread && thread.length > 0) {
+                fullBody = thread.map(m => {
+                    const sender = m.sender?.name || m.sender?.email || 'Unknown';
+                    const body = m.body || '';
+                    return `From: ${sender}\n${body}`;
+                }).join('\n---\n');
+            }
+            const emailWithFullBody = { ...email, body: fullBody };
+
             const res = await fetch('/api/draft', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                    email: email,
+                    email: emailWithFullBody,
                     intent: customIntent || 'Reply positively and succinctly.'
                 })
             });

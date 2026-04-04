@@ -35,7 +35,7 @@ async function fetchOutlookEmails(count = 20) {
     logger.info(`[MCP] Fetching ${count} emails via ${SERVER}`);
     try {
         const result = await mcpClient.callTool(SERVER, 'email_inbox', {
-            maxResults: count,
+            limit: count,  // MCP param is 'limit' (not 'maxResults')
         });
 
         const data = extractContent(result);
