@@ -152,15 +152,17 @@ export async function GET(request) {
             });
         }
 
-        const emails = (raw.content?.emails || []).map(m => ({
-            id: m.itemId,
-            sender: m.sender || {},
-            receivedAt: m.recievedAt,
-            subject: m.subject,
-            body: decodeMimeBody(m.body || ''),
-            recipients: m.recipients || [],
-            cc: m.ccRecipients || [],
-        }));
+        const emails = (raw.content?.emails || [])
+            .filter(m => m.sender?.name || m.body)  // Skip empty Exchange nodes
+            .map(m => ({
+                id: m.itemId,
+                sender: m.sender || {},
+                receivedAt: m.recievedAt,
+                subject: m.subject,
+                body: decodeMimeBody(m.body || ''),
+                recipients: m.recipients || [],
+                cc: m.ccRecipients || [],
+            }));
 
         // Sort oldest → newest so conversation reads top-to-bottom
         emails.sort((a, b) => new Date(a.receivedAt) - new Date(b.receivedAt));

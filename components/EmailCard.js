@@ -374,13 +374,19 @@ export default function EmailCard({ email }) {
         setIsGenerating(true);
         try {
             // Build full email body: prefer thread content > displayed body > preview
+            // Cap per-message at 4000 chars, total at 50000 to stay within LLM limits
+            const MAX_PER_MSG = 4000;
+            const MAX_TOTAL = 50000;
             let fullBody = email.body || email.snippet || '';
             if (thread && thread.length > 0) {
                 fullBody = thread.map(m => {
                     const sender = m.sender?.name || m.sender?.email || 'Unknown';
-                    const body = m.body || '';
+                    const body = (m.body || '').slice(0, MAX_PER_MSG);
                     return `From: ${sender}\n${body}`;
                 }).join('\n---\n');
+            }
+            if (fullBody.length > MAX_TOTAL) {
+                fullBody = fullBody.slice(0, MAX_TOTAL) + '\n\n[... thread truncated for LLM context limit ...]';
             }
             const emailWithFullBody = { ...email, body: fullBody };
 

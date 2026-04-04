@@ -71,8 +71,7 @@
   "bedrock": {
     "region": "us-west-2",
     "modelId": "us.anthropic.claude-sonnet-4-20250514-v1:0",
-    "maxTokens": 8192,
-    "temperature": 0.25
+    "maxTokens": 32768
   },
   "engMetrics": {
     "weeklyRetentionWeeks": 52,
