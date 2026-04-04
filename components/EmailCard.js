@@ -95,6 +95,11 @@ function htmlToText(html) {
     text = text.replace(/<[^>]+>/g, '');
     // Decode common HTML entities
     text = text.replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#39;/g, "'");
+    // Strip Outlook VML/CSS artifacts that leak through
+    text = text.replace(/[vow]\\\:\*\s*\{behavior:url\(#default#VML\);\}/gi, '');
+    text = text.replace(/\.shape\s*\{behavior:url\(#default#VML\);\}/gi, '');
+    // Strip any remaining CSS-like declarations (property: value;)
+    text = text.replace(/^[a-z\-]+\s*\{[^}]*\}\s*$/gim, '');
     // Collapse excessive blank lines
     text = text.replace(/\n{3,}/g, '\n\n').trim();
     return text;
