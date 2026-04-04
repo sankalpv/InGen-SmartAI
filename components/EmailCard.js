@@ -95,11 +95,21 @@ function htmlToText(html) {
     text = text.replace(/<[^>]+>/g, '');
     // Decode common HTML entities
     text = text.replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#39;/g, "'");
-    // Strip Outlook VML/CSS artifacts that leak through
-    text = text.replace(/[vow]\\\:\*\s*\{behavior:url\(#default#VML\);\}/gi, '');
-    text = text.replace(/\.shape\s*\{behavior:url\(#default#VML\);\}/gi, '');
-    // Strip any remaining CSS-like declarations (property: value;)
+    // Strip Outlook VML/CSS artifacts that leak through (with and without backslashes)
+    text = text.replace(/[vow]\\?\:\*\s*\{[^}]*\}/gi, '');
+    text = text.replace(/\.shape\s*\{[^}]*\}/gi, '');
+    // Strip @font-face, @media, and other CSS at-rules
+    text = text.replace(/@font-face\s*\{[^}]*\}/gi, '');
+    text = text.replace(/@media[^{]*\{[^}]*(\{[^}]*\}[^}]*)*\}/gi, '');
+    // Strip CSS class/selector blocks: .className { ... } or selector { ... }
+    text = text.replace(/[.#]?[a-zA-Z][a-zA-Z0-9_-]*(?:\s*[,>+~]\s*[.#]?[a-zA-Z][a-zA-Z0-9_-]*)*\s*\{[^}]*\}/g, '');
+    // Strip remaining CSS-like single-line declarations
     text = text.replace(/^[a-z\-]+\s*\{[^}]*\}\s*$/gim, '');
+    // Strip HTML comments
+    text = text.replace(/<!--[\s\S]*?-->/g, '');
+    text = text.replace(/-->/g, '');
+    // Strip isolated numbers on their own line (from CSS like "96")
+    text = text.replace(/^\s*\d{1,4}\s*$/gm, '');
     // Collapse excessive blank lines
     text = text.replace(/\n{3,}/g, '\n\n').trim();
     return text;
