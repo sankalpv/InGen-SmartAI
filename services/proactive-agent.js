@@ -102,6 +102,9 @@ async function runProactiveAnalysis() {
         // 7. Cleanup old insights
         await insightStore.cleanupOldInsights(90);
         
+        // 8. Mark ignored alerts (no user action after 24h) for feedback tracking
+        try { const feedbackStore = require('./feedback-store'); await feedbackStore.markIgnoredAlerts(24); } catch (e) { /* feedback store not ready */ }
+        
         const endCount = (await insightStore.getStats()).total || 0;
         generated = endCount - startCount;
         

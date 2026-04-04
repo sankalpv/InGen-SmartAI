@@ -113,6 +113,8 @@ class InsightStore {
                     reject(err);
                 } else {
                     logger.info(`Stored insight: ${insight.title}`);
+                    // Record in feedback store for adaptive learning
+                    try { require('./feedback-store').recordAlertFired(id, insight.type).catch(() => {}); } catch (e) { /* feedback store not ready */ }
                     resolve(id);
                 }
             });
@@ -227,6 +229,7 @@ class InsightStore {
                     reject(err);
                 } else {
                     logger.info(`Dismissed insight: ${insightId}`);
+                    try { require('./feedback-store').recordAlertOutcome(insightId, 'dismissed').catch(() => {}); } catch (e) { /* */ }
                     resolve();
                 }
             });
@@ -250,6 +253,7 @@ class InsightStore {
                     reject(err);
                 } else {
                     logger.info(`Marked insight as acted: ${insightId}`);
+                    try { require('./feedback-store').recordAlertOutcome(insightId, 'acted').catch(() => {}); } catch (e) { /* */ }
                     resolve();
                 }
             });
