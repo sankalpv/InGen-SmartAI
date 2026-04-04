@@ -380,11 +380,21 @@ function normalizeEmail(raw) {
             if (!bodyRaw) bodyRaw = decodeMimeBody(raw.bodyPreview || raw.preview || '');
         }
 
+        // Server-side cleanup: strip Outlook VML/CSS artifacts from plain text body
+        bodyRaw = bodyRaw
+            .replace(/[vow]\\?:\*\s*\{behavior:url\(#default#VML\);\}\s*/gi, '')
+            .replace(/\.shape\s*\{behavior:url\(#default#VML\);\}\s*/gi, '')
+            .replace(/\n{3,}/g, '\n\n')
+            .trim();
+
         return {
             id:             raw.id || raw.itemId || raw.messageId || raw.conversationId || String(Math.random()),
             source:         'outlook',
             subject,
-            snippet:        raw.bodyPreview || raw.preview || raw.snippet || (bodyRaw ? bodyRaw.substring(0, 200) : ''),
+            snippet:        (raw.bodyPreview || raw.preview || raw.snippet || (bodyRaw ? bodyRaw.substring(0, 200) : ''))
+                                .replace(/[vow]\\?:\*\s*\{behavior:url\(#default#VML\);\}\s*/gi, '')
+                                .replace(/\.shape\s*\{behavior:url\(#default#VML\);\}\s*/gi, '')
+                                .trim(),
             body:           bodyRaw,
             bodyHtml:       bodyHtml || '',  // Raw HTML for iframe rendering
             date:           dateStr,
