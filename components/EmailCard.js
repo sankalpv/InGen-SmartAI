@@ -181,6 +181,88 @@ function ThreadMessage({ msg, senderName, defaultOpen }) {
     );
 }
 
+/** 
+ * Rich HTML email body renderer.
+ * Uses a sandboxed iframe for HTML emails (preserves tables, images, CSS).
+ * Falls back to plain text for non-HTML content.
+ */
+function EmailBody({ body, snippet }) {
+    const [iframeHeight, setIframeHeight] = useState(200);
+    const iframeRef = useState(null);
+    const content = body || snippet || '';
+    
+    // Detect if content is HTML (has tags)
+    const isHtml = /<[a-z][\s\S]*>/i.test(content);
+
+    const handleIframeLoad = (e) => {
+        try {
+            const doc = e.target.contentDocument || e.target.contentWindow?.document;
+            if (doc?.body) {
+                const height = Math.min(doc.body.scrollHeight + 20, 600);
+                setIframeHeight(Math.max(height, 100));
+            }
+        } catch { /* cross-origin — use default height */ }
+    };
+
+    if (!content) {
+        return (
+            <div style={{ padding: '12px', color: 'var(--text-tertiary)', fontSize: '0.9rem', fontStyle: 'italic' }}>
+                (no body)
+            </div>
+        );
+    }
+
+    if (isHtml) {
+        // Render rich HTML in sandboxed iframe
+        // Inject dark-mode base styles so white-background emails are readable
+        const styledContent = `
+            <html><head><style>
+                body { margin: 8px; font-family: -apple-system, 'Segoe UI', Roboto, sans-serif; font-size: 14px; line-height: 1.6; color: #e2e8f0; background: #0f1729; }
+                a { color: #818cf8; }
+                img { max-width: 100%; height: auto; }
+                table { max-width: 100%; }
+            </style></head><body>${content}</body></html>`;
+
+        return (
+            <div style={{ marginBottom: '12px', borderRadius: '8px', overflow: 'hidden', border: '1px solid rgba(255,255,255,0.06)' }}
+                 onClick={(e) => e.stopPropagation()}>
+                <iframe
+                    srcDoc={styledContent}
+                    sandbox="allow-same-origin"
+                    style={{
+                        width: '100%',
+                        height: `${iframeHeight}px`,
+                        border: 'none',
+                        background: '#0f1729',
+                        borderRadius: '8px',
+                    }}
+                    onLoad={handleIframeLoad}
+                    title="Email content"
+                />
+            </div>
+        );
+    }
+
+    // Plain text fallback
+    return (
+        <div style={{
+            whiteSpace: 'pre-wrap',
+            wordBreak: 'break-word',
+            overflowY: 'auto',
+            maxHeight: '300px',
+            fontSize: '0.9rem',
+            lineHeight: '1.65',
+            color: 'var(--text-secondary)',
+            padding: '12px',
+            background: 'rgba(0,0,0,0.2)',
+            borderRadius: '8px',
+            marginBottom: '12px',
+        }}>
+            {htmlToText(content)}
+        </div>
+    );
+}
+
 export default function EmailCard({ email }) {
     const [expanded, setExpanded] = useState(false);
     const [copied, setCopied] = useState(false);
@@ -401,21 +483,7 @@ export default function EmailCard({ email }) {
                     )}
                     {/* Fallback: show cached body when thread is empty or not loaded */}
                     {(!thread || (thread && thread.length === 0)) && !threadLoading && (
-                        <div style={{
-                            whiteSpace: 'pre-wrap',
-                            wordBreak: 'break-word',
-                            overflowY: 'auto',
-                            maxHeight: '300px',
-                            fontSize: '0.9rem',
-                            lineHeight: '1.65',
-                            color: 'var(--text-secondary)',
-                            padding: '12px',
-                            background: 'rgba(0,0,0,0.2)',
-                            borderRadius: '8px',
-                            marginBottom: '12px',
-                        }}>
-                            {htmlToText(email.body) || email.snippet}
-                        </div>
+                        <EmailBody body={email.body} snippet={email.snippet} />
                     )}
 
                     {/* Ask Question */}
