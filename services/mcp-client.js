@@ -75,7 +75,24 @@ function resolveToolboxCjs(homedir, binaryName) {
     try {
         const toolsDir = path.join(homedir, '.toolbox', 'tools', binaryName);
         if (!fs.existsSync(toolsDir)) return [];
-        // Find all version dirs and return their .cjs paths, newest version first
+
+        // Priority 1: Read info.json and use pinned CurrentVersion (prevents auto-upgrade breakage)
+        const infoPath = path.join(toolsDir, 'info.json');
+        if (fs.existsSync(infoPath)) {
+            try {
+                const info = JSON.parse(fs.readFileSync(infoPath, 'utf8'));
+                const pinnedVersion = info?.CurrentVersion?.Version;
+                if (pinnedVersion) {
+                    const pinnedCjs = path.join(toolsDir, pinnedVersion, `${binaryName}.cjs`);
+                    if (fs.existsSync(pinnedCjs)) {
+                        logger.info(`MCP ${binaryName}: pinned to v${pinnedVersion} via info.json`);
+                        return [pinnedCjs];
+                    }
+                }
+            } catch { /* info.json parse failed — fall through to glob */ }
+        }
+
+        // Fallback: Find all version dirs, newest first (only if info.json missing/invalid)
         const versions = fs.readdirSync(toolsDir)
             .filter(d => /^\d/.test(d))
             .sort()
