@@ -160,9 +160,26 @@ function extractContent(result) {
 
         // aws-outlook-mcp v0.3.2+ wraps responses in <untrusted_content_*> XML tags
         // for prompt injection protection — strip them before parsing
-        text1 = text1.replace(/<\/?untrusted_content_[a-f0-9]+>/g, '').trim();
+        text1 = text1.replace(/<\/?untrusted_content_[a-f0-9]+>/gi, '').trim();
 
-        const outer = JSON.parse(text1);
+        let outer;
+        try {
+            outer = JSON.parse(text1);
+        } catch (parseErr) {
+            // Aggressive fallback: extract first JSON array [...] or object {...} from text
+            const arrMatch = text1.match(/(\[[\s\S]*\])/);
+            const objMatch = text1.match(/(\{[\s\S]*\})/);
+            if (arrMatch) {
+                try { outer = JSON.parse(arrMatch[1]); } catch { /* */ }
+            }
+            if (!outer && objMatch) {
+                try { outer = JSON.parse(objMatch[1]); } catch { /* */ }
+            }
+            if (!outer) {
+                logger.warn(`extractContent: JSON parse failed after tag strip: ${parseErr.message}, text starts with: ${text1.substring(0, 100)}`);
+                return result;
+            }
+        }
 
         // Layer 2: aws-outlook-mcp may itself be an MCP relay wrapping another envelope
         if (outer.content && Array.isArray(outer.content)) {
