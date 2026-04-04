@@ -138,7 +138,15 @@ export async function GET(request) {
         }
 
         if (!raw.success) {
-            return NextResponse.json({ error: 'MCP returned failure', detail: raw }, { status: 500 });
+            // MCP tool returned an error (e.g. ConversationNodes undefined in v0.3.2)
+            // Return empty thread gracefully instead of 500
+            logger.warn(`email_read returned failure for ${conversationId}: ${raw.error?.message || JSON.stringify(raw.error || raw).substring(0, 200)}`);
+            return NextResponse.json({
+                success: true,
+                messages: [],
+                total: 0,
+                error: raw.error?.message || 'email_read failed — conversation may not be available',
+            });
         }
 
         const emails = (raw.content?.emails || []).map(m => ({
