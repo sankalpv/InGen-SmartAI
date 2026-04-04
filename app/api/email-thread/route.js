@@ -108,8 +108,21 @@ export async function GET(request) {
 
         // The MCP server double-wraps: outer envelope is { content: [{ type:'text', text: '<JSON>' }] }
         // where the inner text is the actual { success, content: { emails: [...] } } payload.
-        const outerText = result.content[0].text;
-        const outer = JSON.parse(outerText);
+        let outerText = result.content[0].text;
+        // aws-outlook-mcp v0.3.2+ wraps responses in <untrusted_content_*> XML tags
+        outerText = outerText.replace(/<\/?untrusted_content_[a-f0-9]+>/gi, '').trim();
+        let outer;
+        try {
+            outer = JSON.parse(outerText);
+        } catch (parseErr) {
+            // Fallback: extract first JSON object or array from text
+            const match = outerText.match(/(\{[\s\S]*\}|\[[\s\S]*\])/);
+            if (match) {
+                outer = JSON.parse(match[1]);
+            } else {
+                throw new Error(`Failed to parse MCP response: ${parseErr.message}`);
+            }
+        }
 
         // Unwrap one more level if needed
         let raw;
@@ -117,8 +130,9 @@ export async function GET(request) {
             // Already unwrapped (direct payload)
             raw = outer;
         } else if (outer.content && Array.isArray(outer.content) && outer.content[0]?.text) {
-            // Double-wrapped: parse the inner text
-            raw = JSON.parse(outer.content[0].text);
+            // Double-wrapped: parse the inner text (also strip untrusted_content tags)
+            let innerText = outer.content[0].text.replace(/<\/?untrusted_content_[a-f0-9]+>/gi, '').trim();
+            raw = JSON.parse(innerText);
         } else {
             return NextResponse.json({ error: 'Unexpected MCP response shape', detail: outer }, { status: 500 });
         }
