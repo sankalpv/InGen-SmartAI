@@ -1,8 +1,8 @@
 # 🧬 InGen — Local AI Productivity Dashboard
 
-**InGen** is a privacy-first, local-only AI productivity dashboard that acts as your executive assistant. It runs entirely on your MacBook — your emails, calendar, and AI processing never leave your machine.
+**InGen** is a privacy-first AI productivity dashboard that acts as your executive assistant. Core AI runs locally on your MacBook via Ollama, with optional Amazon Bedrock integration for advanced features. All data stays within Amazon's network — nothing is ever sent to third parties.
 
-> **100% local. Zero cloud. Full privacy.**
+> **Local AI + Amazon internal services. Zero third-party data sharing.**
 
 ---
 
@@ -236,7 +236,7 @@ Outlook (local) → AppleScript → Local Data Store (JSON)
                                   Dashboard (Next.js React)
 ```
 
-All processing happens locally. No data leaves your machine.
+Core AI (Ollama) and data storage run locally on your machine. Amazon Bedrock, MCP tools (Phonetool, code.amazon.com, Taskei, Quip, Slack), and Outlook MCP access Amazon internal services — all data stays within Amazon's network.
 
 | Component | Technology |
 |---|---|
@@ -291,7 +291,7 @@ npm run test:generate       # Auto-generate test stubs for new modules
 
 | Pattern | Implementation |
 |---|---|
-| **Local-first privacy** | All data processing on-device; emails, calendar, and AI responses never leave the machine |
+| **Amazon-internal privacy** | Core AI (Ollama) runs on-device; Bedrock + MCP tools access Amazon internal services only — zero third-party data sharing |
 | **Service-oriented backend** | 39 discrete service modules (`services/`) with single responsibility — each owns one domain (AI, email, calendar, Slack, vector search, etc.) |
 | **Thin API orchestration layer** | 37+ Next.js App Router API routes (`app/api/`) act as lightweight wrappers that compose services — no business logic in routes |
 | **Background agent pattern** | `node-cron` scheduled sync with platform-specific implementations (`background-agent.js` for Mac, `background-agent-windows.js` for Windows) |
@@ -431,11 +431,13 @@ Creates `~/Desktop/InGen.tar.gz` (< 3 MB) ready to share via Slack. The packager
 
 ## Privacy & Security
 
-- **Local-first** — All core AI runs locally via Ollama; email and calendar data never leave your MacBook
-- **Optional Bedrock** — If configured, WBR summaries and key page chats use Amazon Bedrock (Claude Sonnet) over your corporate AWS credentials. No data is sent to third parties.
+- **Local AI** — Core LLM (Ollama qwen3) runs entirely on your MacBook — embeddings, vector search, and most AI processing happen locally
+- **Amazon Bedrock** — When configured, Morning Briefing, WBR summaries, and key page chats use Claude Sonnet via your corporate AWS credentials. Data stays within Amazon's Bedrock infrastructure.
+- **Amazon MCP tools** — Phonetool, code.amazon.com, Taskei, Quip, Slack, and Outlook access is via Amazon internal MCP servers. Data flows only within Amazon's network.
+- **Zero third-party sharing** — No data is ever sent outside Amazon. No external APIs, no third-party LLMs, no cloud analytics.
 - **No accounts** — No sign-ups, no subscriptions
-- **No telemetry** — Zero tracking or analytics
-- **Your data stays yours** — Emails, calendar, and AI responses are stored only in `~/InGen/data/`
+- **No telemetry** — Zero tracking or external analytics
+- **Your data stays yours** — Local cache stored in `~/InGen/data/`. Cached emails, calendar, and AI responses are on your machine only.
 
 ---
 
