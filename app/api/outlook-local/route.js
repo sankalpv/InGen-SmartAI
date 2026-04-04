@@ -267,6 +267,17 @@ async function upgradeWithAI(emails) {
     categorizationInProgress = false;
 }
 
+/**
+ * Filter emails to only include those within the last N days.
+ */
+function filterByDays(emails, days) {
+    const cutoff = Date.now() - days * 24 * 60 * 60 * 1000;
+    return emails.filter(e => {
+        const emailDate = new Date(e.date || e.received || e.receivedDateTime || 0).getTime();
+        return emailDate >= cutoff;
+    });
+}
+
 function applyCategories(emails) {
     return emails.map(e => {
         // Leadership check always wins — cannot be overridden by stale AI/rule cache
@@ -404,40 +415,42 @@ export async function GET(request) {
         // Helper: filter out MCP error sentinel emails
         const isErrorSentinel = (e) => !e?.id || e.id === 'error' || e.id === 'mcp-error' || String(e.id).startsWith('mcp-');
 
-        // LOCAL STORE FIRST — instant response from cached data
-        const cached = localStore.getEmails();
-        const cleanCached = (cached.data || []).filter(e => !isErrorSentinel(e));
-        if (cached.exists && cleanCached.length > 0) {
-            const emails = applyCategories(cleanCached.slice(0, count));
-            console.log(`[API/Outlook] ${emails.length} emails | rule-based + ${aiCategoryCache.size} AI-upgraded`);
+        // Date filter: ?days=1|3|7|14|30 — fetch live from MCP + filter by date
+        const daysParam = searchParams.get('days');
+        const filterDays = daysParam ? parseInt(daysParam) : null;
 
-            if (cached.isStale) {
-                localStore.fullSync().catch(e => console.error('Background sync failed:', e.message));
-            }
-
-            // Background AI upgrade (fire-and-forget)
-            upgradeWithAI(cleanCached).catch(() => {});
-
-            return NextResponse.json({ emails, source: 'local', ageMinutes: cached.ageMinutes });
-        }
-
-        // FALLBACK — no local data, fetch live from MCP
-        console.log(`[API/Outlook] No local data, fetching from MCP...`);
-        const rawEmails = await fetchOutlookEmails(Math.min(count, 50));
+        // LIVE MCP FETCH — always fetch fresh data from MCP
+        console.log(`[API/Outlook] Fetching live from MCP (days=${filterDays || 'all'}, count=${count})...`);
+        const rawEmails = await fetchOutlookEmails(Math.min(count, 200));
         const realEmails = rawEmails.filter(e => !isErrorSentinel(e));
 
         if (realEmails.length === 0 && rawEmails.length > 0) {
-            // All results were error sentinels — MCP connection issue
+            // All results were error sentinels — MCP connection issue, fall back to cache
+            const cached = localStore.getEmails();
+            const cleanCached = (cached.data || []).filter(e => !isErrorSentinel(e));
+            if (cleanCached.length > 0) {
+                console.log(`[API/Outlook] MCP failed, using cached data (${cleanCached.length} emails)`);
+                const filtered = filterDays ? filterByDays(cleanCached, filterDays) : cleanCached;
+                return NextResponse.json({ emails: applyCategories(filtered.slice(0, count)), source: 'cache-fallback' });
+            }
             const errMsg = rawEmails[0]?.subject || 'MCP connection failed';
             return NextResponse.json({ error: errMsg }, { status: 503 });
         }
 
+        // Save to local store for RAG/background processing
         if (realEmails.length > 0) {
             localStore.saveEmails(realEmails);
-            upgradeWithAI(realEmails).catch(() => {});
         }
 
-        return NextResponse.json({ emails: applyCategories(realEmails), source: 'live' });
+        // Apply date filter
+        const filtered = filterDays ? filterByDays(realEmails, filterDays) : realEmails;
+        const emails = applyCategories(filtered.slice(0, count));
+        console.log(`[API/Outlook] ${emails.length} emails (${filtered.length} after ${filterDays || 'no'}-day filter) | rule-based + ${aiCategoryCache.size} AI-upgraded`);
+
+        // Background AI upgrade (fire-and-forget)
+        upgradeWithAI(realEmails).catch(() => {});
+
+        return NextResponse.json({ emails, source: 'live', totalBeforeFilter: realEmails.length });
     } catch (error) {
         console.error('Outlook API Error:', error);
         return NextResponse.json({ error: 'Failed to fetch Outlook emails' }, { status: 500 });
