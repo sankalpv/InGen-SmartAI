@@ -19,26 +19,23 @@ import MorningBriefing from '@/components/MorningBriefing'; // Cinematic voice b
 // Email Priority Lanes Component - Visual swim lanes by urgency
 const PAGE_SIZE = 20;
 
-function EmailPriorityLanes({ emails }) {
-    const [emailDateRange, setEmailDateRange] = useState(3); // Default: today + last 2 days (3 days)
+function EmailPriorityLanes({ emails, onDateRangeChange, isLoadingEmails }) {
+    const [emailDateRange, setEmailDateRange] = useState(1); // Default: today
     const [currentPage, setCurrentPage] = useState(1);
 
-    // Filter emails by date range
-    const cutoffDate = new Date(Date.now() - emailDateRange * 24 * 60 * 60 * 1000);
-    const filteredEmails = emails.filter(e => {
-        const emailDate = new Date(e.date || e.received || e.receivedDateTime);
-        return emailDate >= cutoffDate;
-    });
+    // No client-side date filter needed — API already filters by days
+    const filteredEmails = emails;
 
     // Pagination
     const totalPages = Math.ceil(filteredEmails.length / PAGE_SIZE);
     const startIdx = (currentPage - 1) * PAGE_SIZE;
     const paginatedEmails = filteredEmails.slice(startIdx, startIdx + PAGE_SIZE);
 
-    // Reset to page 1 when date range changes
+    // When user clicks a date filter, re-fetch from API
     const handleDateRangeChange = (value) => {
         setEmailDateRange(value);
         setCurrentPage(1);
+        if (onDateRangeChange) onDateRangeChange(value);
     };
 
     const dateRangeOptions = [
@@ -244,6 +241,8 @@ export default function Dashboard() {
     const [meetings, setMeetings] = useState([]);
     const [stats, setStats] = useState({ emails: 0, meetings: 0 }); // Added
     const [isLoading, setIsLoading] = useState(true);
+    const [emailDays, setEmailDays] = useState(1); // Default: today
+    const [emailsLoading, setEmailsLoading] = useState(false);
     const [isRefreshing, setIsRefreshing] = useState(false);
     const [error, setError] = useState(null);
     const [showRetro, setShowRetro] = useState(false); // Added
@@ -258,7 +257,7 @@ export default function Dashboard() {
 
         try {
             // PHASE 1: Fast initial load (20 emails + calendar) - target <3s
-            const emailUrl = currentSource === 'outlook' ? '/api/outlook-local?count=200' : '/api/emails';
+            const emailUrl = currentSource === 'outlook' ? `/api/outlook-local?count=200&days=1` : '/api/emails';
 
             const [emailRes, calendarRes] = await Promise.allSettled([
                 fetch(emailUrl),
@@ -339,6 +338,20 @@ export default function Dashboard() {
             await handleSourceChange('outlook');
         }
         setIsRefreshing(false);
+    };
+
+    // Re-fetch emails with a different date range (called by filter buttons)
+    const fetchEmailsByDays = async (days) => {
+        setEmailDays(days);
+        setEmailsLoading(true);
+        try {
+            const res = await fetch(`/api/outlook-local?count=200&days=${days}`);
+            const data = await res.json();
+            if (!data.error) setEmails(data.emails || []);
+        } catch (e) {
+            console.error('Failed to fetch emails by days:', e);
+        }
+        setEmailsLoading(false);
     };
 
     // Filter out sent emails - only show received emails in triage
@@ -597,7 +610,11 @@ export default function Dashboard() {
                             <div className="empty-state-text">No emails to show</div>
                         </div>
                     ) : (
-                        <EmailPriorityLanes emails={sortedEmails} />
+                        <EmailPriorityLanes
+                            emails={sortedEmails}
+                            onDateRangeChange={fetchEmailsByDays}
+                            isLoadingEmails={emailsLoading}
+                        />
                     )}
                 </div>
             )}
