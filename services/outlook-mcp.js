@@ -78,7 +78,13 @@ async function fetchOutlookCalendar(calendarId, lookbackDays = 30, forwardDays =
             max_results: 100,
         });
 
+        // DEBUG: Log raw MCP response to diagnose v0.3.2 empty results
+        const rawText = result?.content?.[0]?.text || '';
+        logger.info(`[MCP] calendar_view raw response (first 500 chars): ${rawText.substring(0, 500)}`);
+
         const data = extractContent(result);
+        logger.info(`[MCP] calendar_view extracted data type=${typeof data}, isArray=${Array.isArray(data)}, keys=${data ? Object.keys(data).slice(0, 10).join(',') : 'null'}`);
+
         const events = data?.events || data?.value || (Array.isArray(data) ? data : []);
 
         const normalized = events.map(normalizeCalendarEvent).filter(Boolean);
@@ -151,6 +157,10 @@ function extractContent(result) {
         }
 
         if (!text1) return result;
+
+        // aws-outlook-mcp v0.3.2+ wraps responses in <untrusted_content_*> XML tags
+        // for prompt injection protection — strip them before parsing
+        text1 = text1.replace(/<\/?untrusted_content_[a-f0-9]+>/g, '').trim();
 
         const outer = JSON.parse(text1);
 
