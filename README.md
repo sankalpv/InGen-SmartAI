@@ -6,34 +6,6 @@
 
 ---
 
-## Screenshots
-
-<p align="center">
-  <img src="assets/dashboard.png" alt="InGen Dashboard" width="800" />
-  <br/><em>Dashboard — AI briefing, email triage, meeting prep, and Dive Deep chat</em>
-</p>
-
-<p align="center">
-  <img src="assets/email-view.png" alt="Email Triage" width="800" />
-  <br/><em>Email Triage — Priority swim lanes with AI-powered categorization</em>
-</p>
-
-<p align="center">
-  <img src="assets/meeting-view.png" alt="Meeting Prep" width="800" />
-  <br/><em>Meeting Prep — AI-powered meeting preparation with context</em>
-</p>
-
-<!-- To capture fresh screenshots of new pages, run the app and take screenshots of:
-  /imr              → assets/imr-mission-control.png
-  /builder-productivity → assets/builder-productivity.png
-  /eng-metrics      → assets/eng-metrics.png
-  /ticket-health    → assets/ticket-health.png
-  /my-team          → assets/team-health.png
-  /week-ahead       → assets/week-ahead.png
--->
-
----
-
 ## Quick Install (macOS)
 
 ### Prerequisites
