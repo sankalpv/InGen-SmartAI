@@ -143,4 +143,47 @@ mod = require('../../services/mcp-client');
             }
         });
     });
+
+    // ─── parseMCPResponse() — Behavioral Tests ────────────────────────
+    describe('parseMCPResponse()', () => {
+        it('should be exported as a function', () => {
+            expect(typeof mod.parseMCPResponse).toBe('function');
+        });
+
+        it('parses string content (raw JSON)', () => {
+            const result = { content: JSON.stringify({ data: { tickets: [1, 2] } }) };
+            expect(mod.parseMCPResponse(result)).toEqual({ data: { tickets: [1, 2] } });
+        });
+
+        it('parses array content with text item', () => {
+            const result = {
+                content: [
+                    { type: 'text', text: JSON.stringify({ data: { groups: ['A'] } }) },
+                ],
+            };
+            expect(mod.parseMCPResponse(result)).toEqual({ data: { groups: ['A'] } });
+        });
+
+        it('returns object content as-is', () => {
+            const data = { data: { count: 5 } };
+            const result = { content: data };
+            expect(mod.parseMCPResponse(result)).toBe(data);
+        });
+
+        it('returns empty object for null/undefined result', () => {
+            expect(mod.parseMCPResponse(null)).toEqual({});
+            expect(mod.parseMCPResponse(undefined)).toEqual({});
+            expect(mod.parseMCPResponse({})).toEqual({});
+        });
+
+        it('returns empty object for invalid JSON string', () => {
+            const result = { content: 'not-valid-json{{{' };
+            expect(mod.parseMCPResponse(result)).toEqual({});
+        });
+
+        it('returns empty object for array with no text item', () => {
+            const result = { content: [{ type: 'image', data: 'base64...' }] };
+            expect(mod.parseMCPResponse(result)).toEqual({});
+        });
+    });
 });

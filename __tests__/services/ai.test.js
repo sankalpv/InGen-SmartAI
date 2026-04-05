@@ -48,20 +48,7 @@ mod = require('../../services/ai');
         });
     });
 
-    describe('summarizeSlack', () => {
-        it('should be defined', () => {
-            expect(mod.summarizeSlack || mod.default?.summarizeSlack).toBeDefined();
-        });
-
-        it('should be accessible from module', () => {
-            const val = mod.summarizeSlack || mod.default?.summarizeSlack;
-            if (typeof val === 'function') {
-                expect(typeof val).toBe('function');
-            } else {
-                expect(val).toBeDefined();
-            }
-        });
-    });
+    // NOTE: summarizeSlack was removed from ai.js — test removed to match source exports
 
     describe('generateDailyBriefing', () => {
         it('should be defined', () => {

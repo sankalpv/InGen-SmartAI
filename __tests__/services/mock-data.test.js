@@ -45,20 +45,7 @@ mod = require('../../services/mock-data');
         });
     });
 
-    describe('mockSlackMessages', () => {
-        it('should be defined', () => {
-            expect(mod.mockSlackMessages || mod.default?.mockSlackMessages).toBeDefined();
-        });
-
-        it('should be accessible from module', () => {
-            const val = mod.mockSlackMessages || mod.default?.mockSlackMessages;
-            if (typeof val === 'function') {
-                expect(typeof val).toBe('function');
-            } else {
-                expect(val).toBeDefined();
-            }
-        });
-    });
+    // NOTE: mockSlackMessages was removed from mock-data.js — test removed to match source exports
 
     describe('mockBriefing', () => {
         it('should be defined', () => {

@@ -61,13 +61,15 @@ describe('services/vector-store.js', () => {
         });
     });
 
-    describe('save', () => {
+    // NOTE: save() was removed from vector-store.js — test removed to match source exports
+
+    describe('cleanBody', () => {
         it('should be defined', () => {
-            expect(mod.save).toBeDefined();
+            expect(mod.cleanBody).toBeDefined();
         });
 
         it('should be a function', () => {
-            expect(typeof mod.save).toBe('function');
+            expect(typeof mod.cleanBody).toBe('function');
         });
     });
 });

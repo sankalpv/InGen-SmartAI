@@ -454,6 +454,34 @@ process.on('SIGTERM', async () => {
   process.exit(0);
 });
 
+/**
+ * Parse MCP tool response content into a plain JS object.
+ * Handles 3 content formats returned by builder-mcp:
+ *   1. String content (raw JSON string)
+ *   2. Array content with { type: 'text', text: '...' } items
+ *   3. Object content (already parsed)
+ * 
+ * @param {Object} result - Raw MCP callTool response
+ * @returns {Object} Parsed content object (empty object if unparseable)
+ */
+function parseMCPResponse(result) {
+  const content = result?.content;
+  if (!content) return {};
+
+  try {
+    if (typeof content === 'string') {
+      return JSON.parse(content);
+    }
+    if (Array.isArray(content)) {
+      const textItem = content.find(c => c.type === 'text');
+      return textItem ? JSON.parse(textItem.text) : {};
+    }
+    return content;
+  } catch (e) {
+    return {};
+  }
+}
+
 module.exports = {
   callTool,
   listTools,
@@ -465,4 +493,5 @@ module.exports = {
   isConnected,
   getConnectionStatus,
   getMCPConfig,
+  parseMCPResponse,
 };
