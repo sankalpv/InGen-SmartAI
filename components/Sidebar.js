@@ -55,6 +55,7 @@ const NAV_GROUPS = [
       { href: '/org-pulse', label: 'Org Pulse', icon: Activity },
       { href: '/my-team', label: 'Team Health', icon: Network },
       { href: '/sde3-focus', label: 'SDE3 Focus', icon: Users },
+      { href: '/org-explorer', label: 'Org Explorer', icon: Layers },
     ],
   },
   {

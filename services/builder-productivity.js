@@ -215,6 +215,11 @@ async function fetchMetric(metricDef, leaderAlias, periodType = 'month', windowS
       if (e.data?.structuredContent) return e.data.structuredContent;
       if (e.data?.content) return parseResult(e.data);
     }
+    // NoDataFoundException is expected for metrics that don't have data — don't pollute logs
+    if (e.message && e.message.includes('NoDataFoundException')) {
+      logger.debug(`No data for ${metricDef.name} (${leaderAlias})`);
+      return null;
+    }
     logger.warn(`Failed to fetch ${metricDef.name}: ${e.message}`);
     return null;
   }
@@ -241,7 +246,7 @@ async function fetchCategoryMetrics(category, leaderAlias, periodType, windowSta
       const raw = await fetchMetric(metricDef, leaderAlias, periodType, windowStart, windowEnd);
       return { ...metricDef, dataPoints: normalizeDataPoints(raw) };
     },
-    3
+    2
   );
 }
 

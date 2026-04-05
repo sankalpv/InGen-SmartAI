@@ -29,12 +29,19 @@ export async function GET(request) {
     const encoder = new TextEncoder();
     const readable = new ReadableStream({
       async start(controller) {
+        let closed = false;
+        const send = (str) => {
+          if (!closed) {
+            try {
+              controller.enqueue(encoder.encode(str));
+            } catch {
+              /* closed */
+            }
+          }
+        };
         try {
-          // Send alias info immediately
-          controller.enqueue(
-            encoder.encode(
-              `event: init\ndata: ${JSON.stringify({ alias, periodType, windowStart, windowEnd })}\n\n`
-            )
+          send(
+            `event: init\ndata: ${JSON.stringify({ alias, periodType, windowStart, windowEnd })}\n\n`
           );
 
           await bp.streamMetricsByCategory(
@@ -43,22 +50,21 @@ export async function GET(request) {
             windowStart,
             windowEnd,
             (category, metrics) => {
-              controller.enqueue(
-                encoder.encode(
-                  `event: category\ndata: ${JSON.stringify({ category, metrics })}\n\n`
-                )
-              );
+              send(`event: category\ndata: ${JSON.stringify({ category, metrics })}\n\n`);
             }
           );
 
-          controller.enqueue(encoder.encode(`event: done\ndata: {}\n\n`));
+          send(`event: done\ndata: {}\n\n`);
         } catch (error) {
           console.error('[API/BuilderProductivity] SSE error:', error);
-          controller.enqueue(
-            encoder.encode(`event: error\ndata: ${JSON.stringify({ error: error.message })}\n\n`)
-          );
+          send(`event: error\ndata: ${JSON.stringify({ error: error.message })}\n\n`);
         } finally {
-          controller.close();
+          closed = true;
+          try {
+            controller.close();
+          } catch {
+            /* already closed */
+          }
         }
       },
     });

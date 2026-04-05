@@ -11,6 +11,7 @@ import {
   Activity,
   Shield,
   Users,
+  UsersRound,
   GraduationCap,
   CheckCircle2,
 } from 'lucide-react';
@@ -302,6 +303,194 @@ function ProgressIndicator({ loaded, total }) {
   );
 }
 
+// ─── Key metrics for the heat map table ────────────────────────────────────────
+const HEATMAP_METRICS = [
+  { key: 'builder_count', label: 'Builder Count', format: 'integer', higher: 'neutral' },
+  { key: 'pipeline_count', label: 'Pipelines', format: 'integer', higher: 'neutral' },
+  {
+    key: 'pipeline_normalized_deployments_per_builder_week',
+    label: 'Deploys / Builder / Wk',
+    format: 'decimal',
+    higher: 'better',
+  },
+  { key: 'code_review_open_to_merge_p50', label: 'CR Merge P50', format: 'hours', higher: 'worse' },
+  { key: 'pipeline_freshness', label: 'Freshness', format: 'percent', higher: 'better' },
+  { key: 'pipeline_rollback_rate', label: 'Rollback Rate', format: 'percent', higher: 'worse' },
+  {
+    key: 'pipeline_deploys_per_week',
+    label: 'Deploys / Week',
+    format: 'decimal',
+    higher: 'better',
+  },
+];
+
+function heatColor(value, allValues, higherIs) {
+  if (value == null || allValues.length < 2 || higherIs === 'neutral') return 'transparent';
+  const sorted = [...allValues].filter((v) => v != null).sort((a, b) => a - b);
+  if (sorted.length < 2) return 'transparent';
+  const min = sorted[0],
+    max = sorted[sorted.length - 1];
+  const range = max - min;
+  if (range === 0) return 'transparent';
+  // Normalize 0 → 1  (0 = worst, 1 = best)
+  let norm = (value - min) / range;
+  if (higherIs === 'worse') norm = 1 - norm;
+
+  // Color: red for low (opportunity), fading to transparent for high
+  if (norm >= 0.6) return 'transparent';
+  // Intensity: deeper red for lower values
+  const intensity = Math.round((1 - norm / 0.6) * 0.35 * 255);
+  return `rgba(220, 38, 38, ${intensity / 255})`;
+}
+
+function InlineSparkline({ dataPoints }) {
+  if (!dataPoints || dataPoints.length < 2) return null;
+  const values = dataPoints.map((d) => d.value).filter((v) => v != null);
+  if (values.length < 2) return null;
+  const min = Math.min(...values),
+    max = Math.max(...values);
+  const range = max - min || 1;
+  const w = 60,
+    h = 18;
+  const pts = values
+    .map((v, i) => {
+      const x = (i / (values.length - 1)) * w;
+      const y = h - ((v - min) / range) * (h - 2) - 1;
+      return `${x},${y}`;
+    })
+    .join(' ');
+  return (
+    <svg width={w} height={h} style={{ verticalAlign: 'middle', marginLeft: '4px' }}>
+      <polyline
+        points={pts}
+        fill="none"
+        stroke="var(--accent-primary, #8b5cf6)"
+        strokeWidth="1.2"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
+function ManagerHeatMapTable({ managers, metricsData, loadedCount, loading }) {
+  // Collect all values per metric for heat coloring
+  const allVals = {};
+  for (const hm of HEATMAP_METRICS) allVals[hm.key] = [];
+  for (const [, data] of Object.entries(metricsData)) {
+    for (const hm of HEATMAP_METRICS) {
+      const m = data.metrics?.[hm.key];
+      const pts = m?.dataPoints || [];
+      const last = pts[pts.length - 1];
+      if (last?.value != null) allVals[hm.key].push(last.value);
+    }
+  }
+
+  const thStyle = {
+    padding: '8px 10px',
+    fontSize: '0.72rem',
+    fontWeight: 600,
+    color: 'var(--text-secondary)',
+    textAlign: 'left',
+    whiteSpace: 'nowrap',
+    borderBottom: '2px solid var(--border-primary)',
+    position: 'sticky',
+    top: 0,
+    background: 'var(--card-bg)',
+  };
+  const tdStyle = {
+    padding: '6px 10px',
+    fontSize: '0.8rem',
+    borderBottom: '1px solid var(--border-primary)',
+    whiteSpace: 'nowrap',
+  };
+
+  return (
+    <div
+      style={{
+        background: 'var(--card-bg)',
+        border: '1px solid var(--border-primary)',
+        borderRadius: '12px',
+        overflow: 'auto',
+        maxHeight: '500px',
+      }}
+    >
+      {loading && loadedCount > 0 && (
+        <div
+          style={{
+            padding: '6px 16px',
+            fontSize: '0.75rem',
+            color: 'var(--text-tertiary)',
+            borderBottom: '1px solid var(--border-primary)',
+          }}
+        >
+          Loading metrics: {loadedCount} / {managers.length} managers...
+        </div>
+      )}
+      <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+        <thead>
+          <tr>
+            <th style={thStyle}>Leader</th>
+            {HEATMAP_METRICS.map((hm) => (
+              <th key={hm.key} style={{ ...thStyle, textAlign: 'center' }}>
+                {hm.label}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {managers.map((mgr) => {
+            const data = metricsData[mgr.alias];
+            const isLoaded = !!data;
+            return (
+              <tr
+                key={mgr.alias}
+                style={{
+                  animation: isLoaded ? 'bp-fadeIn 0.3s ease-out' : 'none',
+                  opacity: isLoaded ? 1 : 0.4,
+                }}
+              >
+                <td style={{ ...tdStyle, fontWeight: 600, color: 'var(--text-primary)' }}>
+                  {mgr.name || mgr.alias}
+                  <div
+                    style={{ fontSize: '0.7rem', fontWeight: 400, color: 'var(--text-tertiary)' }}
+                  >
+                    {mgr.alias}
+                  </div>
+                </td>
+                {HEATMAP_METRICS.map((hm) => {
+                  if (!isLoaded) {
+                    return (
+                      <td
+                        key={hm.key}
+                        style={{ ...tdStyle, textAlign: 'center', color: 'var(--text-tertiary)' }}
+                      >
+                        {loading ? '...' : '—'}
+                      </td>
+                    );
+                  }
+                  const m = data.metrics?.[hm.key];
+                  const pts = m?.dataPoints || [];
+                  const last = pts[pts.length - 1];
+                  const val = last?.value;
+                  const bg = heatColor(val, allVals[hm.key], hm.higher);
+                  return (
+                    <td key={hm.key} style={{ ...tdStyle, textAlign: 'center', background: bg }}>
+                      <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>
+                        {formatValue(val, hm.format)}
+                      </span>
+                      <InlineSparkline dataPoints={pts} />
+                    </td>
+                  );
+                })}
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 export default function BuilderProductivityPage() {
   const [alias, setAlias] = useState('');
   const [viewAsInput, setViewAsInput] = useState('');
@@ -313,6 +502,13 @@ export default function BuilderProductivityPage() {
   const [loadedCategories, setLoadedCategories] = useState(0);
   const [newCategories, setNewCategories] = useState(new Set());
   const abortRef = useRef(null);
+
+  // Direct reports heat map state
+  const [reportManagers, setReportManagers] = useState([]);
+  const [reportMetrics, setReportMetrics] = useState({});
+  const [reportsLoading, setReportsLoading] = useState(false);
+  const [reportsLoadedCount, setReportsLoadedCount] = useState(0);
+  const reportsAbortRef = useRef(null);
 
   const totalCategories = CATEGORY_ORDER.length;
 
@@ -327,6 +523,8 @@ export default function BuilderProductivityPage() {
     setMetrics(null);
     setLoadedCategories(0);
     setNewCategories(new Set());
+
+    let resolvedAlias = targetAlias;
 
     try {
       const endD = new Date();
@@ -374,7 +572,8 @@ export default function BuilderProductivityPage() {
           } else if (line.startsWith('data: ') && eventType) {
             const data = JSON.parse(line.slice(6));
             if (eventType === 'init') {
-              setAlias(data.alias || targetAlias);
+              resolvedAlias = data.alias || targetAlias;
+              setAlias(resolvedAlias);
             } else if (eventType === 'category') {
               catCount++;
               setMetrics((prev) => ({
@@ -405,12 +604,84 @@ export default function BuilderProductivityPage() {
     } finally {
       setLoading(false);
     }
+
+    // After main data finishes, fetch reports (sequenced to avoid MCP overload)
+    if (resolvedAlias) {
+      fetchReports(resolvedAlias, period, months);
+    }
+  }, []);
+
+  // Fetch direct-report managers and their metrics
+  const fetchReports = useCallback(async (targetAlias, period, months) => {
+    if (reportsAbortRef.current) reportsAbortRef.current.abort();
+    const ctrl = new AbortController();
+    reportsAbortRef.current = ctrl;
+
+    setReportsLoading(true);
+    setReportManagers([]);
+    setReportMetrics({});
+    setReportsLoadedCount(0);
+
+    try {
+      const endD = new Date();
+      endD.setDate(endD.getDate() - 1);
+      const startD = new Date();
+      startD.setMonth(startD.getMonth() - parseInt(months));
+      const params = new URLSearchParams({
+        alias: targetAlias,
+        periodType: period,
+        windowStart: startD.toISOString().slice(0, 10),
+        windowEnd: endD.toISOString().slice(0, 10),
+      });
+
+      const res = await fetch(`/api/builder-productivity/reports?${params}`, {
+        signal: ctrl.signal,
+      });
+      if (!res.ok) return;
+
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+      let count = 0;
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || '';
+        let eventType = null;
+        for (const line of lines) {
+          if (line.startsWith('event: ')) eventType = line.slice(7).trim();
+          else if (line.startsWith('data: ') && eventType) {
+            const data = JSON.parse(line.slice(6));
+            if (eventType === 'reports') {
+              setReportManagers(data.managers || []);
+            } else if (eventType === 'manager') {
+              count++;
+              setReportMetrics((prev) => ({
+                ...prev,
+                [data.alias]: { name: data.name, metrics: data.metrics },
+              }));
+              setReportsLoadedCount(count);
+            }
+            eventType = null;
+          }
+        }
+      }
+    } catch (e) {
+      if (e.name !== 'AbortError') console.error('Reports fetch error:', e);
+    } finally {
+      setReportsLoading(false);
+    }
   }, []);
 
   useEffect(() => {
     fetchData('', periodType, rangeMonths);
     return () => {
       if (abortRef.current) abortRef.current.abort();
+      if (reportsAbortRef.current) reportsAbortRef.current.abort();
     };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -786,6 +1057,56 @@ export default function BuilderProductivityPage() {
       {!loading && !metrics && !error && (
         <div style={{ textAlign: 'center', padding: '60px 0', color: 'var(--text-tertiary)' }}>
           No metrics loaded. Enter an alias above to get started.
+        </div>
+      )}
+
+      {/* ─── Direct Reports Heat Map ─── */}
+      {(reportManagers.length > 0 || reportsLoading) && (
+        <div style={{ marginTop: '40px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '16px' }}>
+            <UsersRound size={18} style={{ color: 'var(--accent-primary, #8b5cf6)' }} />
+            <h2
+              style={{
+                fontSize: '1.1rem',
+                fontWeight: 700,
+                color: 'var(--text-primary)',
+                margin: 0,
+              }}
+            >
+              Direct Reports — Metric Comparison
+            </h2>
+            {reportsLoading && (
+              <RefreshCw
+                size={14}
+                style={{ color: 'var(--text-tertiary)', animation: 'bp-spin 1.2s linear infinite' }}
+              />
+            )}
+            {!reportsLoading && reportManagers.length > 0 && (
+              <span style={{ fontSize: '0.78rem', color: 'var(--text-tertiary)' }}>
+                {reportManagers.length} manager{reportManagers.length !== 1 ? 's' : ''}
+              </span>
+            )}
+          </div>
+          {reportsLoading && reportManagers.length === 0 && (
+            <div
+              style={{
+                textAlign: 'center',
+                padding: '30px 0',
+                color: 'var(--text-tertiary)',
+                animation: 'bp-pulse 1.8s ease-in-out infinite',
+              }}
+            >
+              Loading direct reports...
+            </div>
+          )}
+          {reportManagers.length > 0 && (
+            <ManagerHeatMapTable
+              managers={reportManagers}
+              metricsData={reportMetrics}
+              loadedCount={reportsLoadedCount}
+              loading={reportsLoading}
+            />
+          )}
         </div>
       )}
     </div>
