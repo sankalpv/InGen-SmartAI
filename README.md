@@ -319,15 +319,32 @@ Core AI (Ollama) and data storage run locally on your machine. Amazon Bedrock, M
 
 ## Testing
 
-> **76 test suites · 605 tests · 0 failures · 100% suite pass rate**
+> **72 test suites · 658 tests · <4 seconds**
 
-InGen maintains comprehensive automated test coverage across all services and API routes.
+InGen maintains comprehensive automated test coverage across all services and API routes, with a growing set of **behavioral tests** that verify actual business logic — not just that modules load.
 
 | Category   | Suites | Tests   | What's Covered                                                                   |
 | ---------- | ------ | ------- | -------------------------------------------------------------------------------- |
-| Services   | 39     | ~400    | All 39 service modules — AI, vector store, Outlook, Slack, MCP, scheduling, etc. |
-| API Routes | 37     | ~200    | All 37 API route handlers — export validation, success paths, error handling     |
-| **Total**  | **76** | **605** | **Every service and API route in the codebase**                                  |
+| Services   | 39     | ~450    | All 39 service modules — AI, vector store, Outlook, Slack, MCP, scheduling, etc. |
+| API Routes | 33     | ~200    | All 33 API route handlers — export validation, success paths, error handling     |
+| **Total**  | **72** | **658** | **Every service and API route in the codebase**                                  |
+
+### Behavioral Tests (upgraded from existence-only checks)
+
+Seven key test files have been upgraded from shallow "should be defined" stubs to deep behavioral tests that verify real logic:
+
+| Test File | Tests | What's Verified |
+| --- | --- | --- |
+| `issues-parser.test.js` | 51 | Pure-function extractors (zero mocks): detectIssueType, extractStatus, extractImpact, extractAssignee, extractComments, extractReferences, parseIssueEmail |
+| `ollama-client.test.js` | 21 | HTTP contract with Ollama: URL construction, request bodies, response parsing, error propagation, dimension validation |
+| `platform-detector.test.js` | 19 | Strategy pattern: Mac/Windows/Linux routing, script paths, command executors, path normalization, Apple Silicon detection |
+| `ticket-health.test.js` | 16 | Dashboard aggregation: aging buckets, status distributions, per-group rollups, myTickets filtering, caching, MCP error recovery |
+| `insight-store.test.js` | 17 | SQL correctness: INSERT/UPDATE params, data transforms, stats math (engagementRate), dedup detection, cleanup |
+| `api/ticket-health.test.js` | 7 | HTTP contract: status 200/400/500, response shapes, view routing (dashboard/group/my-tickets/refresh) |
+| `api/issues.test.js` | 9 | HTTP contract: GET views (open/stats/timeline/names), POST sync lifecycle, error handling |
+| **Total** | **140** | **Run in <1 second** |
+
+**Reference pattern:** See `tool-registry.test.js` for the behavioral test style — tests the register→get→execute→listAll contract with real assertions on return values, error propagation, and edge cases.
 
 ### Running Tests
 
@@ -342,9 +359,10 @@ npm run test:generate       # Auto-generate test stubs for new modules
 ### Test Infrastructure
 
 - **Framework:** Jest 29 with Babel transpilation for ESM/CJS interop
-- **Mocking strategy:** All external dependencies (Ollama, Outlook, Slack, SQLite, MCP, next-auth) are mocked at the module boundary — tests run in <4 seconds with zero network or disk I/O
+- **Mocking strategy:** External dependencies (Ollama, Outlook, Slack, SQLite, MCP, next-auth) are mocked at the module boundary — tests run in <4 seconds with zero network or disk I/O. Pure-function modules (like `issues-parser`) use zero mocks for maximum confidence.
 - **Auto-generation:** `scripts/generate-tests.js` introspects source files to scaffold test stubs for new services, API routes, and components, ensuring coverage keeps pace with development
-- **CI-ready:** `npm test` exits with code 0 only when all 605 tests pass
+- **Behavioral test priority:** New tests should follow the TDD pyramid — test pure functions first (no mocks), then service logic (mock external boundaries only), then API routes (mock service layer)
+- **CI-ready:** `npm test` runs all 658 tests
 
 ---
 
