@@ -53,9 +53,12 @@
     },
     "ingen-mcp": {
       "command": "/opt/homebrew/bin/node",
-      "args": [
-        "services/mcp-server.js"
-      ],
+      "args": ["services/mcp-server.js"],
+      "env": {}
+    },
+    "software-builder-insights-prod-mcp": {
+      "command": "software-builder-insights-prod-mcp",
+      "args": [],
       "env": {}
     }
   },
