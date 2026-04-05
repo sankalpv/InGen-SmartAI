@@ -59,6 +59,12 @@
     "software-builder-insights-prod-mcp": {
       "command": "software-builder-insights-prod-mcp",
       "args": [],
+      "env": {},
+      "cloudtuneDefaultScenario": "2026 FCP2 V2 CPT++"
+    },
+    "cloudtune-mcp": {
+      "command": "cloudtune-mcp-server",
+      "args": [],
       "env": {}
     }
   },
@@ -70,7 +76,7 @@
     "staleAnnouncementDays": 6
   },
   "bedrockBearerToken": "",
-  "aiTemperature": 0.05,
+  "aiTemperature": 0.5,
   "bedrock": {
     "region": "us-west-2",
     "modelId": "us.anthropic.claude-sonnet-4-20250514-v1:0",
@@ -88,5 +94,6 @@
     "flushIntervalMs": 300000
   },
   "test": true,
-  "logUploadUrl": ""
+  "logUploadUrl": "",
+  "cloudtuneFleetId": "11740979"
 }

@@ -361,6 +361,34 @@ async function listTools(serverName) {
 }
 
 /**
+ * List available resources from an MCP server
+ */
+async function listResources(serverName) {
+  try {
+    const client = await getClient(serverName);
+    const result = await client.listResources();
+    return result.resources || [];
+  } catch (error) {
+    logger.error(`Failed to list resources from ${serverName}:`, error.message);
+    return [];
+  }
+}
+
+/**
+ * List available prompts from an MCP server
+ */
+async function listPrompts(serverName) {
+  try {
+    const client = await getClient(serverName);
+    const result = await client.listPrompts();
+    return result.prompts || [];
+  } catch (error) {
+    logger.error(`Failed to list prompts from ${serverName}:`, error.message);
+    return [];
+  }
+}
+
+/**
  * Close connection to an MCP server
  */
 async function closeClient(serverName) {
@@ -429,6 +457,8 @@ process.on('SIGTERM', async () => {
 module.exports = {
   callTool,
   listTools,
+  listResources,
+  listPrompts,
   getClient,
   closeClient,
   closeAll,

@@ -26,6 +26,7 @@ import {
   PanelLeftClose,
   PanelLeftOpen,
   StickyNote,
+  Wallet,
 } from 'lucide-react';
 import { useTheme } from '@/components/ThemeProvider';
 
@@ -76,6 +77,7 @@ const NAV_GROUPS = [
     items: [
       { href: '/wbr-prep', label: 'WBR Prep', icon: FileText },
       { href: '/cpp-wbr', label: 'CPP WBR', icon: FileBarChart },
+      { href: '/imr', label: 'IMR Mission Control', icon: Wallet },
       { href: '/insights/analytics', label: 'Insights', icon: BarChart2, requiresOutlook: true },
     ],
   },

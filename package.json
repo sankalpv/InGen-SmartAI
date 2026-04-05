@@ -28,6 +28,7 @@
     "@aws-sdk/client-cloudwatch": "^3.1010.0",
     "@aws-sdk/client-cloudwatch-logs": "^3.1010.0",
     "@modelcontextprotocol/sdk": "^1.26.0",
+    "axios": "^1.14.0",
     "better-sqlite3": "^12.8.0",
     "docx": "^9.6.0",
     "hnswlib-node": "^3.0.0",

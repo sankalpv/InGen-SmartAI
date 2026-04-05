@@ -50,3 +50,4 @@ data/
 # demo recording output
 scripts/demo-audio/
 scripts/demo-output/
+tmp/

@@ -1,6 +1,6 @@
 /**
  * Safe settings reader — never crashes on missing/malformed config.
- * 
+ *
  * Phase 2 adoption from nkand/ahs branch.
  * Replaces scattered JSON.parse(fs.readFileSync('config/settings.json')) calls
  * with a single, crash-proof function.
@@ -26,23 +26,23 @@ const CACHE_TTL = 30_000;
  * @returns {object}
  */
 function readSettingsSafe(defaults = {}) {
-    const now = Date.now();
-    if (_cache && (now - _cacheAt) < CACHE_TTL) return { ...defaults, ..._cache };
+  const now = Date.now();
+  if (_cache && now - _cacheAt < CACHE_TTL) return { ...defaults, ..._cache };
 
-    try {
-        if (!fs.existsSync(SETTINGS_PATH)) {
-            logger.warn('config/settings.json not found — using defaults');
-            return defaults;
-        }
-        const raw = fs.readFileSync(SETTINGS_PATH, 'utf8');
-        const parsed = JSON.parse(raw);
-        _cache = parsed;
-        _cacheAt = now;
-        return { ...defaults, ...parsed };
-    } catch (e) {
-        logger.error('Failed to read settings.json:', e.message);
-        return defaults;
+  try {
+    if (!fs.existsSync(SETTINGS_PATH)) {
+      logger.warn('config/settings.json not found — using defaults');
+      return defaults;
     }
+    const raw = fs.readFileSync(SETTINGS_PATH, 'utf8');
+    const parsed = JSON.parse(raw);
+    _cache = parsed;
+    _cacheAt = now;
+    return { ...defaults, ...parsed };
+  } catch (e) {
+    logger.error('Failed to read settings.json:', e.message);
+    return defaults;
+  }
 }
 
 /**
@@ -50,36 +50,52 @@ function readSettingsSafe(defaults = {}) {
  * Returns undefined if not found.
  */
 function readSetting(key, defaultValue) {
-    const settings = readSettingsSafe();
-    return settings[key] !== undefined ? settings[key] : defaultValue;
+  const settings = readSettingsSafe();
+  return settings[key] !== undefined ? settings[key] : defaultValue;
 }
 
 /**
  * Read config/prompts.json safely. Never throws.
  */
 function readPromptsSafe(defaults = {}) {
-    try {
-        if (!fs.existsSync(PROMPTS_PATH)) return defaults;
-        return { ...defaults, ...JSON.parse(fs.readFileSync(PROMPTS_PATH, 'utf8')) };
-    } catch (e) {
-        logger.warn('Failed to read prompts.json:', e.message);
-        return defaults;
-    }
+  try {
+    if (!fs.existsSync(PROMPTS_PATH)) return defaults;
+    return { ...defaults, ...JSON.parse(fs.readFileSync(PROMPTS_PATH, 'utf8')) };
+  } catch (e) {
+    logger.warn('Failed to read prompts.json:', e.message);
+    return defaults;
+  }
 }
 
 /**
  * Invalidate the in-memory cache (e.g. after settings update).
  */
 function clearSettingsCache() {
-    _cache = null;
-    _cacheAt = 0;
+  _cache = null;
+  _cacheAt = 0;
+}
+
+/**
+ * Write a setting to config/settings.json.
+ */
+function writeSetting(key, value) {
+  try {
+    const settings = readSettingsSafe();
+    settings[key] = value;
+    fs.writeFileSync(SETTINGS_PATH, JSON.stringify(settings, null, 4), 'utf8');
+    clearSettingsCache();
+    logger.info(`Updated setting: ${key}`);
+  } catch (e) {
+    logger.error(`Failed to write setting ${key}: ${e.message}`);
+  }
 }
 
 module.exports = {
-    readSettingsSafe,
-    readSetting,
-    readPromptsSafe,
-    clearSettingsCache,
-    SETTINGS_PATH,
-    PROMPTS_PATH,
+  readSettingsSafe,
+  readSetting,
+  readPromptsSafe,
+  clearSettingsCache,
+  writeSetting,
+  SETTINGS_PATH,
+  PROMPTS_PATH,
 };
