@@ -51,6 +51,12 @@ export async function GET(request) {
             windowEnd,
             (category, metrics) => {
               send(`event: category\ndata: ${JSON.stringify({ category, metrics })}\n\n`);
+            },
+            (msg) => {
+              send(`event: status\ndata: ${JSON.stringify({ msg })}\n\n`);
+            },
+            (category, insights) => {
+              send(`event: insight\ndata: ${JSON.stringify({ category, insights })}\n\n`);
             }
           );
 

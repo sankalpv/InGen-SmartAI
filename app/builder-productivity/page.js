@@ -82,13 +82,13 @@ function TrendBadge({ trend }) {
         fontWeight: 600,
       }}
     >
-      <Icon size={13} />
-      {Math.abs(trend).toFixed(1)}%
+      <Icon size={13} style={{ order: isUp ? 2 : 0 }} />
+      <span style={{ order: 1 }}>{Math.abs(trend).toFixed(1)}%</span>
     </span>
   );
 }
 
-function MetricCard({ metric, isNew }) {
+function MetricCard({ metric, isNew, color = '#3b82f6' }) {
   const dataPoints = metric.dataPoints || [];
   const sorted = [...dataPoints].sort((a, b) =>
     (a.timePeriod || a.date || '').localeCompare(b.timePeriod || b.date || '')
@@ -100,13 +100,15 @@ function MetricCard({ metric, isNew }) {
   return (
     <div
       style={{
-        background: 'var(--card-bg)',
-        border: '1px solid var(--border-primary)',
+        background: 'rgba(20, 20, 30, 0.45)',
+        border: '1px solid rgba(255, 255, 255, 0.08)',
         borderRadius: '12px',
         padding: '16px',
         display: 'flex',
         flexDirection: 'column',
         gap: '8px',
+        backdropFilter: 'blur(16px)',
+        boxShadow: `0 8px 32px rgba(0, 0, 0, 0.4), inset 0 1px 0 rgba(255,255,255,0.05)`,
         animation: isNew ? 'bp-fadeIn 0.4s ease-out' : 'none',
       }}
     >
@@ -119,7 +121,7 @@ function MetricCard({ metric, isNew }) {
         </span>
         <TrendBadge trend={trend} />
       </div>
-      {sorted.length > 1 && <MetricChart data={sorted} format={metric.format} />}
+      {sorted.length > 1 && <MetricChart data={sorted} format={metric.format} color={color} />}
       {latest?.timePeriod && (
         <div style={{ fontSize: '0.72rem', color: 'var(--text-tertiary)' }}>
           {latest.timePeriod}
@@ -129,9 +131,11 @@ function MetricCard({ metric, isNew }) {
   );
 }
 
-function MetricChart({ data, format }) {
+function MetricChart({ data, format, color = '#3b82f6' }) {
   const validData = data.filter((d) => d.value != null);
   if (validData.length < 2) return null;
+
+  const [uid] = useState(() => Math.random().toString(36).slice(2));
 
   const values = validData.map((d) => d.value);
   const min = Math.min(...values);
@@ -152,7 +156,21 @@ function MetricChart({ data, format }) {
     return { x, y, label: d.timePeriod || '', value: d.value };
   });
 
-  const linePath = pts.map((p, i) => `${i === 0 ? 'M' : 'L'}${p.x},${p.y}`).join(' ');
+  // Generate smooth cubic bezier curve
+  const generatePath = (points) => {
+    if (points.length === 0) return '';
+    let d = `M ${points[0].x},${points[0].y}`;
+    for (let i = 0; i < points.length - 1; i++) {
+      const cp1x = points[i].x + (points[i + 1].x - points[i].x) / 2;
+      const cp1y = points[i].y;
+      const cp2x = points[i].x + (points[i + 1].x - points[i].x) / 2;
+      const cp2y = points[i + 1].y;
+      d += ` C ${cp1x},${cp1y} ${cp2x},${cp2y} ${points[i + 1].x},${points[i + 1].y}`;
+    }
+    return d;
+  };
+
+  const linePath = generatePath(pts);
   const areaPath = `${linePath} L${pts[pts.length - 1].x},${padTop + chartH} L${pts[0].x},${padTop + chartH} Z`;
 
   // Y-axis labels
@@ -176,15 +194,20 @@ function MetricChart({ data, format }) {
     validData.forEach((d, i) => xLabels.push({ label: d.timePeriod, x: pts[i].x }));
   }
 
-  const gradientId = `grad-${Math.random().toString(36).slice(2, 8)}`;
+  const gradientId = `grad-${uid}`;
+  const glowId = `glow-${uid}`;
 
   return (
-    <svg width={w} height={h} style={{ display: 'block', marginTop: '4px' }}>
+    <svg width={w} height={h} style={{ display: 'block', marginTop: '4px', overflow: 'visible' }}>
       <defs>
         <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stopColor="var(--accent-primary, #8b5cf6)" stopOpacity="0.25" />
-          <stop offset="100%" stopColor="var(--accent-primary, #8b5cf6)" stopOpacity="0.02" />
+          <stop offset="0%" stopColor={color} stopOpacity="0.45" />
+          <stop offset="100%" stopColor={color} stopOpacity="0.0" />
         </linearGradient>
+        <filter id={glowId} x="-20%" y="-20%" width="140%" height="140%">
+          <feGaussianBlur stdDeviation="3" result="blur" />
+          <feComposite in="SourceGraphic" in2="blur" operator="over" />
+        </filter>
       </defs>
 
       {/* Grid lines */}
@@ -204,27 +227,21 @@ function MetricChart({ data, format }) {
       {/* Area fill */}
       <path d={areaPath} fill={`url(#${gradientId})`} />
 
-      {/* Line */}
+      {/* Smooth glowing bezier line */}
       <path
         d={linePath}
         fill="none"
-        stroke="var(--accent-primary, #8b5cf6)"
-        strokeWidth="2"
+        stroke={color}
+        strokeWidth="2.5"
         strokeLinejoin="round"
         strokeLinecap="round"
+        filter={`url(#${glowId})`}
       />
 
       {/* Data dots with tooltips */}
       {pts.map((p, i) => (
         <g key={i}>
-          <circle
-            cx={p.x}
-            cy={p.y}
-            r="3.5"
-            fill="var(--card-bg)"
-            stroke="var(--accent-primary, #8b5cf6)"
-            strokeWidth="1.5"
-          />
+          <circle cx={p.x} cy={p.y} r="3.5" fill="var(--card-bg)" stroke={color} strokeWidth="2" />
           <title>{`${p.label}: ${formatValue(p.value, format)}`}</title>
           {/* Invisible hit area for tooltip */}
           <circle cx={p.x} cy={p.y} r="10" fill="transparent">
@@ -266,39 +283,108 @@ function MetricChart({ data, format }) {
   );
 }
 
-function ProgressIndicator({ loaded, total }) {
+function TelemetryLog({ logs, loadedCount, totalCount }) {
+  const scrollRef = useRef(null);
+
+  useEffect(() => {
+    if (scrollRef.current) {
+      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+    }
+  }, [logs]);
+
   return (
     <div
       style={{
-        display: 'flex',
-        alignItems: 'center',
-        gap: '8px',
-        fontSize: '0.78rem',
-        color: 'var(--text-tertiary)',
+        background: 'rgba(5, 5, 10, 0.65)',
+        border: '1px solid rgba(255,255,255,0.08)',
+        borderRadius: '12px',
+        padding: '16px',
+        marginBottom: '24px',
+        backdropFilter: 'blur(16px)',
+        boxShadow: '0 8px 32px rgba(0,0,0,0.4)',
+        animation: 'bp-fadeIn 0.5s ease-out',
       }}
     >
       <div
         style={{
-          flex: 1,
-          height: '3px',
-          borderRadius: '2px',
-          background: 'var(--border-primary)',
-          overflow: 'hidden',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          marginBottom: '12px',
         }}
       >
         <div
           style={{
-            height: '100%',
-            borderRadius: '2px',
-            background: 'linear-gradient(90deg, #3b82f6, #8b5cf6)',
-            width: `${(loaded / total) * 100}%`,
-            transition: 'width 0.5s ease-out',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '8px',
+            fontSize: '0.8rem',
+            color: '#a1a1aa',
+            fontWeight: 600,
+            letterSpacing: '0.5px',
           }}
-        />
+        >
+          <Activity size={14} style={{ color: '#0ea5e9' }} /> SMARTAI TELEMETRY STREAM
+        </div>
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '8px',
+            fontSize: '0.8rem',
+            color: '#30d158',
+            fontWeight: 600,
+          }}
+        >
+          {loadedCount} / {totalCount} DATASETS HYDRATED
+        </div>
       </div>
-      <span>
-        {loaded}/{total} categories
-      </span>
+
+      <div
+        ref={scrollRef}
+        style={{
+          height: '140px',
+          overflowY: 'auto',
+          display: 'flex',
+          flexDirection: 'column',
+          gap: '6px',
+          scrollBehavior: 'smooth',
+        }}
+      >
+        {logs.map((log, i) => {
+          let color = '#a1a1aa';
+          if (log.msg.includes('[SUCCESS]')) color = '#30d158';
+          if (log.msg.includes('[PROCESS]')) color = '#a855f7';
+          if (log.msg.includes('[WARN]')) color = '#f59e0b';
+          if (log.msg.includes('[ERROR]')) color = '#ef4444';
+          return (
+            <div
+              key={i}
+              style={{
+                fontSize: '0.85rem',
+                fontFamily: 'SFMono-Regular, Consolas, monospace',
+                lineHeight: 1.4,
+              }}
+            >
+              <span style={{ color: '#52525b', marginRight: '8px' }}>{log.time}</span>
+              <span style={{ color }}>{log.msg.replace(/\[.*?\] /, '')}</span>
+            </div>
+          );
+        })}
+        {loadedCount < totalCount && (
+          <div
+            style={{
+              fontSize: '0.85rem',
+              fontFamily: 'SFMono-Regular, Consolas, monospace',
+              color: '#52525b',
+              marginTop: '4px',
+              animation: 'bp-pulse 1.5s infinite',
+            }}
+          >
+            <span style={{ opacity: 0.5 }}>_</span>
+          </div>
+        )}
+      </div>
     </div>
   );
 }
@@ -501,6 +587,8 @@ export default function BuilderProductivityPage() {
   const [error, setError] = useState(null);
   const [loadedCategories, setLoadedCategories] = useState(0);
   const [newCategories, setNewCategories] = useState(new Set());
+  const [statusLogs, setStatusLogs] = useState([]);
+  const [aiInsights, setAiInsights] = useState({});
   const abortRef = useRef(null);
 
   // Direct reports heat map state
@@ -523,6 +611,8 @@ export default function BuilderProductivityPage() {
     setMetrics(null);
     setLoadedCategories(0);
     setNewCategories(new Set());
+    setStatusLogs([]);
+    setAiInsights({});
 
     let resolvedAlias = targetAlias;
 
@@ -590,6 +680,16 @@ export default function BuilderProductivityPage() {
                   return next;
                 });
               }, 500);
+            } else if (eventType === 'status') {
+              setStatusLogs((prev) => [
+                ...prev,
+                { time: new Date().toLocaleTimeString(), msg: data.msg },
+              ]);
+            } else if (eventType === 'insight') {
+              setAiInsights((prev) => ({
+                ...prev,
+                [data.category]: data.insights,
+              }));
             } else if (eventType === 'error') {
               setError(data.error);
             }
@@ -909,9 +1009,13 @@ export default function BuilderProductivityPage() {
       )}
 
       {/* Progress bar while streaming */}
-      {loading && loadedCategories > 0 && (
+      {loading && (
         <div style={{ marginBottom: '16px' }}>
-          <ProgressIndicator loaded={loadedCategories} total={totalCategories} />
+          <TelemetryLog
+            logs={statusLogs}
+            loadedCount={loadedCategories}
+            totalCount={totalCategories}
+          />
         </div>
       )}
 
@@ -1045,7 +1149,44 @@ export default function BuilderProductivityPage() {
                   }}
                 >
                   {catMetrics.map((m) => (
-                    <MetricCard key={m.name} metric={m} isNew={isNew} />
+                    <MetricCard key={m.name} metric={m} isNew={isNew} color={catMeta.color} />
+                  ))}
+                </div>
+              )}
+
+              {/* SmartAI Insights Container */}
+              {aiInsights[catKey] && aiInsights[catKey].length > 0 && (
+                <div
+                  style={{
+                    marginTop: '16px',
+                    padding: '12px 16px',
+                    background: 'rgba(14, 165, 233, 0.08)',
+                    borderLeft: '3px solid #0ea5e9',
+                    borderRadius: '4px 8px 8px 4px',
+                    fontSize: '0.85rem',
+                    color: 'var(--text-secondary)',
+                    animation: 'bp-fadeIn 0.6s ease-out',
+                  }}
+                >
+                  {aiInsights[catKey].map((insight, idx) => (
+                    <div
+                      key={idx}
+                      style={{
+                        display: 'flex',
+                        gap: '8px',
+                        alignItems: 'flex-start',
+                        marginBottom: idx !== aiInsights[catKey].length - 1 ? '8px' : '0',
+                      }}
+                    >
+                      <Activity
+                        size={14}
+                        style={{ color: '#0ea5e9', flexShrink: 0, marginTop: '2px' }}
+                      />
+                      <span style={{ lineHeight: 1.5 }}>
+                        <strong style={{ color: '#0ea5e9' }}>{insight.split(':')[0]}:</strong>{' '}
+                        {insight.split(':').slice(1).join(':')}
+                      </span>
+                    </div>
                   ))}
                 </div>
               )}
